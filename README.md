@@ -4,15 +4,15 @@
 
 ## 📸 Screenshots
 
-**💻 ClipCascade Desktop Application:**
+**💻 Desktop Application:**
 
 <img src="https://github.com/user-attachments/assets/a73d18b9-ce0c-4a9e-9190-3a57a07596ce" alt="Desktop Application" width="360" />
 <img src="https://github.com/user-attachments/assets/6f2830cc-c552-431e-98c5-dbe1c9d1882d" alt="Desktop Application" width="240" />
 
 **🌐 Web-Based Monitoring Page:**
 
-<img src="https://github.com/user-attachments/assets/489d1ffb-82fd-4dd8-85d6-445b891102a5" alt="Web Page" width="360" />
-<img src="https://github.com/user-attachments/assets/d0e3e334-825d-401d-924b-8e143378f12a" alt="Web Page" width="360" />
+<img src="https://github.com/user-attachments/assets/489d1ffb-82fd-4dd8-85d6-445b891102a5" alt="Web Page" width="400" />
+<img src="https://github.com/user-attachments/assets/5a52080e-0fd2-4e8b-b485-b41810174a86" alt="Web Page" width="400" />
 
 
 ## ✨ Features
