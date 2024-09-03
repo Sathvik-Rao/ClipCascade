@@ -3,6 +3,7 @@ $(function () {
     $("#connect").click(connect);
     $("#disconnect").click(disconnect);
     $("#send").click(sendText);
+    $("#logout").click(logout);
 
     // Auto-populate WebSocket URL based on current page URL
     const currentUrl = window.location.href;
@@ -62,6 +63,14 @@ function sendText() {
             body: JSON.stringify({'text': $("#ws_text").val()})
         });
     }
+}
+
+function logout() {
+    const brokerURL = $("#broker-url").val();
+    const baseUrl = brokerURL.split('/')[2];
+    const logoutUrl = `http://${baseUrl}/logout`;
+    
+    window.location.href = logoutUrl;
 }
 
 function setConnected(connected) {
