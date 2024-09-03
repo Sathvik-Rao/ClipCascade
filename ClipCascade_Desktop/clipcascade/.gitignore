@@ -1,0 +1,6 @@
+win_setup_private/
+src/DATA
+src/clipcascade_log.log
+src/stomp_ws/__pycache__/
+src/gui/__pycache__/
+src/clip_mon/__pycache__/

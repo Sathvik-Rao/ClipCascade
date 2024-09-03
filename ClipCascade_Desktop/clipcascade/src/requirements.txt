@@ -1,0 +1,8 @@
+Pillow==10.4.0
+plyer==2.1.0
+pycryptodome==3.20.0
+pyperclip==1.8.2
+pystray==0.19.5
+pywin32==306
+Requests==2.32.3
+websocket_client==1.8.0
