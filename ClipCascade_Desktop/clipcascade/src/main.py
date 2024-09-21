@@ -446,12 +446,7 @@ if __name__ == "__main__":
 
             # generate hashed password for encryption
             if data["cipher_enabled"]:
-                salt = (
-                    data["username"]
-                    + data["password"]
-                    + data["server_url"]
-                    + data["websocket_url"]
-                ).encode("utf-8")
+                salt = (data["username"] + data["password"]).encode("utf-8")
                 data["hashed_password"] = hash(
                     data["password"], salt, data["hash_rounds"]
                 )
