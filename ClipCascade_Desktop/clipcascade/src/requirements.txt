@@ -6,3 +6,4 @@ pystray==0.19.5
 pywin32==306
 Requests==2.32.3
 websocket_client==1.8.0
+xxhash==3.5.0

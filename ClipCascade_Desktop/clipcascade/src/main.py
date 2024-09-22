@@ -3,6 +3,7 @@ import gc
 import json
 import logging
 import hashlib
+import xxhash
 import sys
 import ctypes
 import threading
@@ -28,6 +29,7 @@ connection_lost = False
 startup_login_execution = True
 first_connection_lost_notification = True
 kill_re_connect_thread = False
+previous_clipboard_hash = 0
 
 event_reconnect = threading.Event()
 event_reconnect.clear()
@@ -106,7 +108,12 @@ def kill_re_connect_thread_event_trigger_thread():
 
 
 def re_connect_retry_event_trigger(
-    websocket_url, cookie, subscription_destination, cipher_enabled, hashed_password
+    websocket_url,
+    cookie,
+    subscription_destination,
+    maxsize,
+    cipher_enabled,
+    hashed_password,
 ):
     global event_reconnect
     global RE_CONNECT_RETRY_EVENT_TIMER
@@ -119,6 +126,7 @@ def re_connect_retry_event_trigger(
                     websocket_url,
                     cookie,
                     subscription_destination,
+                    maxsize,
                     cipher_enabled,
                     hashed_password,
                 )
@@ -147,6 +155,13 @@ def stomp_connect(
         return False, msg, None
 
 
+def hash_clipboard(clipboard: str) -> int:
+    try:
+        return xxhash.xxh64(clipboard).intdigest()
+    except Exception as e:
+        raise e
+
+
 def stomp_send(
     text: str,
     send_destination: str,
@@ -157,10 +172,8 @@ def stomp_send(
     global client
     global toggle
     global connection_lost
+    global previous_clipboard_hash
     try:
-        if toggle:
-            toggle = False
-            return
         if client is not None:
             if connection_lost:
                 client = None
@@ -171,41 +184,53 @@ def stomp_send(
                     timeout=10,  # seconds
                 )
                 return
-            text_size_in_bytes = len(text.encode("utf-8"))
-            if text_size_in_bytes > maxsize:
-                # clipboard max size exceeded
-                logging.warning(
-                    f"Max size({maxsize}) exceeded(>=): Clipboard size ({text_size_in_bytes})"
-                )
-                return
-            if cipher_enabled:
-                text = convert_to_json_string(*encrypt(text, key))
-            toggle = True
-            client.send(send_destination, body=json.dumps({"text": text}))
+            if not toggle:
+                text_size_in_bytes = len(text.encode("utf-8"))
+                if text_size_in_bytes > maxsize:
+                    # clipboard max size exceeded
+                    logging.warning(
+                        f"Max limit({maxsize}) exceeded (not >=) Clipboard size ({text_size_in_bytes})"
+                    )
+                    return
+                current_clipboard_hash = hash_clipboard(text)
+                if current_clipboard_hash != previous_clipboard_hash:
+                    previous_clipboard_hash = current_clipboard_hash
+                    toggle = True
+                    if cipher_enabled:
+                        text = convert_to_json_string(*encrypt(text, key))
+                    client.send(send_destination, body=json.dumps({"text": text}))
     except Exception as e:
         msg = f"Failed to send clipboard data: {e}"
         logging.error(msg)
         CustomDialog(msg, msg_type="error").mainloop()
-        toggle = False
 
 
-def stomp_receive(frame: any, cipher_enabled: bool = False, key: bytes = None):
+def stomp_receive(
+    frame: any, maxsize: int, cipher_enabled: bool = False, key: bytes = None
+):
     global toggle
+    global previous_clipboard_hash
+    toggle = False
     try:
-        if toggle:
-            toggle = False
-            return
         text = json.loads(frame.body)["text"]
         if cipher_enabled:
             text = decrypt(**convert_from_json_string(text), key=key)
-        toggle = True
-        pyperclip.copy(text)
+        text_size_in_bytes = len(text.encode("utf-8"))
+        if text_size_in_bytes > maxsize:
+            # clipboard max size exceeded
+            logging.warning(
+                f"Max limit({maxsize}) exceeded (not >=) Received clipboard size ({text_size_in_bytes})"
+            )
+            return
+        current_clipboard_hash = hash_clipboard(text)
+        if current_clipboard_hash != previous_clipboard_hash:
+            previous_clipboard_hash = current_clipboard_hash
+            pyperclip.copy(text)
     except Exception as e:
         logging.error(f"Failed to process received clipboard data: {e}")
         logging.error(
             "If cipher is enabled, please make sure it is enables on all devices"
         )
-        toggle = False
 
 
 def hash(password: str, salt: bytes, rounds: int) -> bytes:
@@ -268,6 +293,7 @@ def re_connect(
     websocket_url: str,
     cookie: str,
     subscription_destination: str,
+    maxsize: int,
     cipher_enabled: bool,
     hashed_password: bytes,
 ):
@@ -282,7 +308,9 @@ def re_connect(
         raise Exception("Failed to connect to websocket")
     connection_lost = False
     client = client_temp
-    subscribe_ws(client, subscription_destination, cipher_enabled, hashed_password)
+    subscribe_ws(
+        client, subscription_destination, maxsize, cipher_enabled, hashed_password
+    )
     if not first_connection_lost_notification:
         notification.notify(
             title="ClipCascade: WebSocket Connection Restored 🔗",
@@ -308,6 +336,7 @@ def logoff_and_exit(client: Client, data: dict, DATA_fILE_NAME: str):
 def subscribe_ws(
     client: Client,
     subscription_destination: str,
+    maxsize: int,
     cipher_enabled: bool,
     hashed_password: bytes,
 ):
@@ -315,7 +344,7 @@ def subscribe_ws(
         client.subscribe(
             subscription_destination,
             callback=lambda frame: stomp_receive(
-                frame, cipher_enabled, hashed_password
+                frame, maxsize, cipher_enabled, hashed_password
             ),
         )
     except Exception as e:
@@ -465,6 +494,7 @@ if __name__ == "__main__":
         subscribe_ws(
             client,
             data["subscription_destination"],
+            data["maxsize"],
             data["cipher_enabled"],
             data["hashed_password"],
         )
@@ -475,6 +505,7 @@ if __name__ == "__main__":
                 data["websocket_url"],
                 f"JSESSIONID={data['cookie']['JSESSIONID']};",
                 data["subscription_destination"],
+                data["maxsize"],
                 data["cipher_enabled"],
                 data["hashed_password"],
             ],
@@ -500,6 +531,7 @@ if __name__ == "__main__":
                 data["websocket_url"],
                 f"JSESSIONID={data['cookie']['JSESSIONID']};",
                 data["subscription_destination"],
+                data["maxsize"],
                 data["cipher_enabled"],
                 data["hashed_password"],
             ),
