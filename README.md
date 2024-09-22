@@ -43,7 +43,7 @@ To host ClipCascade on your server, use Docker with the following steps:
        environment:
          - CC_USERNAME=user #username
          - CC_PASSWORD=pass123 #password
-         - CC_MAX_MESSAGE_SIZE=1 #MiB (desktop < 25 MiB, mobile < 2 MiB)
+         - CC_MAX_MESSAGE_SIZE=1 #MiB (desktop(windows) < 25 MiB, mobile(android) ~ 1 MiB)
    ```
 2. Run the Docker container using Docker Compose:
    ```
