@@ -62,10 +62,10 @@ To install the Windows desktop application, download the latest version from the
 
 1. **Download** the installer from the Releases page.
 2. **Run** the installer and follow the on-screen instructions, and select the default installation path specified by the installer.
-
-    *Note: Startup is enabled by default; you can disable it in the Task Manager if desired.*
-   
+   - Startup is enabled by default; you can disable it in the Task Manager if desired.
 3. **Launch** ClipCascade and log in to start syncing your clipboard across devices.
+   - When prompted for the server connection, use the server IP and port, appending `/clipsocket` for the WebSocket connection (e.g., `ws://<server_ip>:<server_port>/clipsocket`).
+
 
 **Important Note:** Since the application is not published or registered with Microsoft, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning or temporarily disable your antivirus during installation. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort!
 
@@ -77,6 +77,7 @@ To install the mobile application on your Android device, download the latest AP
 2. **Enable** installation from unknown sources in your device settings, if prompted.
 3. **Install** the APK by following the prompts on your device.
 4. **Open** ClipCascade and log in to begin syncing your clipboard across devices.
+   - When prompted for the server connection, use the server IP and port, appending `/clipsocket` for the WebSocket connection (e.g., `ws://<server_ip>:<server_port>/clipsocket`).
 
 
 ## ⚙️ Advanced Details
