@@ -87,6 +87,31 @@ To host ClipCascade on your server, use Docker with the following steps:
 <img src="https://github.com/user-attachments/assets/489d1ffb-82fd-4dd8-85d6-445b891102a5" alt="Web Page" width="400" />
 <img src="https://github.com/user-attachments/assets/5a52080e-0fd2-4e8b-b485-b41810174a86" alt="Web Page" width="400" />
 
+### 🦾 Self-Hosted Server Bare Metal
+
+To host the ClipCascade server on any operating system where Java (17) can run, follow these steps:
+
+1. **Download the JAR File**  
+   Copy the `ClipCascade-0.0.1-SNAPSHOT.jar` from the [release page](https://github.com/Sathvik-Rao/ClipCascade/releases).
+
+2. **Set Environment Variables**  
+   Set the following environment variables in your OS:
+
+   | Variable                      | Value              |
+   |-------------------------------|--------------------|
+   | `CC_USERNAME`                 | your-user-name     |
+   | `CC_PASSWORD`                 | your-password      |
+   | `CC_MAX_MESSAGE_SIZE`         | 1                  |
+
+3. **Run the Server**  
+   Execute the following command in your terminal:
+
+   ```bash
+   java -jar ClipCascade-0.0.1-SNAPSHOT.jar
+
+4. **Access the Server**
+   You can access the ClipCascade server at `http://localhost:8080`.
+
 
 ### 💻 Windows Desktop Application
 
