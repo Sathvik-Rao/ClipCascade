@@ -3,8 +3,40 @@
 **ClipCascade** is an open-source, lightweight utility that automatically syncs your clipboard across multiple devices—no key press required. It ensures seamless clipboard sharing between devices, prioritizing privacy with end-to-end encryption. Whether you're moving between workstations or simply want the convenience of a unified clipboard, ClipCascade has you covered.
 
 <div align="center">
+
+<table>
+  <tr>
+    <th>Docker</th>
+    <th>Windows</th>
+    <th>Android</th>
+  </tr>
+  <tr>
+    <td>
+      <a href="https://hub.docker.com/r/sathvikrao/clipcascade">
+        <img src="https://www.docker.com/wp-content/uploads/2022/03/Moby-logo.png" alt="Docker" width="50" />
+      </a>
+    </td>
+    <td>
+      <a href="https://github.com/Sathvik-Rao/ClipCascade/releases">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Windows_logo_-_2012.svg/512px-Windows_logo_-_2012.svg.png" alt="Windows" width="50" />
+      </a>
+    </td>
+    <td>
+      <a href="https://github.com/Sathvik-Rao/ClipCascade/releases">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/d/d7/Android_robot.svg" alt="Android" width="40" />
+      </a>
+    </td>
+  </tr>
+</table>
+
+</div>
+
+<br />
+
+<div align="center">
 <img src="https://github.com/user-attachments/assets/4dac30a0-2dda-49bb-a140-ee554a48c501" alt="Desktop Application" width="360" />
 </div>
+
 
 ## 📸 Screenshots
 
@@ -65,6 +97,7 @@ To install the Windows desktop application, download the latest version from the
    - Startup is enabled by default; you can disable it in the Task Manager if desired.
 3. **Launch** ClipCascade and log in to start syncing your clipboard across devices.
    - When prompted for the server connection, use the server IP and port, appending `/clipsocket` for the WebSocket connection (e.g., `ws://<server_ip>:<server_port>/clipsocket`).
+   - If encryption is enabled, please ensure it is enabled on all devices.
 
 
 **Important Note:** Since the application is not published or registered with Microsoft, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning or temporarily disable your antivirus during installation. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort!
@@ -78,6 +111,7 @@ To install the mobile application on your Android device, download the latest AP
 3. **Install** the APK by following the prompts on your device.
 4. **Open** ClipCascade and log in to begin syncing your clipboard across devices.
    - When prompted for the server connection, use the server IP and port, appending `/clipsocket` for the WebSocket connection (e.g., `ws://<server_ip>:<server_port>/clipsocket`).
+   - If encryption is enabled, please ensure it is enabled on all devices.
 
 
 ## ⚙️ Advanced Details
