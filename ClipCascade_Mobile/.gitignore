@@ -1,0 +1,5 @@
+private/
+src/.bundle/
+src/.vscode/
+src/android/app/my-upload-key.keystore
+src/android/gradle.properties
