@@ -9,6 +9,7 @@
     <th>Docker</th>
     <th>Windows</th>
     <th>Android</th>
+    <th>Linux</th>
   </tr>
   <tr>
     <td>
@@ -26,6 +27,11 @@
         <img src="https://upload.wikimedia.org/wikipedia/commons/d/d7/Android_robot.svg" alt="Android" width="40" />
       </a>
     </td>
+    <td>
+      <a href="https://github.com/Sathvik-Rao/ClipCascade/releases">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/3/35/Tux.svg" alt="Linux" width="40" />
+      </a>
+    </td>
   </tr>
 </table>
 
@@ -40,16 +46,16 @@
 
 ## 📸 Screenshots
 
-| 💻 Desktop (Windows) | 📱 Mobile (Android) |
-|-----------------------|--------------------|
-| <img src="https://github.com/user-attachments/assets/a73d18b9-ce0c-4a9e-9190-3a57a07596ce" alt="Desktop Application" width="360" /> | <img src="https://github.com/user-attachments/assets/bde3a00a-14a6-4c58-bbd4-3b9a723e594f" alt="Desktop Application" width="360" /> |
-| <img src="https://github.com/user-attachments/assets/6f2830cc-c552-431e-98c5-dbe1c9d1882d" alt="Desktop Application" width="240" /> | <img src="https://github.com/user-attachments/assets/2a4ba990-a51c-4e44-93e6-3eb0a81359b7" alt="Desktop Application" width="240" /> |
+| 🪟 Desktop (Windows) | 📱 Mobile (Android) | 🐧 Desktop (Linux) |
+|-----------------------|--------------------|--------------------|
+| <img src="https://github.com/user-attachments/assets/a73d18b9-ce0c-4a9e-9190-3a57a07596ce" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/bde3a00a-14a6-4c58-bbd4-3b9a723e594f" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/66344289-470b-4183-af6a-cf47097388b8" alt="Desktop (Linux)" width="360" /> |
+| <img src="https://github.com/user-attachments/assets/6f2830cc-c552-431e-98c5-dbe1c9d1882d" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/2a4ba990-a51c-4e44-93e6-3eb0a81359b7" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/a2b941cc-f4df-4993-97d1-e4fe4721726e" alt="Desktop (Linux)" width="240" /> |
 
 ## ✨ Features
 
 - **🔒 Secure Login Authentication:** Your data is safe. Login authentication ensures that only authorized users can access the clipboard sync.
 - **🚀 Live Sync:** Clipboard content syncs across your devices instantly, without needing any key press—just copy, and it's there!
-- **💻 Desktop Application:** A native Windows desktop application for easy setup and usage.
+- **💻 Desktop Application:** A native desktop application for Windows and Linux, offering effortless setup and user-friendly operation.
 - **📱 Mobile Application:** Access your clipboard sync seamlessly on Android devices with a dedicated mobile app.
 - **📦 Self-Hosted Docker Image:** Host your own instance of ClipCascade effortlessly using the provided Docker image.
 - **🛡️ Privacy by Encryption:** Your clipboard data is end-to-end encrypted, ensuring that only you can access it.
@@ -58,7 +64,7 @@
 
 ## 📥 Installation
 
-### 🦈 Self-Hosted Docker Server
+### 🦈 Self-Hosted Docker Server:
 
 To host ClipCascade on your server, use Docker with the following steps:
 
@@ -87,7 +93,7 @@ To host ClipCascade on your server, use Docker with the following steps:
 <img src="https://github.com/user-attachments/assets/489d1ffb-82fd-4dd8-85d6-445b891102a5" alt="Web Page" width="400" />
 <img src="https://github.com/user-attachments/assets/5a52080e-0fd2-4e8b-b485-b41810174a86" alt="Web Page" width="400" />
 
-### 🦾 Self-Hosted Server Bare Metal
+### 🦾 Self-Hosted Server Bare Metal:
 
 To host the ClipCascade server on any operating system where Java (17) can run, follow these steps:
 
@@ -109,11 +115,11 @@ To host the ClipCascade server on any operating system where Java (17) can run, 
    ```bash
    java -jar ClipCascade-0.0.1-SNAPSHOT.jar
 
-4. **Access the Server**
+4. **Access the Server**  
    You can access the ClipCascade server at `http://localhost:8080`.
 
 
-### 💻 Windows Desktop Application
+### 🪟 Windows Desktop Application:
 
 To install the Windows desktop application, download the latest version from the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases).
 
@@ -127,7 +133,8 @@ To install the Windows desktop application, download the latest version from the
 
 **Important Note:** Since the application is not published or registered with Microsoft, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning or temporarily disable your antivirus during installation. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort!
 
-### 📱 Android Mobile Application
+
+### 🤖 Android Mobile Application:
 
 To install the mobile application on your Android device, download the latest APK from the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases).
 
@@ -139,13 +146,132 @@ To install the mobile application on your Android device, download the latest AP
    - If encryption is enabled, please ensure it is enabled on all devices.
 
 
+### 🐧 Linux Desktop Application: 
+
+This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`.
+
+#### Step 1: Update System and Install Required Packages
+
+##### Debian/Ubuntu:
+```
+sudo apt update
+sudo apt install -y python3 python3-pip python3-gi xclip
+```
+
+##### Fedora:
+```
+sudo dnf check-update
+sudo dnf install -y python3 python3-pip python3-gobject xclip
+```
+
+#### Step 2: Install Python Dependencies
+
+Run the following command to install the dependencies listed in `requirements.txt`:
+```
+sudo pip3 install -r requirements.txt
+```
+
+If you encounter the `error: externally-managed-environment`, install the required Python packages manually:
+
+##### Debian/Ubuntu:
+```
+sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pystray python3-plyer
+```
+
+##### Fedora:
+```
+sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tkinter python3-pystray python3-plyer
+```
+
+
+#### Step 3: Install Gtk 3.0 for Clipboard Sharing
+
+##### Debian/Ubuntu:
+```
+sudo apt install -y python3-gi-cairo gir1.2-gtk-3.0 gir1.2-gdk-3.0
+```
+
+##### Fedora:
+```
+sudo dnf install -y libappindicator-gtk3
+```
+
+> **Note:** If the tray icon is not available on GNOME-based systems like Fedora, you may need to install the GNOME tray support extension:
+>  [GNOME AppIndicator Support](https://extensions.gnome.org/extension/615/appindicator-support/)
+
+
+#### Step 4: Run the Application
+
+Start ClipCascade by running:
+```
+sudo python3 main.py
+```
+
+
+#### Step 4.1: Fix 'No module named `Crypto`' Error (if applicable)
+
+If you encounter the `No module named 'Crypto'` error, create a symbolic link for the Cryptodome library:
+[see more](https://github.com/openthread/openthread/issues/1137#issuecomment-140879139)
+
+
+##### Debian/Ubuntu:
+```
+sudo ln -s /usr/lib/python3/dist-packages/Cryptodome /usr/lib/python3/dist-packages/Crypto
+```
+
+##### Fedora:
+```
+sudo ln -s /usr/lib/python3/site-packages/Cryptodome /usr/lib/python3/site-packages/Crypto
+```
+
+#### Step 4.2: Fix 'ModuleNotFoundError: No module named `tkinter`' Error (if applicable)
+
+If you encounter the `No module named 'tkinter'` error:
+
+##### Debian/Ubuntu:
+```
+sudo apt install -y python3-tkinter
+```
+
+##### Fedora:
+```
+sudo dnf install -y python3-tkinter
+```
+
+#### Step 4.3:  Fix '`gtk_widget_get_scale_factor: assertion 'GTK_IS_WIDGET (widget)' failed`' Error (if applicable)
+
+This error may be caused by a missing tray icon extension in GNOME. To fix it, you can install the AppIndicator Support extension by visiting [this link](https://extensions.gnome.org/extension/615/appindicator-support)
+
+
+
+#### Step 5: Run the Application in the Background
+
+To run ClipCascade as a background process:
+```
+sudo nohup python3 main.py &> /dev/null &
+```
+
+
+#### Step 6: Add ClipCascade to Startup
+
+To ensure ClipCascade starts automatically when your system boots, modify the path as necessary and add the following to your startup script:
+
+##### Example:
+```
+cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
+```
+
+
+**Note:** If clipboard monitoring doesn't work without \`sudo\`, ensure you are running the application with elevated privileges.
+
+
 ## ⚙️ Advanced Details
 
-### Windows
+### Windows and Linux:
 - Logs are present in the installed path, allowing you to review application activity. These logs reset upon reopening the application, so they don’t grow indefinitely.
 - You can customize advanced settings in the **DATA** file, which is also located in the installed path. This file is generated only after your first login and remains there indefinitely.
 
-### Android
+### Android:
 - You can configure advanced settings on the login page by clicking **Enable Extra Config**. 
   - The main options include:
     - **Store Password Locally:** Enable this option if you are frequently getting logged out. The app stores the session cookie for an extended period, but due to the variety of devices used worldwide, exceptions may occur. This option can be very useful.
