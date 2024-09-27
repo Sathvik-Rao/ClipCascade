@@ -277,6 +277,16 @@ cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
     - **Store Password Locally:** Enable this option if you are frequently getting logged out. The app stores the session cookie for an extended period, but due to the variety of devices used worldwide, exceptions may occur. This option can be very useful.
     - **Maximum Clipboard Size Local Limit:** If the app crashes or stops unexpectedly, it means it received a clipboard size greater than the platform's maximum limit. You can specify a local size limit by typing in the size in bytes (e.g., 512 KiB = 524288 bytes) to test different limits that work for your device. This local limit is in addition to the server-specified limit, ensuring smoother operation without crashes.
 
+### End-to-End Encryption Configuration for Clipboard Data:
+
+When encryption is enabled, the clipboard data is encrypted on client devices. The server does not store this key, ensuring end-to-end encryption. The encryption password is generated using the user’s password, a salt, and the number of rounds, allowing you to control the number of rounds used. This process creates a unique hashed password based on the specified number of rounds.
+
+However, it is crucial to use the same number of rounds across all client devices. The default is set to **664,937** rounds, referred to as `hash_rounds`.
+
+In the desktop application, you can find this field in the **DATA** file located in the software's directory. On mobile devices, you can adjust this setting in the login page under **extra config**.
+
+Before making any changes, ensure you log out and exit the application. After editing the `hash_rounds` field, log back in for the changes to take effect.
+
 
 ## 🔧 Usage
 
