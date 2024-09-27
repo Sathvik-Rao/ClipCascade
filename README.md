@@ -296,6 +296,8 @@ Here is a screenshot showing how to set up a reverse proxy using Cloudflare Tunn
 
 <img src="https://github.com/user-attachments/assets/0f45879f-307a-4f5f-9f26-ca5d3de7b1cf" alt="Reverse Proxy" width="600" />
 
+<img src="https://github.com/user-attachments/assets/6d6d000f-4516-47be-ae1d-8726dc4d6535" alt="Reverse Proxy" width="400" />
+
 ## 🔧 Usage
 
 1. **Login:** Use your credentials to log into ClipCascade.
