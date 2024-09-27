@@ -290,6 +290,11 @@ In the desktop application, you can find this field in the **DATA** file located
 
 Before making any changes, ensure you log out and exit the application. After editing the `hash_rounds` field, log back in for the changes to take effect.
 
+## ⇄ Reverse Proxy 
+
+Here is a screenshot showing how to set up a reverse proxy using Cloudflare Tunnels. You can apply a similar approach with other providers as well.
+
+<img src="https://github.com/user-attachments/assets/0f45879f-307a-4f5f-9f26-ca5d3de7b1cf" alt="Reverse Proxy" width="600" />
 
 ## 🔧 Usage
 
