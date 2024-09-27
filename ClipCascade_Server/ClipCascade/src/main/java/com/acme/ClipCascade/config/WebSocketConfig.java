@@ -24,7 +24,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(@SuppressWarnings("null") StompEndpointRegistry registry) {
-        registry.addEndpoint("/clipsocket");
+        registry.addEndpoint("/clipsocket").setAllowedOrigins("*");
     }
 
     // WebSocket settings
