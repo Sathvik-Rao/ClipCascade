@@ -320,7 +320,7 @@ ClipCascade is licensed under the GNU General Public License v3.0 (GPL-3.0). See
 ## 🛠️ TODO
 
 Here are some planned features and improvements for future releases of ClipCascade:
-
+- **Apple macOS and iOS Support:** Develop and release versions of ClipCascade for macOS and iOS to enhance cross-platform accessibility.
 - **Windows Publishing:** Publish the Windows application to improve accessibility.
 - **Android on Play Store:** Release the Android application on the Google Play Store for easier installation and updates.
 
