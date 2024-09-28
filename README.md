@@ -94,6 +94,8 @@ To host ClipCascade on your server, use Docker with the following steps:
 <img src="https://github.com/user-attachments/assets/489d1ffb-82fd-4dd8-85d6-445b891102a5" alt="Web Page" width="400" />
 <img src="https://github.com/user-attachments/assets/5a52080e-0fd2-4e8b-b485-b41810174a86" alt="Web Page" width="400" />
 
+> **Note:** [set up a reverse proxy, see here](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-reverse-proxy)
+
 ### 🦾 Self-Hosted Server Bare Metal:
 
 To host the ClipCascade server on any operating system where Java (17) can run, follow these steps:
@@ -119,6 +121,8 @@ To host the ClipCascade server on any operating system where Java (17) can run, 
 4. **Access the Server**  
    You can access the ClipCascade server at `http://localhost:8080`.
 
+   > **Note:** [set up a reverse proxy, see here](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-reverse-proxy)
+
 
 ### 🪟 Windows Desktop Application:
 
@@ -134,7 +138,7 @@ To install the Windows desktop application, download the latest version from the
 
 **Important Note:** Since the application is not published or registered with Microsoft, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning or temporarily disable your antivirus during installation. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort!
 
-The .exe file does not need UAC approval because it is standalone executable, while the .msi installer will request UAC permissions because it creates a designated folder for the software, adds a startup option, and allows for uninstallation via the Control Panel. Additionally, with the .msi installer, you have the option to choose any location to save the software. However, select locations where even when you create a file manually at that location, Windows shouldn’t prompt for permission to answer "yes or no" questions.
+The `.exe` file does not need UAC approval because it is standalone executable, while the `.msi` installer will request UAC permissions because it creates a designated folder for the software, adds a startup option, and allows for uninstallation via the Control Panel. Additionally, with the .msi installer, you have the option to choose any location to save the software. However, select locations where even when you create a file manually at that location, Windows shouldn’t prompt for permission to answer "yes or no" questions.
 
 
 ### 🤖 Android Mobile Application:
@@ -265,7 +269,7 @@ cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
 ```
 
 
-**Note:** If clipboard monitoring doesn't work without \`sudo\`, ensure you are running the application with elevated privileges.
+> **Note:** If clipboard monitoring doesn't work without \`sudo\`, ensure you are running the application with elevated privileges.
 
 
 ## ⚙️ Advanced Details
@@ -290,9 +294,9 @@ In the desktop application, you can find this field in the **DATA** file located
 
 Before making any changes, ensure you log out and exit the application. After editing the `hash_rounds` field, log back in for the changes to take effect.
 
-## ⇄ Reverse Proxy 
+## ⇄ Reverse Proxy Setup
 
-Here is a screenshot showing how to set up a reverse proxy using Cloudflare Tunnels. You can apply a similar approach with other providers as well.
+Here is a screenshot showing how to set up a reverse proxy using **Cloudflare Tunnels**. You can apply a similar approach with other providers as well.
 
 <img src="https://github.com/user-attachments/assets/0f45879f-307a-4f5f-9f26-ca5d3de7b1cf" alt="Reverse Proxy" width="600" />
 
