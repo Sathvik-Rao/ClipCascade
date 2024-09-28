@@ -94,7 +94,7 @@ To host ClipCascade on your server, use Docker with the following steps:
 <img src="https://github.com/user-attachments/assets/489d1ffb-82fd-4dd8-85d6-445b891102a5" alt="Web Page" width="400" />
 <img src="https://github.com/user-attachments/assets/5a52080e-0fd2-4e8b-b485-b41810174a86" alt="Web Page" width="400" />
 
-> **Note:** [set up a reverse proxy, see here](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-reverse-proxy)
+> **Note:** [set up a reverse proxy, see here](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-reverse-proxy-setup)
 
 ### 🦾 Self-Hosted Server Bare Metal:
 
@@ -121,7 +121,7 @@ To host the ClipCascade server on any operating system where Java (17) can run, 
 4. **Access the Server**  
    You can access the ClipCascade server at `http://localhost:8080`.
 
-   > **Note:** [set up a reverse proxy, see here](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-reverse-proxy)
+   > **Note:** [set up a reverse proxy, see here](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-reverse-proxy-setup)
 
 
 ### 🪟 Windows Desktop Application:
