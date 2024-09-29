@@ -250,6 +250,18 @@ sudo dnf install -y python3-tkinter
 This error may be caused by a missing tray icon extension in GNOME. To fix it, you can install the AppIndicator Support extension by visiting [this link](https://extensions.gnome.org/extension/615/appindicator-support)
 
 
+#### Step 4.4:  Fix '`g-exec-error-quark`' Error (if applicable)
+
+##### Debian/Ubuntu:
+```
+sudo apt install dbus-x11
+```
+
+##### Fedora:
+```
+sudo dnf install dbus-x11
+```
+
 
 #### Step 5: Run the Application in the Background
 
