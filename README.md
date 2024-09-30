@@ -156,7 +156,7 @@ To install the mobile application on your Android device, download the latest AP
 ### 🐧 Linux Desktop Application: 
 
 This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`. Navigate to the `ClipCascade/` folder, where you can find `main.py`, and open the terminal in that location.
-> **Note:** ClipCascade may not work on Wayland-only distributions. If you encounter issues, consider using an X11 session.
+> **Note:** ClipCascade may not function on **Wayland-only** distributions. If you encounter any issues, please consider using an **X11** session. I will implement a terminal-based approach as soon as possible for users experiencing difficulties with the GUI setup.
 
 #### Step 1: Update System and Install Required Packages
 
