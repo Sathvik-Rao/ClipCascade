@@ -49,7 +49,8 @@
 | 🪟 Desktop (Windows) | 📱 Mobile (Android) | 🐧 Desktop (Linux) |
 |-----------------------|--------------------|--------------------|
 | <img src="https://github.com/user-attachments/assets/a73d18b9-ce0c-4a9e-9190-3a57a07596ce" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/bde3a00a-14a6-4c58-bbd4-3b9a723e594f" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/66344289-470b-4183-af6a-cf47097388b8" alt="Desktop (Linux)" width="360" /> |
-| <img src="https://github.com/user-attachments/assets/6f2830cc-c552-431e-98c5-dbe1c9d1882d" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/2a4ba990-a51c-4e44-93e6-3eb0a81359b7" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/a2b941cc-f4df-4993-97d1-e4fe4721726e" alt="Desktop (Linux)" width="240" /> |
+| <img src="https://github.com/user-attachments/assets/6f2830cc-c552-431e-98c5-dbe1c9d1882d" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/89a7d662-b985-4933-80a9-93dbc9255115" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/a2b941cc-f4df-4993-97d1-e4fe4721726e" alt="Desktop (Linux)" width="240" /> |
+
 
 ## ✨ Features
 
@@ -151,6 +152,35 @@ To install the mobile application on your Android device, download the latest AP
 4. **Open** ClipCascade and log in to begin syncing your clipboard across devices.
    - When prompted for the server connection, use the server IP and port, appending `/clipsocket` for the WebSocket connection (e.g., `ws://<server_ip>:<server_port>/clipsocket`).
    - If encryption is enabled, please ensure it is enabled on all devices.
+
+#### Android Automatic Clipboard Monitoring Setup:
+
+To enable automatic clipboard monitoring on both rooted and non-rooted devices, execute the following three ADB commands.
+
+##### Install ADB
+
+Before proceeding, make sure ADB is installed on your system. Follow the instructions [here](https://www.xda-developers.com/install-adb-windows-macos-linux/) to install ADB on Windows, macOS, or Linux.
+
+##### ADB Commands
+
+1. **Enable the `READ_LOGS` permission:**
+   ```bash
+   adb -d shell pm grant com.clipcascade android.permission.READ_LOGS
+   ```
+
+2. **Allow "Drawing over other apps":**
+   This permission can also be enabled from the device's Settings. To set it via ADB, use:
+   ```bash
+   adb -d shell appops set com.clipcascade SYSTEM_ALERT_WINDOW allow
+   ```
+
+3. **Kill the app for the new permissions to take effect:**
+   ```bash
+   adb -d shell am force-stop com.clipcascade
+   ```
+![adb commands](https://github.com/user-attachments/assets/3faa8d71-d099-48d5-9846-4683cf77f285)
+
+> Once the setup is complete, it operates seamlessly without requiring any extra steps. It monitors log entries related to ClipCascade, and if it detects an error during a clipboard copy action, it will trigger an overlay window to gain focus. This overlay allows the app to capture the clipboard content and send it to the server immediately before going out of focus and closing. When the app is uninstalled, these permissions will be removed, requiring you to redo these steps. Additionally, each time you start the foreground service, it will prompt you to choose whether to monitor logs. This ensures that everything remains secure and under your control.
 
 
 ### 🐧 Linux Desktop Application: 
@@ -299,13 +329,13 @@ cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
 
 ### End-to-End Encryption Configuration for Clipboard Data:
 
-When encryption is enabled, the clipboard data is encrypted on client devices. The server does not store this key, ensuring end-to-end encryption. The encryption password is generated using the user’s password, a salt, and the number of rounds, allowing you to control the number of rounds used. This process creates a unique hashed password based on the specified number of rounds.
+When encryption is enabled, the clipboard data is encrypted on client devices. The server does not store this key, ensuring end-to-end encryption. The encryption password is generated using the user’s password, a salt, and the number of rounds, allowing you to control the **salt** and **number of rounds** used. This process creates a unique hashed password based on the specified salt and number of rounds.
 
-However, it is crucial to use the same number of rounds across all client devices. The default is set to **664,937** rounds, referred to as `hash_rounds`.
+However, it is crucial to use the same salt and number of rounds across all client devices. The default number of hash rounds is set to **664,937**, referred to as `hash_rounds`, while the default salt is set to empty, referred to as `salt`.
 
-In the desktop application, you can find this field in the **DATA** file located in the software's directory. On mobile devices, you can adjust this setting in the login page under **extra config**.
+In the desktop application, you can find these fields in the **DATA** file located in the software's directory. On mobile devices, you can adjust these settings on the login page under **extra config**.
 
-Before making any changes, ensure you log out and exit the application. After editing the `hash_rounds` field, log back in for the changes to take effect.
+Before making any changes, ensure you log out and exit the application. After editing the `hash_rounds` or `salt` fields, log back in for the changes to take effect.
 
 ## ⇄ Reverse Proxy Setup
 
