@@ -38,10 +38,19 @@ class MainActivity : ReactActivity() {
     }
 
     private fun handleIntent(intent: Intent) {
+        // shared text to app action
         if (Intent.ACTION_SEND == intent.action && "text/plain" == intent.type) {
             val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
             sharedText?.let {
                 sendSharedTextToReactNative(it)
+            }
+        }
+
+        // text selection popup menu action
+        if (Intent.ACTION_PROCESS_TEXT == intent.action && "text/plain" == intent.type) {
+            val sharedText = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)
+            sharedText?.let {
+                sendSharedTextToReactNative(it.toString())
             }
         }
     }

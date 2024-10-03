@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.READ_LOGS" tools:ignore="ProtectedPermissions" />
 
 
     <application
@@ -30,10 +32,14 @@
         <!-- Intent filter for receiving shared text -->
         <intent-filter>
             <action android:name="android.intent.action.SEND" />
+            <action android:name="android.intent.action.PROCESS_TEXT" />
             <category android:name="android.intent.category.DEFAULT" />
             <data android:mimeType="text/plain" />
         </intent-filter>
       </activity>
+      <activity
+        android:name=".ClipboardFloatingActivity"
+        android:theme="@style/Theme.TransparentActivity" />
       <service
           android:name="app.notifee.core.ForegroundService"
           android:foregroundServiceType="remoteMessaging"
