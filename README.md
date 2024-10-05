@@ -199,7 +199,7 @@ sudo apt install -y python3 python3-pip python3-gi xclip
 ##### Fedora:
 ```
 sudo dnf check-update
-sudo dnf install -y python3 python3-pip python3-gobject xclip
+sudo dnf install -y python3 python3-pip python3-gobject xclip dunst
 ```
 
 #### Step 2: Install Python Dependencies
