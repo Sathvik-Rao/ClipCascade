@@ -40,6 +40,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'; // persist
  *
  * (file) android\app\src\main\java\com\clipcascade\ClipboardListenerModule.kt
  * (file) android\app\src\main\java\com\clipcascade\ClipboardListenerPackage.kt
+ * (file) android\app\src\main\java\com\clipcascade\ClipboardFloatingActivity.kt
  * (file) android\app\src\main\java\com\clipcascade\MainApplication.kt
  * (file) android\app\src\main\java\com\clipcascade\MainActivity.kt
  * (file) android\app\src\main\AndroidManifest.xml
@@ -104,6 +105,7 @@ export default function App() {
     subscription_destination: '/topic/cliptext',
     send_destination: '/app/cliptext',
     hash_rounds: '664937',
+    salt: '',
     login_url: '/login',
     logout_url: '/logout',
     maxsize_url: '/max-size',
@@ -234,29 +236,26 @@ export default function App() {
           return false;
         };
 
-        // ClipCascade when clipboard content is shared to app
-        const eventListener = DeviceEventEmitter.addListener(
-          'SHARED_TEXT',
-          async event => {
-            try {
-              const clipContent = event.text;
-              if (clipContent) {
-                /**
-                 * Sometimes `Clipboard.setString` is invoked before the app is fully opened, leading to an unauthorized state.
-                 * To handle this, implement a fail-safe mechanism that retries sending clipboard content only when it hasn't been successfully sent yet.
-                 * If both events are triggered successfully, the content won't be sent twice because the same content is hashed, ensuring that identical data is only processed once.
-                 */
-                Clipboard.setString(clipContent);
-                await sendClipBoard(clipContent);
-              }
-            } catch (e) {
-              await setDataInAsyncStorage(
-                'wsStatusMessage',
-                '❌ Outbound Error: ' + e,
-              );
+        // ClipCascade when clipboard content is shared to app (or) when text selection popup menu action is invoked
+        DeviceEventEmitter.addListener('SHARED_TEXT', async event => {
+          try {
+            const clipContent = event.text;
+            if (clipContent) {
+              /**
+               * Sometimes `Clipboard.setString` is invoked before the app is fully opened, leading to an unauthorized state.
+               * To handle this, implement a fail-safe mechanism that retries sending clipboard content only when it hasn't been successfully sent yet.
+               * If both events are triggered successfully, the content won't be sent twice because the same content is hashed, ensuring that identical data is only processed once.
+               */
+              Clipboard.setString(clipContent);
+              await sendClipBoard(clipContent);
             }
-          },
-        );
+          } catch (e) {
+            await setDataInAsyncStorage(
+              'wsStatusMessage',
+              '❌ Outbound Error: ' + e,
+            );
+          }
+        });
 
         //clipboard monitor
         const {ClipboardListener} = NativeModules;
@@ -325,19 +324,19 @@ export default function App() {
           onStompError: async frame => {
             await setDataInAsyncStorage(
               'wsStatusMessage',
-              '❌ STOMP Error: ' + frame,
+              '❌ STOMP Error: ' + JSON.stringify(frame, null, 2),
             );
           },
           onWebSocketError: async event => {
             await setDataInAsyncStorage(
               'wsStatusMessage',
-              '❌ WebSocket Error: ' + event,
+              '❌ WebSocket Error: ' + JSON.stringify(event, null, 2),
             );
           },
           onWebSocketClose: async event => {
             await setDataInAsyncStorage(
               'wsStatusMessage',
-              'WebSocket Close: ' + event,
+              '⚠️ WebSocket Close: ' + event.reason,
             );
           },
         });
@@ -386,11 +385,17 @@ export default function App() {
           await notifee.stopForegroundService();
         };
 
-        // check if wsIsRunning is true or else terminate the service
         const intervalId = setInterval(async () => {
+          // check if wsIsRunning is true or else terminate the service
           if ((await getDataFromAsyncStorage('wsIsRunning')) !== 'true') {
             await stopServices();
             clearInterval(intervalId);
+          }
+
+          // check if ping initiated
+          const echo = await getDataFromAsyncStorage('echo');
+          if (echo && echo === 'ping') {
+            await setDataInAsyncStorage('echo', 'pong');
           }
         }, 1000);
       } catch (error) {
@@ -448,6 +453,20 @@ export default function App() {
       if (wsIsRunning_s === null) {
         wsIsRunning_s = 'false';
       }
+      // check if foreground service is running
+      if (wsIsRunning_s === 'true') {
+        setLoadingPageMessage('Checking foreground service...');
+        await setDataInAsyncStorage('echo', 'ping');
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        const echo = await getDataFromAsyncStorage('echo');
+        if (!(echo && echo === 'pong')) {
+          wsIsRunning_s = 'false';
+          await setDataInAsyncStorage(
+            'wsStatusMessage',
+            '⚠️ Foreground service not running',
+          );
+        }
+      }
       setWsIsRunning(wsIsRunning_s);
 
       if (wsIsRunning_s === 'true') {
@@ -482,7 +501,7 @@ export default function App() {
   // Generate a PBKDF2 hash to create an encryption key.
   const hash = async (data_s, password_s) => {
     try {
-      const salt = [data_s.username, password_s].join('');
+      const salt = [data_s.username, password_s, data_s.salt].join('');
 
       const derivedKey = await new Promise((resolve, reject) => {
         pbkdf2(
@@ -897,6 +916,14 @@ export default function App() {
                 />
               </View>
               <View style={styles.row}>
+                <Text style={styles.label}>Salt:</Text>
+                <TextInput
+                  style={styles.input}
+                  value={data.salt}
+                  onChangeText={text => handleInputChange('salt', text)}
+                />
+              </View>
+              <View style={styles.row}>
                 <Text style={styles.label}>Login URL:</Text>
                 <TextInput
                   style={styles.input}
@@ -999,7 +1026,7 @@ export default function App() {
               <Text style={styles.message}>{wsPageMessage}</Text>
             )}
 
-            <View style={{marginTop: 40, paddingHorizontal: 10}}>
+            <View style={{marginTop: 20, paddingHorizontal: 10}}>
               <Text
                 style={[styles.message, {fontWeight: 'bold', fontSize: 18}]}>
                 Instructions
@@ -1020,12 +1047,21 @@ export default function App() {
                     1. Select the text you want to copy.
                   </Text>
                   <Text style={styles.label}>
-                    2. Tap 'Share' instead of 'Copy'.
+                    2. Tap 'ClipCascade' instead of 'Copy'.
                   </Text>
-                  <Text style={styles.label}>
-                    3. From the sharing options, select 'ClipCascade'.
+                  <Text style={[styles.label, {marginLeft: 15}]}>(or)</Text>
+                  <Text style={[styles.label, {marginLeft: 15}]}>
+                    Tap 'Share', select 'ClipCascade'.
                   </Text>
                 </View>
+                <Text
+                  style={[
+                    styles.label,
+                    {marginTop: 5, fontSize: 15, fontStyle: 'italic'},
+                  ]}>
+                  There's also a workaround to enable clipboard sharing in the
+                  background. Scroll down for setup instructions.
+                </Text>
               </View>
 
               <View style={{marginTop: 20}}>
@@ -1047,7 +1083,7 @@ export default function App() {
                 <Text style={styles.label}>
                   To ensure uninterrupted performance, please disable battery
                   optimization for ClipCascade. This will prevent the system
-                  from stopping the app when it's running in the background.
+                  from stopping the app when it's running in the foreground.
                 </Text>
               </View>
 
@@ -1067,6 +1103,56 @@ export default function App() {
                   Power Manager Settings
                 </Text>
               </TouchableOpacity>
+
+              {/* ADB Commands Section */}
+              <View style={{marginTop: 20}}>
+                <Text
+                  style={[styles.label, {fontWeight: 'bold', marginBottom: 5}]}>
+                  Automatic Clipboard Monitoring Setup:
+                </Text>
+                <Text style={styles.label}>
+                  On rooted/non-rooted devices, to enable automatic clipboard
+                  monitoring you need to execute these 3 ADB commands:
+                </Text>
+                <View style={{marginTop: 10, marginLeft: 15}}>
+                  <Text style={styles.label}>
+                    1. Enable the READ_LOGS permission:
+                  </Text>
+                  <Text
+                    selectable
+                    style={[
+                      styles.label,
+                      {fontWeight: 'bold', marginLeft: 15},
+                    ]}>
+                    {`> adb -d shell pm grant com.clipcascade android.permission.READ_LOGS`}
+                  </Text>
+
+                  <Text style={styles.label}>
+                    2. Allow "Drawing over other apps", also accessible from
+                    Settings:
+                  </Text>
+                  <Text
+                    selectable
+                    style={[
+                      styles.label,
+                      {fontWeight: 'bold', marginLeft: 15},
+                    ]}>
+                    {`> adb -d shell appops set com.clipcascade SYSTEM_ALERT_WINDOW allow`}
+                  </Text>
+
+                  <Text style={styles.label}>
+                    3. Kill the app for the new permissions to take effect:
+                  </Text>
+                  <Text
+                    selectable
+                    style={[
+                      styles.label,
+                      {fontWeight: 'bold', marginLeft: 15},
+                    ]}>
+                    {`> adb -d shell am force-stop com.clipcascade`}
+                  </Text>
+                </View>
+              </View>
             </View>
           </View>
           {/* GitHub Icon */}

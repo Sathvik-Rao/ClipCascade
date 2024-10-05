@@ -10,6 +10,7 @@ class LoginForm(tk.Tk):
         server_url,
         websocket_url,
         cipher_enabled,
+        notification,
         on_login_callback=None,
         on_quit_callback=None,
     ):
@@ -77,11 +78,18 @@ class LoginForm(tk.Tk):
         self.cipher_checkbox = tk.Checkbutton(
             self, text="Enable Encryption(recommended)", variable=self.cipher_var
         )
-        self.cipher_checkbox.pack(pady=5)
+        self.cipher_checkbox.pack(pady=3)
+
+        # Enable Notification Checkbox
+        self.notification_var = tk.BooleanVar(value=notification)
+        self.notification_checkbox = tk.Checkbutton(
+            self, text="Enable Notification", variable=self.notification_var
+        )
+        self.notification_checkbox.pack(pady=3)
 
         # Login Button
         self.login_button = tk.Button(self, text="Login", command=self.on_login)
-        self.login_button.pack(pady=20)
+        self.login_button.pack(pady=10)
 
         # Handle window close
         self.protocol("WM_DELETE_WINDOW", self.on_quit)
@@ -104,10 +112,16 @@ class LoginForm(tk.Tk):
         websocket_url = self.websocket_url_entry.get()
         websocket_url = re.sub(r"/+$", "", websocket_url)
         cipher_enabled = self.cipher_var.get()
+        notification = self.notification_var.get()
 
         if self.on_login_callback:
             self.on_login_callback(
-                username, password, server_url, websocket_url, cipher_enabled
+                username,
+                password,
+                server_url,
+                websocket_url,
+                cipher_enabled,
+                notification,
             )
         self.destroy()
 
