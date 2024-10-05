@@ -36,6 +36,8 @@ first_connection_lost_notification = True
 kill_re_connect_thread = False
 previous_clipboard_hash = 0
 
+notification_enabled = True
+
 event_reconnect = threading.Event()
 event_reconnect.clear()
 
@@ -86,12 +88,13 @@ def stomp_closed():
     if not startup_login_execution:
         connection_lost = True
         if first_connection_lost_notification:
-            notification.notify(
-                title="ClipCascade: WebSocket Connection Lost ⛓️‍💥",
-                message="Check your internet connection. Retrying...",
-                app_name="ClipCascade",
-                timeout=10,  # seconds
-            )
+            if notification_enabled:
+                notification.notify(
+                    title="ClipCascade: WebSocket Connection Lost ⛓️‍💥",
+                    message="Check your internet connection. Retrying...",
+                    app_name="ClipCascade",
+                    timeout=10,  # seconds
+                )
             first_connection_lost_notification = False
         event_reconnect_release()
 
@@ -182,12 +185,13 @@ def stomp_send(
         if client is not None:
             if connection_lost:
                 client = None
-                notification.notify(
-                    title="ClipCascade: WebSocket Connection Lost ⛓️‍💥",
-                    message="Check your internet connection. Retrying...",
-                    app_name="ClipCascade",
-                    timeout=10,  # seconds
-                )
+                if notification_enabled:
+                    notification.notify(
+                        title="ClipCascade: WebSocket Connection Lost ⛓️‍💥",
+                        message="Check your internet connection. Retrying...",
+                        app_name="ClipCascade",
+                        timeout=10,  # seconds
+                    )
                 return
             if not toggle:
                 text_size_in_bytes = len(text.encode("utf-8"))
@@ -285,7 +289,9 @@ def disconnect_client():
     global client
     global connection_lost
     global first_connection_lost_notification
+    global previous_clipboard_hash
     event_reconnect_relock()
+    previous_clipboard_hash = 0
     first_connection_lost_notification = True
     if client is not None:
         if not connection_lost:
@@ -317,12 +323,13 @@ def re_connect(
         client, subscription_destination, maxsize, cipher_enabled, hashed_password
     )
     if not first_connection_lost_notification:
-        notification.notify(
-            title="ClipCascade: WebSocket Connection Restored 🔗",
-            message="Connection re-established",
-            app_name="ClipCascade",
-            timeout=5,  # seconds
-        )
+        if notification_enabled:
+            notification.notify(
+                title="ClipCascade: WebSocket Connection Restored 🔗",
+                message="Connection re-established",
+                app_name="ClipCascade",
+                timeout=5,  # seconds
+            )
         first_connection_lost_notification = True
 
 
@@ -385,6 +392,8 @@ if __name__ == "__main__":
             "login_url": "/login",
             "logout_url": "/logout",
             "maxsize_url": "/max-size",
+            "salt": "",
+            "notification": True,
         }
 
         LOG_FILE_NAME = "clipcascade_log.log"
@@ -405,7 +414,11 @@ if __name__ == "__main__":
                 login_window_enable = False
                 # Load data
                 with open(DATA_fILE_NAME, "r") as f:
-                    data = json.load(f)
+                    data_file = json.load(f)
+                    for key, value in data_file.items():
+                        data[key] = value
+                    notification_enabled = data["notification"]
+
                     if data["hashed_password"] is not None:
                         data["hashed_password"] = base64.b64decode(
                             data["hashed_password"]
@@ -436,7 +449,8 @@ if __name__ == "__main__":
                     data["server_url"],
                     data["websocket_url"],
                     data["cipher_enabled"],
-                    lambda username, password, server_url, websocket_url, cipher_enabled: (
+                    data["notification"],
+                    lambda username, password, server_url, websocket_url, cipher_enabled, notification_: (
                         data.update(
                             {
                                 "username": username,
@@ -444,12 +458,14 @@ if __name__ == "__main__":
                                 "server_url": server_url,
                                 "websocket_url": websocket_url,
                                 "cipher_enabled": cipher_enabled,
+                                "notification": notification_,
                             }
                         )
                     ),
                     lambda: sys.exit(0),
                 )
                 login_form.mainloop()  # wait until form is closed
+                notification_enabled = data["notification"]
 
                 login_successful, msg, data["cookie"], data["maxsize"] = login(
                     data["username"],
@@ -482,7 +498,9 @@ if __name__ == "__main__":
 
             # generate hashed password for encryption
             if data["cipher_enabled"]:
-                salt = (data["username"] + data["password"]).encode("utf-8")
+                salt = (data["username"] + data["password"] + data["salt"]).encode(
+                    "utf-8"
+                )
                 data["hashed_password"] = hash(
                     data["password"], salt, data["hash_rounds"]
                 )

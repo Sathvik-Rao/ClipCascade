@@ -1,4 +1,5 @@
 import tkinter as tk
+import webbrowser
 from pystray import Icon, MenuItem as item, Menu
 from PIL import Image, ImageDraw
 
@@ -27,6 +28,8 @@ class TaskbarPanel:
             "ClipCascade", self.create_clipboard_icon(), menu=self.create_menu()
         )
 
+        self.icon.title = "ClipCascade"
+
     def run(self):
         self.icon.run()
 
@@ -52,12 +55,14 @@ class TaskbarPanel:
         if not self.is_connected:
             return Menu(
                 item("Connect", self._on_connect, default=True),
+                item("GitHub", self._open_github),
                 item("Logoff and Quit", self._on_logoff),
                 item("Quit", self._on_quit),
             )
         else:
             return Menu(
                 item("Disconnect", self._on_disconnect),
+                item("GitHub", self._open_github),
                 item("Logoff and Quit", self._on_logoff),
                 item("Quit", self._on_quit),
             )
@@ -76,6 +81,9 @@ class TaskbarPanel:
             self.on_disconnect_callback()
             self.is_connected = False
             icon.menu = self.create_menu()
+
+    def _open_github(self, icon, item):
+        webbrowser.open("https://github.com/Sathvik-Rao/ClipCascade")
 
     def _on_logoff(self, icon, item):
         try:
