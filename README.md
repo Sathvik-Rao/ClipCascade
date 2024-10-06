@@ -186,10 +186,10 @@ After executing three ADB commands, when you click the **Start** button, you wil
 
 <img src="https://github.com/user-attachments/assets/0d3649d7-1e57-448c-ade9-10641191402d" width="350" />
 
-### 🐧 Linux Desktop Application: 
+### 🐧🖱️ Linux Desktop Application (GUI):
 
 This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`. Navigate to the `ClipCascade/` folder, where you can find `main.py`, and open the terminal in that location.
-> **Note:** ClipCascade may not function on **Wayland-only** distributions. If you encounter any issues, please consider using an **X11** session. I will implement a terminal-based approach as soon as possible for users experiencing difficulties with the GUI setup.
+> **Important Note:** ClipCascade may not function on **Wayland-only** distributions. If you encounter any issues, please consider using an **X11** session or **a terminal-based implementation, which is available for users who experience difficulties with the GUI setup.**
 
 #### Step 1: Update System and Install Required Packages
 
@@ -314,6 +314,96 @@ To ensure ClipCascade starts automatically when your system boots, modify the pa
 cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
 ```
 
+> **Note:** If clipboard monitoring doesn't work without \`sudo\`, ensure you are running the application with elevated privileges.
+
+
+### 🐧⌨️ Linux Terminal-Based Application (non-GUI):
+
+This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux_Terminal.zip`. Navigate to the `ClipCascade/` folder, where you can find `main.py`, and open the terminal in that location.
+> **Note:** A GUI-based implementation is available for users who prefer a more intuitive, visual interface over the terminal setup.
+
+#### Step 1: Update System and Install Required Packages
+
+##### Debian/Ubuntu:
+```
+sudo apt update
+sudo apt install -y python3 python3-pip python3-gi xclip
+```
+
+##### Fedora:
+```
+sudo dnf check-update
+sudo dnf install -y python3 python3-pip python3-gobject xclip
+```
+
+
+#### Step 2: Install Python Dependencies
+
+Run the following command to install the dependencies listed in `requirements.txt`:
+```
+sudo pip3 install -r requirements.txt
+```
+
+If you encounter the `error: externally-managed-environment`, install the required Python packages manually:
+
+##### Debian/Ubuntu:
+```
+sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pyfiglet
+```
+
+##### Fedora:
+```
+sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tkinter python3-pyfiglet
+```
+
+
+#### Step 3: Install Gtk 3.0 for Clipboard Sharing
+
+##### Debian/Ubuntu:
+```
+sudo apt install -y python3-gi-cairo gir1.2-gtk-3.0 gir1.2-gdk-3.0
+```
+
+##### Fedora:
+```
+sudo dnf install -y libappindicator-gtk3
+```
+
+#### Step 4: Run the Application
+
+Start ClipCascade by running:
+```
+sudo python3 main.py
+```
+
+
+#### Step 4.1: Fix 'No module named `Crypto`' Error (if applicable)
+
+If you encounter the `No module named 'Crypto'` error, create a symbolic link for the Cryptodome library:
+[see more](https://github.com/openthread/openthread/issues/1137#issuecomment-140879139)
+
+
+##### Debian/Ubuntu:
+```
+sudo ln -s /usr/lib/python3/dist-packages/Cryptodome /usr/lib/python3/dist-packages/Crypto
+```
+
+##### Fedora:
+```
+sudo ln -s /usr/lib/python3/site-packages/Cryptodome /usr/lib/python3/site-packages/Crypto
+```
+
+#### Step 4.2:  Fix '`g-exec-error-quark`' Error (if applicable)
+
+##### Debian/Ubuntu:
+```
+sudo apt install dbus-x11
+```
+
+##### Fedora:
+```
+sudo dnf install dbus-x11
+```
 
 > **Note:** If clipboard monitoring doesn't work without \`sudo\`, ensure you are running the application with elevated privileges.
 
