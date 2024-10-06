@@ -182,6 +182,9 @@ Before proceeding, make sure ADB is installed on your system. Follow the instruc
 
 > Once the setup is complete, it operates seamlessly without requiring any extra steps. It monitors log entries related to ClipCascade, and if it detects an error during a clipboard copy action, it will trigger an overlay window to gain focus. This overlay allows the app to capture the clipboard content and send it to the server immediately before going out of focus and closing. When the app is uninstalled, these permissions will be removed, requiring you to redo these steps. Additionally, each time you start the foreground service, it will prompt you to choose whether to monitor logs. This ensures that everything remains secure and under your control.
 
+After executing three ADB commands, when you click the **Start** button, you will see a pop-up message. Click **"Allow."**
+
+<img src="https://github.com/user-attachments/assets/0d3649d7-1e57-448c-ade9-10641191402d" width="350" />
 
 ### 🐧 Linux Desktop Application: 
 
