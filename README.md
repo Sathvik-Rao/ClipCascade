@@ -221,7 +221,7 @@ sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-we
 
 ##### Fedora:
 ```
-sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tkinter python3-pystray python3-plyer
+sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodome python3-tkinter python3-pystray python3-plyer
 ```
 
 
@@ -348,12 +348,12 @@ If you encounter the `error: externally-managed-environment`, install the requir
 
 ##### Debian/Ubuntu:
 ```
-sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pyfiglet
+sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-pyfiglet
 ```
 
 ##### Fedora:
 ```
-sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tkinter python3-pyfiglet
+sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodome python3-pyfiglet
 ```
 
 
