@@ -46,10 +46,10 @@
 
 ## 📸 Screenshots
 
-| 🪟 Desktop (Windows) | 📱 Mobile (Android) | 🐧 Desktop (Linux) |
-|-----------------------|--------------------|--------------------|
-| <img src="https://github.com/user-attachments/assets/a73d18b9-ce0c-4a9e-9190-3a57a07596ce" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/bde3a00a-14a6-4c58-bbd4-3b9a723e594f" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/66344289-470b-4183-af6a-cf47097388b8" alt="Desktop (Linux)" width="360" /> |
-| <img src="https://github.com/user-attachments/assets/6f2830cc-c552-431e-98c5-dbe1c9d1882d" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/89a7d662-b985-4933-80a9-93dbc9255115" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/a2b941cc-f4df-4993-97d1-e4fe4721726e" alt="Desktop (Linux)" width="240" /> |
+| 🪟 Desktop (Windows) | 📱 Mobile (Android) | 🐧⌨️ Desktop (Linux_GUI) | 🐧🖱️ Desktop (Linux_non-GUI) | 
+|-----------------------|--------------------|--------------------|--------------------|
+| <img src="https://github.com/user-attachments/assets/a73d18b9-ce0c-4a9e-9190-3a57a07596ce" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/bde3a00a-14a6-4c58-bbd4-3b9a723e594f" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/66344289-470b-4183-af6a-cf47097388b8" alt="Desktop (Linux_GUI)" width="360" /> | <img src="https://github.com/user-attachments/assets/6d9c1580-c4c5-4812-82d1-eaa0d395db60" alt="Desktop (Linux_non-GUI)" width="360" /> |
+| <img src="https://github.com/user-attachments/assets/6f2830cc-c552-431e-98c5-dbe1c9d1882d" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/89a7d662-b985-4933-80a9-93dbc9255115" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/a2b941cc-f4df-4993-97d1-e4fe4721726e" alt="Desktop (Linux_GUI)" width="240" /> | <img src="https://github.com/user-attachments/assets/dc4e8ee6-e9a2-4ec7-910e-b9a5f8a03ade" alt="Desktop (Linux_non_GUI)" width="240" /> |
 
 
 ## ✨ Features
@@ -189,7 +189,7 @@ After executing three ADB commands, when you click the **Start** button, you wil
 ### 🐧🖱️ Linux Desktop Application (GUI):
 
 This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`. Navigate to the `ClipCascade/` folder, where you can find `main.py`, and open the terminal in that location.
-> **Important Note:** ClipCascade may not function on **Wayland-only** distributions. If you encounter any issues, please consider using an **X11** session or **a terminal-based implementation, which is available for users who experience difficulties with the GUI setup.**
+> **Important Note:** ClipCascade may not function on **Wayland-only** distributions. If you encounter any issues, please consider using an **X11** session or **a terminal-based implementation, which is available for users who experience difficulties with the GUI setup.** [see here](https://github.com/Sathvik-Rao/ClipCascade#%EF%B8%8F-linux-terminal-based-application-non-gui)
 
 #### Step 1: Update System and Install Required Packages
 
@@ -320,7 +320,7 @@ cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
 ### 🐧⌨️ Linux Terminal-Based Application (non-GUI):
 
 This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux_Terminal.zip`. Navigate to the `ClipCascade/` folder, where you can find `main.py`, and open the terminal in that location.
-> **Note:** A GUI-based implementation is available for users who prefer a more intuitive, visual interface over the terminal setup.
+> **Note:** A GUI-based implementation is available for users who prefer a more intuitive, visual interface over the terminal setup. [see here](https://github.com/Sathvik-Rao/ClipCascade#%EF%B8%8F-linux-desktop-application-gui)
 
 #### Step 1: Update System and Install Required Packages
 
