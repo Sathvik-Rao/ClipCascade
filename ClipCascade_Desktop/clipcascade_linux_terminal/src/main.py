@@ -14,6 +14,7 @@ import requests
 import os
 import fcntl
 import pyfiglet
+import subprocess
 
 from stomp_ws.client import Client
 from clip_mon import clipboard_monitor
@@ -89,8 +90,8 @@ def stomp_closed():
         if first_connection_lost_notification:
             if notification_enabled:
                 CustomDialog(
-                        "⛓️‍💥 WebSocket Connection Lost, Check your internet connection. Retrying..."
-                    )
+                    "⛓️‍💥 WebSocket Connection Lost, Check your internet connection. Retrying..."
+                )
             first_connection_lost_notification = False
         event_reconnect_release()
 
@@ -227,7 +228,17 @@ def stomp_receive(
         current_clipboard_hash = hash_clipboard(text)
         if current_clipboard_hash != previous_clipboard_hash:
             previous_clipboard_hash = current_clipboard_hash
-            pyperclip.copy(text)
+            try:
+                pyperclip.copy(text)
+            except Exception as e:
+                logging.warning(f"Failed to copy to clipboard using pyperclip: {e}")
+                process = subprocess.Popen(
+                    ["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE
+                )
+                process.communicate(input=text.encode())
+                logging.warning(
+                    "xclip has successfully copied the clipboard content as a failsafe."
+                )
     except Exception as e:
         logging.error(f"Failed to process received clipboard data: {e}")
         logging.error(
@@ -317,9 +328,7 @@ def re_connect(
     )
     if not first_connection_lost_notification:
         if notification_enabled:
-            CustomDialog(
-                        "🔗 WebSocket Connection Restored, Connection re-established"
-                    )
+            CustomDialog("🔗 WebSocket Connection Restored, Connection re-established")
         first_connection_lost_notification = True
 
 
@@ -559,9 +568,7 @@ if __name__ == "__main__":
     except Exception as e:
         msg = f"An unexpected error has occurred: {e}"
         logging.error(msg)
-        CustomDialog(
-            msg + "\nCheck logs in project directory", msg_type="error"
-        )
+        CustomDialog(msg + "\nCheck logs in project directory", msg_type="error")
     finally:
         disconnect_client()
         kill_re_connect_thread_event_trigger_thread()
