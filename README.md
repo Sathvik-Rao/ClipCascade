@@ -319,10 +319,15 @@ cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
 
 ### 🐧⌨️ Linux Terminal-Based Application (non-GUI):
 
-This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux_Terminal.zip`. Navigate to the `ClipCascade/` folder, where you can find `main.py`, and open the terminal in that location.
+This guide provides step-by-step instructions to install ClipCascade on Arch, Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux_Terminal.zip`. Navigate to the `ClipCascade/` folder, where you can find `main.py`, and open the terminal in that location.
 > **Note:** A GUI-based implementation is available for users who prefer a more intuitive, visual interface over the terminal setup. [see here](https://github.com/Sathvik-Rao/ClipCascade#%EF%B8%8F-linux-desktop-application-gui)
 
 #### Step 1: Update System and Install Required Packages
+
+##### Arch:
+```
+sudo pacman -Syu --noconfirm python python-pip python-gobject xclip
+```
 
 ##### Debian/Ubuntu:
 ```
@@ -346,6 +351,11 @@ sudo pip3 install -r requirements.txt
 
 If you encounter the `error: externally-managed-environment`, install the required Python packages manually:
 
+##### Arch:
+```
+sudo pacman -S --noconfirm python-xxhash python-pyperclip python-requests python-websocket-client python-pycryptodome python-pyfiglet
+```
+
 ##### Debian/Ubuntu:
 ```
 sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-pyfiglet
@@ -358,6 +368,11 @@ sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-we
 
 
 #### Step 3: Install Gtk 3.0 for Clipboard Sharing
+
+##### Arch:
+```
+sudo pacman -S --noconfirm python-gobject gtk3
+```
 
 ##### Debian/Ubuntu:
 ```
