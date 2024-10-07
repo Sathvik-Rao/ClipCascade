@@ -236,7 +236,7 @@ def stomp_receive(
                     ["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE
                 )
                 process.communicate(input=text.encode())
-                logging.warning(
+                logging.info(
                     "xclip has successfully copied the clipboard content as a failsafe."
                 )
     except Exception as e:
