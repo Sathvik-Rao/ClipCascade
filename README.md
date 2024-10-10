@@ -189,7 +189,7 @@ After executing three ADB commands, when you click the **Start** button, you wil
 ### 🐧🖱️ Linux Desktop Application (GUI):
 
 This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`. Navigate to the `ClipCascade/` folder, where you can find `main.py`, and open the terminal in that location.
-> **Important Note:** ClipCascade may not function on **Wayland-only** distributions. If you encounter any issues, please consider using an **X11** session or **a terminal-based implementation, which is available for users who experience difficulties with the GUI setup.** [see here](https://github.com/Sathvik-Rao/ClipCascade#%EF%B8%8F-linux-terminal-based-application-non-gui)
+> **Important Note:** ClipCascade **GUI** may not function on **Wayland-only** distributions. If you encounter any issues, please consider using an **X11** session or **a terminal-based implementation, which is available for users who experience difficulties with the GUI setup.** [see here](https://github.com/Sathvik-Rao/ClipCascade#%EF%B8%8F-linux-terminal-based-application-non-gui)
 
 #### Step 1: Update System and Install Required Packages
 
