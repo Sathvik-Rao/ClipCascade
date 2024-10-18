@@ -99,7 +99,7 @@ To host ClipCascade on your server, use Docker with the following steps:
 
 ### 🦾 Self-Hosted Server Bare Metal:
 
-To host the ClipCascade server on any operating system where Java (17) can run, follow these steps:
+To host the ClipCascade server on any operating system that supports Java 17 or higher, follow these steps:
 
 1. **Download the JAR File**  
    Copy the `ClipCascade-0.0.1-SNAPSHOT.jar` from the [release page](https://github.com/Sathvik-Rao/ClipCascade/releases).
