@@ -48,9 +48,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage'; // persist
  * (folder) android\app\src\main\res\
  */
 
+// App version
+const APP_VERSION = '0.2.1';
+
 // Main App
 export default function App() {
-  // Retry attempts
+  const [newVersionAvailable, setNewVersionAvailable] = useState([false, '']);
+
+  // Retry login attempts
   const MAX_LOGIN_AUTO_RETRY = 3;
 
   // Request permissions for notifications
@@ -436,66 +441,103 @@ export default function App() {
   };
 
   // init
+  const [initError, setInItError] = useState([false, '']);
   useEffect(() => {
-    const inti = async () => {
-      // enable websocket button
-      await setDataInAsyncStorage('enableWSButton', 'true');
+    let intervalId = null;
+    const init = async () => {
+      try {
+        // enable websocket button
+        await setDataInAsyncStorage('enableWSButton', 'true');
 
-      // start interval for websocket status message
-      startIntervalWSM();
+        // start interval for websocket status message
+        intervalId = startIntervalWSM();
 
-      // get data from async storage and initialize data hook
-      let data_s = await getAsyncStorage();
-      setData(data_s);
+        // get data from async storage and initialize data hook
+        let data_s = await getAsyncStorage();
+        setData(data_s);
 
-      // Check if websocket is running, if so directly navigate to next page
-      let wsIsRunning_s = await getDataFromAsyncStorage('wsIsRunning');
-      if (wsIsRunning_s === null) {
-        wsIsRunning_s = 'false';
-      }
-      // check if foreground service is running
-      if (wsIsRunning_s === 'true') {
-        setLoadingPageMessage('Checking foreground service...');
-        await setDataInAsyncStorage('echo', 'ping');
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        const echo = await getDataFromAsyncStorage('echo');
-        if (!(echo && echo === 'pong')) {
+        // Check if websocket is running, if so directly navigate to next page
+        let wsIsRunning_s = await getDataFromAsyncStorage('wsIsRunning');
+        if (wsIsRunning_s === null) {
           wsIsRunning_s = 'false';
-          await setDataInAsyncStorage(
-            'wsStatusMessage',
-            '⚠️ Foreground service not running',
-          );
         }
-      }
-      setWsIsRunning(wsIsRunning_s);
+        // check if foreground service is running
+        if (wsIsRunning_s === 'true') {
+          setLoadingPageMessage('Checking foreground service...');
+          await setDataInAsyncStorage('echo', 'ping');
+          let iterate = 15; //1500 ms
+          let foregroundServiceIsActive = false;
+          while (iterate > 0) {
+            await new Promise(resolve => setTimeout(resolve, 100)); //100 ms
+            const echo = await getDataFromAsyncStorage('echo');
+            if (echo && echo === 'pong') {
+              foregroundServiceIsActive = true;
+              break;
+            }
+            iterate--;
+          }
+          if (!foregroundServiceIsActive) {
+            wsIsRunning_s = 'false';
+            await setDataInAsyncStorage(
+              'wsStatusMessage',
+              '⚠️ Foreground service not running',
+            );
+          }
+        }
+        setWsIsRunning(wsIsRunning_s);
 
-      if (wsIsRunning_s === 'true') {
-        //enable websocket page
-        setEnableLoadingPage(false);
-        setEnableWSPage(true);
-      } else {
-        //validate session
-        setLoadingPageMessage('Verifying Session...');
-        validResult = await validateSession(data_s);
-        setEnableLoadingPage(false);
-        if (validResult[0]) {
+        if (wsIsRunning_s === 'true') {
           //enable websocket page
+          setEnableLoadingPage(false);
           setEnableWSPage(true);
         } else {
-          //enable login page
-          setEnableLoginPage(true);
-          if (data_s.save_password === 'true') {
-            const pass = await getDataFromAsyncStorage('password');
-            if (pass !== null) {
-              setPassword(pass);
-              handleLogin(pass, data_s);
+          //validate session
+          setLoadingPageMessage('Verifying Session...');
+          validResult = await validateSession(data_s);
+          setEnableLoadingPage(false);
+          if (validResult[0]) {
+            //enable websocket page
+            setEnableWSPage(true);
+          } else {
+            //enable login page
+            setEnableLoginPage(true);
+            if (data_s.save_password === 'true') {
+              const pass = await getDataFromAsyncStorage('password');
+              if (pass !== null) {
+                setPassword(pass);
+                handleLogin(pass, data_s);
+              }
             }
           }
         }
+
+        // check for new version
+        try {
+          const response = await fetch(
+            'https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json',
+          );
+          if (!response.ok) {
+            throw new Error('Network response was not ok');
+          }
+          const data = await response.json();
+          if (data && data.android !== APP_VERSION) {
+            setNewVersionAvailable([true, data.android]);
+          }
+        } catch (e) {
+          // Silent catch
+        }
+      } catch (e) {
+        setInItError([true, e.message]);
       }
     };
 
-    inti();
+    init();
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
   }, []);
 
   // Generate a PBKDF2 hash to create an encryption key.
@@ -651,7 +693,7 @@ export default function App() {
   // Function to start the interval for WebSocket StatusMessage
   const startIntervalWSM = () => {
     try {
-      const intervalId = setInterval(async () => {
+      return setInterval(async () => {
         if ((await getDataFromAsyncStorage('wsIsRunning')) === 'true') {
           const msg = await getDataFromAsyncStorage('wsStatusMessage');
           if (msg !== null && msg !== '') {
@@ -798,6 +840,18 @@ export default function App() {
   const [wsPageMessage, setWsPageMessage] = useState('');
 
   // view
+  if (initError[0]) {
+    return (
+      <>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.appTitle}>ClipCascade</Text>
+          <View style={styles.loadingBottomContainer}>
+            <Text style={styles.loadingText}>Init Error: {initError[1]}</Text>
+          </View>
+        </View>
+      </>
+    );
+  }
   return (
     <>
       {/* Loading Page */}
@@ -1024,6 +1078,30 @@ export default function App() {
             {/* Display status message */}
             {wsPageMessage !== '' && (
               <Text style={styles.message}>{wsPageMessage}</Text>
+            )}
+
+            {/* new version display message */}
+            {newVersionAvailable[0] && (
+              <TouchableOpacity
+                onPress={() =>
+                  Linking.openURL(
+                    'https://github.com/Sathvik-Rao/ClipCascade/releases/latest',
+                  )
+                }
+                style={{marginTop: 10}}>
+                <Text
+                  style={[
+                    styles.message,
+                    {
+                      color: '#008080',
+                      fontWeight: 'bold',
+                      textDecorationLine: 'underline',
+                    },
+                  ]}>
+                  New version available! 🚀 Click here to update ({APP_VERSION}{' '}
+                  ➞ {newVersionAvailable[1]})
+                </Text>
+              </TouchableOpacity>
             )}
 
             <View style={{marginTop: 20, paddingHorizontal: 10}}>
