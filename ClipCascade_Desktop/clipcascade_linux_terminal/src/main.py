@@ -23,6 +23,8 @@ from no_gui.login import LoginForm
 from no_gui.info import CustomDialog
 from no_gui.tray import TaskbarPanel
 
+# App version
+APP_VERSION = "0.2.1"
 
 is_locked = False
 lock_file = None
@@ -517,6 +519,28 @@ if __name__ == "__main__":
                     ).decode("utf-8")
                 json.dump(temp, f, indent=4)
 
+        # check for new version
+        new_version_available = [
+            False,
+            "",
+            APP_VERSION,
+        ]  # [is_new_version_available, new_version, current_version]
+        try:
+            response = requests.get(
+                "https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json"
+            )
+            response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
+            response_data = response.json()
+            if response_data["linux_non_gui"] != APP_VERSION:
+                new_version_available = [
+                    True,
+                    response_data["linux_non_gui"],
+                    APP_VERSION,
+                ]
+        except Exception as e:
+            # Silent catch
+            pass
+
         # subscribe(receive)
         subscribe_ws(
             client,
@@ -564,6 +588,7 @@ if __name__ == "__main__":
             ),
             on_disconnect_callback=lambda: disconnect_client(),
             on_logoff_callback=lambda: logoff_and_exit(client, data, DATA_fILE_NAME),
+            new_version_available=new_version_available,
         )
     except Exception as e:
         msg = f"An unexpected error has occurred: {e}"

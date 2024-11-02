@@ -17,6 +17,10 @@ class CustomDialog(tk.Tk):
             )
         )
 
+        # Set dialog to be topmost and focus it
+        self.attributes("-topmost", True)
+        self.focus_force()
+
         if self.msg_type == "success":
             self.show_success()
         elif self.msg_type == "error":
