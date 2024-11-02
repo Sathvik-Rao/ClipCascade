@@ -1,5 +1,6 @@
 import tkinter as tk
 import webbrowser
+import threading
 from tkinter import messagebox
 from pystray import Icon, MenuItem as item, Menu
 from PIL import Image, ImageDraw
@@ -13,10 +14,12 @@ class TaskbarPanel:
         on_connect_callback=None,
         on_disconnect_callback=None,
         on_logoff_callback=None,
+        new_version_available=None,
     ):
         self.on_connect_callback = on_connect_callback
         self.on_disconnect_callback = on_disconnect_callback
         self.on_logoff_callback = on_logoff_callback
+        self.new_version_available = new_version_available
 
         self.root = tk.Tk()
         self.root.withdraw()  # Hide the root window
@@ -53,20 +56,43 @@ class TaskbarPanel:
 
     def create_menu(self):
         # Menu items
+        menu_items = [
+            item("GitHub", self._open_github),
+            item("Logoff and Quit", self._on_logoff),
+            item("Quit", self._on_quit),
+        ]
+
         if not self.is_connected:
-            return Menu(
-                item("Connect", self._on_connect, default=True),
-                item("GitHub", self._open_github),
-                item("Logoff and Quit", self._on_logoff),
-                item("Quit", self._on_quit),
-            )
+            menu_items.insert(0, item("Connect", self._on_connect, default=True))
         else:
-            return Menu(
-                item("Disconnect", self._on_disconnect),
-                item("GitHub", self._open_github),
-                item("Logoff and Quit", self._on_logoff),
-                item("Quit", self._on_quit),
+            menu_items.insert(0, item("Disconnect", self._on_disconnect))
+
+        if self.new_version_available is not None and self.new_version_available[0]:
+            menu_items.insert(
+                0,
+                item(
+                    f"Update ({self.new_version_available[2]} ➞ {self.new_version_available[1]})",
+                    self._on_update,
+                ),
             )
+
+        return Menu(*menu_items)
+
+    def open_webbrowser(self, url):
+        try:
+            webbrowser.open(url)
+        except Exception as e:
+            threading.Thread(
+                target=lambda: CustomDialog(
+                    f"Failed to open the browser. Here is the URL: {url}\nError: {e}",
+                    msg_type="error",
+                ).mainloop()
+            ).start()
+
+    def _on_update(self, icon, item):
+        self.open_webbrowser(
+            "https://github.com/Sathvik-Rao/ClipCascade/releases/latest"
+        )
 
     def _on_connect(self, icon, item):
         if self.on_connect_callback:
@@ -84,7 +110,7 @@ class TaskbarPanel:
             icon.menu = self.create_menu()
 
     def _open_github(self, icon, item):
-        webbrowser.open("https://github.com/Sathvik-Rao/ClipCascade")
+        self.open_webbrowser("https://github.com/Sathvik-Rao/ClipCascade")
 
     def _on_logoff(self, icon, item):
         response = messagebox.askquestion("Logoff", "Are you sure you want to log off?")
@@ -95,9 +121,11 @@ class TaskbarPanel:
                 self.icon.stop()
                 self.root.quit()
             except Exception as e:
-                CustomDialog(
-                    f"An error occurred while logging off: {e}", msg_type="error"
-                ).mainloop()
+                threading.Thread(
+                    target=lambda: CustomDialog(
+                        f"An error occurred while logging off: {e}", msg_type="error"
+                    ).mainloop()
+                ).start()
 
     def _on_quit(self, icon, item):
         self.icon.stop()
