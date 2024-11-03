@@ -2,5 +2,6 @@
     "android"       : "0.2.1",
     "windows"       : "0.2.1",
     "linux_gui"     : "0.2.1",
-    "linux_non_gui" : "0.2.1"
+    "linux_non_gui" : "0.2.1",
+    "macos"         : "0.3.0"
 }
