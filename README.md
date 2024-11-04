@@ -75,8 +75,7 @@ To host ClipCascade on your server, use Docker with the following steps:
 
    services:
      clipcascade:
-       image: sathvikrao/clipcascade:0.1.0    #amd64
-       # image: sathvikrao/clipcascade:0.1.0-multi-arch     #amd64, arm32v7, arm64v8, ppc64le, s390x
+       image: sathvikrao/clipcascade:latest
        ports:
          - "8080:8080"
        restart: always
