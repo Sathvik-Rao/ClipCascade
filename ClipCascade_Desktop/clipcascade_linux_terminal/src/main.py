@@ -24,7 +24,7 @@ from no_gui.info import CustomDialog
 from no_gui.tray import TaskbarPanel
 
 # App version
-APP_VERSION = "0.2.1"
+APP_VERSION = "1.0.0"
 
 is_locked = False
 lock_file = None
@@ -373,8 +373,9 @@ if __name__ == "__main__":
         except IOError:
             is_locked = True
             CustomDialog(
-                "Another instance of ClipCascade is already running.",
-                msg_type="error",
+                "Another instance of ClipCascade is already running. "
+                + "To force it to run again, delete the 'ClipCascade.lock' file in the project directory.",
+                msg_type="warning",
             )
             sys.exit(0)
 

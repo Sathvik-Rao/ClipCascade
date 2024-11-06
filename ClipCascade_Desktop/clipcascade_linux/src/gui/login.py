@@ -107,9 +107,9 @@ class LoginForm(tk.Tk):
     def on_login(self):
         username = self.username_entry.get()
         password = self.password_entry.get()
-        server_url = self.server_url_entry.get()
+        server_url = self.server_url_entry.get().strip()
         server_url = re.sub(r"/+$", "", server_url)
-        websocket_url = self.websocket_url_entry.get()
+        websocket_url = self.websocket_url_entry.get().strip()
         websocket_url = re.sub(r"/+$", "", websocket_url)
         cipher_enabled = self.cipher_var.get()
         notification = self.notification_var.get()
