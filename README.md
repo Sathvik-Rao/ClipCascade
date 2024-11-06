@@ -52,7 +52,7 @@
 
 ## 📸 Screenshots
 
-| 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 🍏 Desktop ([macOS]()) | 🤖📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui)) | 🐧⌨️ Desktop ([Linux_non-GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-terminal-based-application-non-gui)) | 
+| 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 🍏 Desktop ([macOS](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-macos-desktop-application)) | 🤖📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui)) | 🐧⌨️ Desktop ([Linux_non-GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-terminal-based-application-non-gui)) | 
 |-----------------------|--------------------|--------------------|--------------------|--------------------|
 | <img src="https://github.com/user-attachments/assets/a73d18b9-ce0c-4a9e-9190-3a57a07596ce" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/ddaba240-4452-4d49-91e2-0a28b0b2fbe0" alt="Desktop (macOS)" width="360" /> | <img src="https://github.com/user-attachments/assets/bde3a00a-14a6-4c58-bbd4-3b9a723e594f" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/66344289-470b-4183-af6a-cf47097388b8" alt="Desktop (Linux_GUI)" width="360" /> | <img src="https://github.com/user-attachments/assets/6d9c1580-c4c5-4812-82d1-eaa0d395db60" alt="Desktop (Linux_non-GUI)" width="360" /> |
 | <img src="https://github.com/user-attachments/assets/6f2830cc-c552-431e-98c5-dbe1c9d1882d" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/173394db-8aac-4c67-95b7-42efa77a4796" alt="Desktop (macOS)" width="240" /> | <img src="https://github.com/user-attachments/assets/89a7d662-b985-4933-80a9-93dbc9255115" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/a2b941cc-f4df-4993-97d1-e4fe4721726e" alt="Desktop (Linux_GUI)" width="240" /> | <img src="https://github.com/user-attachments/assets/dc4e8ee6-e9a2-4ec7-910e-b9a5f8a03ade" alt="Desktop (Linux_non_GUI)" width="240" /> |
@@ -484,8 +484,17 @@ sudo dnf install dbus-x11
 ## ⚙️ Advanced Details
 
 ### Windows and Linux:
-- Logs are present in the installed path, allowing you to review application activity. These logs reset upon reopening the application, so they don’t grow indefinitely.
+- Logs (`clipcascade_log.log`) are present in the installed path, allowing you to review application activity. These logs reset upon reopening the application, so they don’t grow indefinitely.
 - You can customize advanced settings in the **DATA** file, which is also located in the installed path. This file is generated only after your first login and remains there indefinitely.
+- On Linux, you will see a `ClipCascade.lock` file while the program is running. This file prevents the user from opening multiple instances of ClipCascade.
+
+### macOS
+- Program files are located in `<current user>/Library/Application Support/ClipCascade/`. To open it, click **Program Files**.
+  
+    <img src="https://github.com/user-attachments/assets/7b78e3f7-0bb0-4e64-9752-2834f3d792e1" alt="macOS Program Files" width="140" />  
+- **Logs** (`clipcascade_log.log`): Review application activity. These logs reset upon reopening the application to prevent them from growing indefinitely.
+- You can customize advanced settings in the **DATA** file. This file is generated only after your first login and remains there indefinitely.
+- You will see a `ClipCascade.lock` file while the program is running. This file prevents the user from opening multiple instances of ClipCascade.
 
 ### Android:
 - You can configure advanced settings on the login page by clicking **Enable Extra Config**. 
