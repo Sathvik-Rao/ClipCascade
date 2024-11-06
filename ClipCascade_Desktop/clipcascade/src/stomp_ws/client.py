@@ -56,6 +56,12 @@ class Client:
         logging.debug(error)
 
     def _on_message(self, ws_app, message, *args):
+        if message == "\n":  # If message is a newline, it's a heartbeat frame
+            logging.debug("Received heartbeat frame")
+            self.ws.send("\n")  # Send a heartbeat back to the server
+            logging.debug("Sent heartbeat frame")
+            return
+
         logging.debug("\n<<< " + str(message))
         frame = Frame.unmarshall_single(message)
         _results = []
