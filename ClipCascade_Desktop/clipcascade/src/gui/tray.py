@@ -1,7 +1,6 @@
 import tkinter as tk
 import webbrowser
 import threading
-from tkinter import messagebox
 from pystray import Icon, MenuItem as item, Menu
 from PIL import Image, ImageDraw
 
@@ -113,19 +112,17 @@ class TaskbarPanel:
         self.open_webbrowser("https://github.com/Sathvik-Rao/ClipCascade")
 
     def _on_logoff(self, icon, item):
-        response = messagebox.askquestion("Logoff", "Are you sure you want to log off?")
-        if response == "yes":
-            try:
-                if self.on_logoff_callback:
-                    self.on_logoff_callback()
-                self.icon.stop()
-                self.root.quit()
-            except Exception as e:
-                threading.Thread(
-                    target=lambda: CustomDialog(
-                        f"An error occurred while logging off: {e}", msg_type="error"
-                    ).mainloop()
-                ).start()
+        try:
+            if self.on_logoff_callback:
+                self.on_logoff_callback()
+            self.icon.stop()
+            self.root.quit()
+        except Exception as e:
+            threading.Thread(
+                target=lambda: CustomDialog(
+                    f"An error occurred while logging off: {e}", msg_type="error"
+                ).mainloop()
+            ).start()
 
     def _on_quit(self, icon, item):
         self.icon.stop()
