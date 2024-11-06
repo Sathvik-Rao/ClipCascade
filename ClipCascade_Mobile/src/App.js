@@ -49,7 +49,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'; // persist
  */
 
 // App version
-const APP_VERSION = '0.2.1';
+const APP_VERSION = '1.0.0';
 
 // Main App
 export default function App() {
@@ -874,6 +874,7 @@ export default function App() {
               style={styles.input}
               value={data.username}
               onChangeText={text => handleInputChange('username', text)}
+              autoCapitalize="none"
             />
           </View>
           <View style={styles.row}>
@@ -883,6 +884,7 @@ export default function App() {
               value={password}
               onChangeText={text => setPassword(text)}
               secureTextEntry
+              autoCapitalize="none"
             />
           </View>
           <View style={styles.row}>
@@ -890,7 +892,10 @@ export default function App() {
             <TextInput
               style={styles.input}
               value={data.server_url}
-              onChangeText={text => handleInputChange('server_url', text)}
+              onChangeText={text =>
+                handleInputChange('server_url', text.trim())
+              }
+              autoCapitalize="none"
             />
           </View>
           <View style={styles.row}>
@@ -898,7 +903,10 @@ export default function App() {
             <TextInput
               style={styles.input}
               value={data.websocket_url}
-              onChangeText={text => handleInputChange('websocket_url', text)}
+              onChangeText={text =>
+                handleInputChange('websocket_url', text.trim())
+              }
+              autoCapitalize="none"
             />
           </View>
           <View style={styles.row}>
@@ -942,8 +950,9 @@ export default function App() {
                   style={styles.input}
                   value={data.subscription_destination}
                   onChangeText={text =>
-                    handleInputChange('subscription_destination', text)
+                    handleInputChange('subscription_destination', text.trim())
                   }
+                  autoCapitalize="none"
                 />
               </View>
               <View style={styles.row}>
@@ -952,8 +961,9 @@ export default function App() {
                   style={styles.input}
                   value={data.send_destination}
                   onChangeText={text =>
-                    handleInputChange('send_destination', text)
+                    handleInputChange('send_destination', text.trim())
                   }
+                  autoCapitalize="none"
                 />
               </View>
               <View style={styles.row}>
@@ -964,7 +974,7 @@ export default function App() {
                   onChangeText={text =>
                     handleInputChange(
                       'hash_rounds',
-                      isNaN(Number(text)) ? data.hash_rounds : text,
+                      isNaN(Number(text)) ? data.hash_rounds : text.trim(),
                     )
                   }
                 />
@@ -975,6 +985,7 @@ export default function App() {
                   style={styles.input}
                   value={data.salt}
                   onChangeText={text => handleInputChange('salt', text)}
+                  autoCapitalize="none"
                 />
               </View>
               <View style={styles.row}>
@@ -982,7 +993,10 @@ export default function App() {
                 <TextInput
                   style={styles.input}
                   value={data.login_url}
-                  onChangeText={text => handleInputChange('login_url', text)}
+                  onChangeText={text =>
+                    handleInputChange('login_url', text.trim())
+                  }
+                  autoCapitalize="none"
                 />
               </View>
               <View style={styles.row}>
@@ -990,7 +1004,10 @@ export default function App() {
                 <TextInput
                   style={styles.input}
                   value={data.logout_url}
-                  onChangeText={text => handleInputChange('logout_url', text)}
+                  onChangeText={text =>
+                    handleInputChange('logout_url', text.trim())
+                  }
+                  autoCapitalize="none"
                 />
               </View>
               <View style={styles.row}>
@@ -998,7 +1015,10 @@ export default function App() {
                 <TextInput
                   style={styles.input}
                   value={data.maxsize_url}
-                  onChangeText={text => handleInputChange('maxsize_url', text)}
+                  onChangeText={text =>
+                    handleInputChange('maxsize_url', text.trim())
+                  }
+                  autoCapitalize="none"
                 />
               </View>
               <View style={styles.row}>
@@ -1024,7 +1044,7 @@ export default function App() {
                       'max_clipboard_size_local_limit_bytes',
                       isNaN(Number(text))
                         ? data.max_clipboard_size_local_limit_bytes
-                        : text,
+                        : text.trim(),
                     )
                   }
                 />
