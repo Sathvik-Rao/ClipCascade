@@ -166,22 +166,20 @@ To install the macOS desktop application, download the latest version from the [
 4. You will find the **ClipCascade** application inside. You can move this application to any location you prefer on your system.
 
 5. **First-time launch (see note below for more information)**:
-   - **Right-click** on the **ClipCascade** application and select **Open**.
+   - **Right-click** (not double-click) on the **ClipCascade** application and select **Open**.
      
         <img src="https://github.com/user-attachments/assets/90b58940-69ed-4d35-a22d-1aa9988c014c" alt="ClipCascade->RightClick->Open" width="500" />
-   - If you encounter the warning *"Apple is not able to verify that this is free..."*, click **Open Anyway** or **Open**. ([Apple Guide](https://support.apple.com/en-us/102445))
-
-       <img src="https://github.com/user-attachments/assets/41bde005-537a-4950-bfe7-d55c9e767b15" alt="Apple Warning" width="150" />
-       <img src="https://github.com/user-attachments/assets/4803a2ba-acdf-41d9-a707-a8f22de12855" alt="Apple Warning" width="150" />
    - If you encounter the warning *"Apple could not verify 'ClipCascade' is free..."*, click **Done** or **Ok**. ([Apple Guide](https://support.apple.com/en-us/102445))
   
 
        <img src="https://github.com/user-attachments/assets/986c3aef-28cf-4293-8ec8-180508d7e172" alt="Apple Warning" width="150" />
        <img src="https://github.com/user-attachments/assets/8c604467-6dee-4977-8e3e-6473201e0e32" alt="Apple Warning" width="150" />
        
-       - Go to **System Preferences** > **Security & Privacy** > Click **Open Anyway**, and when you re-run the application warning prompt reappears one last time, click **Open**.
+       - Go to **System Preferences** > **Security & Privacy** > Click **Open Anyway** (if you see the option), and when you re-run(right click->open) the application warning prompt reappears one last time, click **Open Anyway** or **Open**.  ([Apple Guide](https://support.apple.com/en-us/102445))
          
            <img src="https://github.com/user-attachments/assets/b6f41164-f73d-4e77-a110-b175a22057c6" alt="settings->security->open_anyway" width="250" />
+           <img src="https://github.com/user-attachments/assets/41bde005-537a-4950-bfe7-d55c9e767b15" alt="Apple Warning" width="150" />
+           <img src="https://github.com/user-attachments/assets/4803a2ba-acdf-41d9-a707-a8f22de12855" alt="Apple Warning" width="150" />
 
 6. **Wait for the app to launch**: When you open the application, macOS will scan the application. This may take **10–30 seconds**.
 
