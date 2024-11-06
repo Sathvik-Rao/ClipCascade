@@ -538,9 +538,11 @@ ClipCascade is licensed under the GNU General Public License v3.0 (GPL-3.0). See
 ## 🛠️ TODO
 
 Here are some planned features and improvements for future releases of ClipCascade:
-- **Apple macOS and iOS Support:** Develop and release versions of ClipCascade for macOS and iOS to enhance cross-platform accessibility.
-- **Windows Publishing:** Publish the Windows application to improve accessibility.
-- **Android on Play Store:** Release the Android application on the Google Play Store for easier installation and updates.
+- **iOS Support:** Develop and release a version of ClipCascade for iOS.  
+- **Multiuser Support:** Implement multiuser functionality for a single instance, allowing multiple users to sync clipboards independently.  (For now, create separate instances for each user.)  
+- **OIDC/OAuth Authentication:** Integrate OpenID Connect (OIDC) and OAuth authentication for user login and management.  
+- **Clipboard Data Storage:** Implement secure storage for clipboard data to store and access it later.  
+- **Image and File Support:** Enable clipboard syncing for images and files, in addition to text data.
 
 ## 💬 Support
 
