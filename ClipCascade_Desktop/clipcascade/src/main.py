@@ -23,7 +23,7 @@ from gui.tray import TaskbarPanel
 from plyer import notification
 
 # App version
-APP_VERSION = "0.2.1"
+APP_VERSION = "1.0.0"
 
 client = None
 
@@ -369,8 +369,7 @@ if __name__ == "__main__":
         if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
             CustomDialog(
                 "Another instance of ClipCascade is already running.",
-                msg_type="error",
-                timeout=3000,
+                msg_type="warning",
             ).mainloop()
             sys.exit(0)
 

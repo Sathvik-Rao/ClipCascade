@@ -1,9 +1,12 @@
 package com.acme.ClipCascade.config;
 
+import org.springframework.lang.NonNull;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
@@ -17,14 +20,23 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private int MAX_MESSAGE_SIZE_IN_MiB;
 
     @Override
-    public void configureMessageBroker(@SuppressWarnings("null") MessageBrokerRegistry config) {
+    public void configureMessageBroker(@NonNull MessageBrokerRegistry config) {
         config.setApplicationDestinationPrefixes("/app");
-        config.enableSimpleBroker("/topic");
+        config.enableSimpleBroker("/topic").setHeartbeatValue(new long[] { 20000, 0 })
+                .setTaskScheduler(heartbeatTaskScheduler());
     }
 
     @Override
-    public void registerStompEndpoints(@SuppressWarnings("null") StompEndpointRegistry registry) {
+    public void registerStompEndpoints(@NonNull StompEndpointRegistry registry) {
         registry.addEndpoint("/clipsocket").setAllowedOrigins("*");
+    }
+
+    @Bean
+    public TaskScheduler heartbeatTaskScheduler() {
+        ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
+        taskScheduler.setPoolSize(1);
+        taskScheduler.setThreadNamePrefix("WebSocketHeartbeat-");
+        return taskScheduler;
     }
 
     // WebSocket settings

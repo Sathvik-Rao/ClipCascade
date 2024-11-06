@@ -8,6 +8,7 @@
   <tr>
     <th>Docker</th>
     <th>Windows</th>
+    <th>macOS</th>
     <th>Android</th>
     <th>Linux</th>
   </tr>
@@ -20,6 +21,11 @@
     <td>
       <a href="https://github.com/Sathvik-Rao/ClipCascade/releases">
         <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Windows_logo_-_2012.svg/512px-Windows_logo_-_2012.svg.png" alt="Windows" width="50" />
+      </a>
+    </td>
+    <td>
+      <a href="https://github.com/Sathvik-Rao/ClipCascade/releases">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/1/1b/Apple_logo_grey.svg" alt="macOS" width="40" />
       </a>
     </td>
     <td>
@@ -46,10 +52,10 @@
 
 ## 📸 Screenshots
 
-| 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui)) | 🐧⌨️ Desktop ([Linux_non-GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-terminal-based-application-non-gui)) | 
-|-----------------------|--------------------|--------------------|--------------------|
-| <img src="https://github.com/user-attachments/assets/a73d18b9-ce0c-4a9e-9190-3a57a07596ce" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/bde3a00a-14a6-4c58-bbd4-3b9a723e594f" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/66344289-470b-4183-af6a-cf47097388b8" alt="Desktop (Linux_GUI)" width="360" /> | <img src="https://github.com/user-attachments/assets/6d9c1580-c4c5-4812-82d1-eaa0d395db60" alt="Desktop (Linux_non-GUI)" width="360" /> |
-| <img src="https://github.com/user-attachments/assets/6f2830cc-c552-431e-98c5-dbe1c9d1882d" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/89a7d662-b985-4933-80a9-93dbc9255115" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/a2b941cc-f4df-4993-97d1-e4fe4721726e" alt="Desktop (Linux_GUI)" width="240" /> | <img src="https://github.com/user-attachments/assets/dc4e8ee6-e9a2-4ec7-910e-b9a5f8a03ade" alt="Desktop (Linux_non_GUI)" width="240" /> |
+| 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 🍏 Desktop ([macOS](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-macos-desktop-application)) | 🤖📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui)) | 🐧⌨️ Desktop ([Linux_non-GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-terminal-based-application-non-gui)) | 
+|-----------------------|--------------------|--------------------|--------------------|--------------------|
+| <img src="https://github.com/user-attachments/assets/a73d18b9-ce0c-4a9e-9190-3a57a07596ce" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/ddaba240-4452-4d49-91e2-0a28b0b2fbe0" alt="Desktop (macOS)" width="360" /> | <img src="https://github.com/user-attachments/assets/bde3a00a-14a6-4c58-bbd4-3b9a723e594f" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/66344289-470b-4183-af6a-cf47097388b8" alt="Desktop (Linux_GUI)" width="360" /> | <img src="https://github.com/user-attachments/assets/6d9c1580-c4c5-4812-82d1-eaa0d395db60" alt="Desktop (Linux_non-GUI)" width="360" /> |
+| <img src="https://github.com/user-attachments/assets/6f2830cc-c552-431e-98c5-dbe1c9d1882d" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/173394db-8aac-4c67-95b7-42efa77a4796" alt="Desktop (macOS)" width="240" /> | <img src="https://github.com/user-attachments/assets/89a7d662-b985-4933-80a9-93dbc9255115" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/a2b941cc-f4df-4993-97d1-e4fe4721726e" alt="Desktop (Linux_GUI)" width="240" /> | <img src="https://github.com/user-attachments/assets/dc4e8ee6-e9a2-4ec7-910e-b9a5f8a03ade" alt="Desktop (Linux_non_GUI)" width="240" /> |
 
 
 ## ✨ Features
@@ -62,6 +68,7 @@
 - **🛡️ Privacy by Encryption:** Your clipboard data is end-to-end encrypted, ensuring that only you can access it.
 - **🌐 Web-Based Monitoring:** Monitor your clipboard activity in real-time via a sleek web interface.
 - **⚙️ Advanced Settings:** Customize your clipboard sync experience with additional settings for fine-tuning performance.
+- **🔔 Update Notifications:** Stay informed with timely update notifications across all platforms, keeping your app up to date with the latest features and security enhancements.
 
 ## 📥 Installation
 
@@ -136,12 +143,62 @@ To install the Windows desktop application, download the latest version from the
    - If encryption is enabled, please ensure it is enabled on all devices.
 
 
-**Important Note:** Since the application is not published or registered with Microsoft, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning or temporarily disable your antivirus during installation. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort!
+**Important Note:** Since the application is not published or registered with Microsoft, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning or temporarily disable your antivirus during installation. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Microsoft requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
 
 The `.exe` file does not need UAC approval because it is standalone executable, while the `.msi` installer will request UAC permissions because it creates a designated folder for the software, adds a startup option, and allows for uninstallation via the Control Panel. Additionally, with the .msi installer, you have the option to choose any location to save the software. However, select locations where even when you create a file manually at that location, Windows shouldn’t prompt for permission to answer "yes or no" questions.
 
 
-### 🤖 Android Mobile Application:
+### 🍏 macOS Desktop Application:
+
+To install the macOS desktop application, download the latest version from the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases).
+
+1. **Download** the appropriate version:
+   - For M-series chips, download `ClipCascade-Apple_macOS(ARM_M-Series).zip`.
+   - For Intel chips, download `ClipCascade-Apple_macOS(Intel-Series).zip`.
+
+   You can check your chip type by going to **About This Mac**.
+   
+2. **Extract** the contents:
+   - Double-click on the `.zip` file to extract the files.
+
+3. **Navigate** to the extracted folder.
+
+4. You will find the **ClipCascade** application inside. You can move this application to any location you prefer on your system.
+
+5. **First-time launch (see note below for more information)**:
+   - **Right-click** (not double-click) on the **ClipCascade** application and select **Open**.
+     
+        <img src="https://github.com/user-attachments/assets/90b58940-69ed-4d35-a22d-1aa9988c014c" alt="ClipCascade->RightClick->Open" width="500" />
+   - If you encounter the warning *"Apple could not verify 'ClipCascade' is free..."*, click **Done** or **Ok**. ([Apple Guide](https://support.apple.com/en-us/102445))
+  
+
+       <img src="https://github.com/user-attachments/assets/986c3aef-28cf-4293-8ec8-180508d7e172" alt="Apple Warning" width="150" />
+       <img src="https://github.com/user-attachments/assets/8c604467-6dee-4977-8e3e-6473201e0e32" alt="Apple Warning" width="150" />
+       
+       - Go to **System Preferences** > **Security & Privacy** > Click **Open Anyway** (if you see the option), and when you re-run(right click->open) the application warning prompt reappears one last time, click **Open Anyway** or **Open**.  ([Apple Guide](https://support.apple.com/en-us/102445))
+         
+           <img src="https://github.com/user-attachments/assets/b6f41164-f73d-4e77-a110-b175a22057c6" alt="settings->security->open_anyway" width="250" />
+           <img src="https://github.com/user-attachments/assets/41bde005-537a-4950-bfe7-d55c9e767b15" alt="Apple Warning" width="150" />
+           <img src="https://github.com/user-attachments/assets/4803a2ba-acdf-41d9-a707-a8f22de12855" alt="Apple Warning" width="150" />
+
+6. **Wait for the app to launch**: When you open the application, macOS will scan the application. This may take **10–30 seconds**.
+
+7. **Connect to the server**:
+   - When prompted, enter the server IP and port, appending `/clipsocket` for the WebSocket connection (e.g., `ws://<server_ip>:<server_port>/clipsocket`).
+   - If encryption is enabled, ensure it is enabled on all devices.
+
+8. Once logged in, the application will run in the **menu bar** with a clipboard icon at the top of your screen.
+
+9. **Set ClipCascade to start on login (Startup)**:
+    - Right-click the **ClipCascade** icon in the dock (bottom of the screen).
+    - Select **Options** and then check **Open at Login**.
+
+       <img src="https://github.com/user-attachments/assets/cadeb680-d1fd-4582-9d20-b41ba8713b39" alt="Startup" width="200" />
+
+**Important Note:** Since the application is not published or registered with Apple, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Apple requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
+
+
+### 🤖📱 Android Mobile Application:
 
 To install the mobile application on your Android device, download the latest APK from the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases).
 
@@ -425,8 +482,17 @@ sudo dnf install dbus-x11
 ## ⚙️ Advanced Details
 
 ### Windows and Linux:
-- Logs are present in the installed path, allowing you to review application activity. These logs reset upon reopening the application, so they don’t grow indefinitely.
+- Logs (`clipcascade_log.log`) are present in the installed path, allowing you to review application activity. These logs reset upon reopening the application, so they don’t grow indefinitely.
 - You can customize advanced settings in the **DATA** file, which is also located in the installed path. This file is generated only after your first login and remains there indefinitely.
+- On Linux, you will see a `ClipCascade.lock` file while the program is running. This file prevents the user from opening multiple instances of ClipCascade.
+
+### macOS
+- Program files are located in `<current user>/Library/Application Support/ClipCascade/`. To open it, click **Program Files**.
+  
+    <img src="https://github.com/user-attachments/assets/7b78e3f7-0bb0-4e64-9752-2834f3d792e1" alt="macOS Program Files" width="140" />  
+- **Logs** (`clipcascade_log.log`): Review application activity. These logs reset upon reopening the application to prevent them from growing indefinitely.
+- You can customize advanced settings in the **DATA** file. This file is generated only after your first login and remains there indefinitely.
+- You will see a `ClipCascade.lock` file while the program is running. This file prevents the user from opening multiple instances of ClipCascade.
 
 ### Android:
 - You can configure advanced settings on the login page by clicking **Enable Extra Config**. 
@@ -470,9 +536,11 @@ ClipCascade is licensed under the GNU General Public License v3.0 (GPL-3.0). See
 ## 🛠️ TODO
 
 Here are some planned features and improvements for future releases of ClipCascade:
-- **Apple macOS and iOS Support:** Develop and release versions of ClipCascade for macOS and iOS to enhance cross-platform accessibility.
-- **Windows Publishing:** Publish the Windows application to improve accessibility.
-- **Android on Play Store:** Release the Android application on the Google Play Store for easier installation and updates.
+- **iOS Support:** Develop and release a version of ClipCascade for iOS.  
+- **Multiuser Support:** Implement multiuser functionality for a single instance, allowing multiple users to sync clipboards independently.  (For now, create separate instances for each user.)  
+- **OIDC/OAuth Authentication:** Integrate OpenID Connect (OIDC) and OAuth authentication for user login and management.  
+- **Clipboard Data Storage:** Implement secure storage for clipboard data to store and access it later.  
+- **Image and File Support:** Enable clipboard syncing for images and files, in addition to text data.
 
 ## 💬 Support
 
