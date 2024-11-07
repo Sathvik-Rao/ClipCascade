@@ -510,6 +510,8 @@ In the desktop application, you can find these fields in the **DATA** file locat
 
 Before making any changes, ensure you log out and exit the application. After editing the `hash_rounds` or `salt` fields, log back in for the changes to take effect.
 
+<img src="https://github.com/user-attachments/assets/008ba861-5d91-4044-badf-43fa425366b8" alt="e2e" />
+
 ## ⇄ Reverse Proxy Setup
 
 Here is a screenshot showing how to set up a reverse proxy using **Cloudflare Tunnels**. You can apply a similar approach with other providers as well.
