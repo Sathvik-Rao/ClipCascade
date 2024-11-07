@@ -3,5 +3,5 @@
     "windows"       : "1.0.0",
     "linux_gui"     : "1.0.0",
     "linux_non_gui" : "1.0.0",
-    "macos"         : "1.0.0"
+    "macos"         : "1.0.1"
 }
