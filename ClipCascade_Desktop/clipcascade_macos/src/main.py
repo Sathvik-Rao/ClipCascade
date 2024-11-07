@@ -23,7 +23,7 @@ from gui.tray import TaskbarPanel
 from tkinter import messagebox
 
 # App version
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 is_locked = False
 lock_file = None

@@ -1,3 +1,4 @@
+certifi
 pyobjus==1.2.3
 pasteboard==0.4.0
 Pillow==11.0.0

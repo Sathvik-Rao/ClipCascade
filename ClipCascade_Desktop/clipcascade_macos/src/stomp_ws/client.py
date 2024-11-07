@@ -1,4 +1,6 @@
 import time
+import ssl
+import certifi
 from threading import Thread
 
 from .frame import Frame
@@ -31,7 +33,10 @@ class Client:
         self.errorCallback = None
 
     def _connect(self, timeout=0):
-        thread = Thread(target=self.ws.run_forever)
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        thread = Thread(
+            target=lambda: self.ws.run_forever(sslopt={"context": ssl_context})
+        )
         thread.daemon = True
         thread.start()
 
