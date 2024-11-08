@@ -240,7 +240,7 @@ Before proceeding, make sure ADB is installed on your system. Follow the instruc
 
 After executing three ADB commands, when you click the **Start** button, you will see a pop-up message. Click **"Allow."**
 
-<img src="https://github.com/user-attachments/assets/0d3649d7-1e57-448c-ade9-10641191402d" width="350" />
+<img src="https://github.com/user-attachments/assets/0d3649d7-1e57-448c-ade9-10641191402d" width="250" />
 
 ### 🐧🖱️ Linux Desktop Application (GUI):
 
@@ -528,7 +528,7 @@ Here is a screenshot showing how to set up a reverse proxy using **Cloudflare Tu
 
 ## 🌍 Contributing
 
-Contributions are welcome! Whether it's a feature request or a pull request, your input helps improve ClipCascade.
+Contributions are always welcome! Whether it's a feature request or a pull request, your input helps make ClipCascade even better.
 
 ## 📜 License
 
@@ -538,7 +538,10 @@ ClipCascade is licensed under the GNU General Public License v3.0 (GPL-3.0). See
 ## 🛠️ TODO
 
 Here are some planned features and improvements for future releases of ClipCascade:
-- **iOS Support:** Develop and release a version of ClipCascade for iOS.  
+
+🗳️ **Poll for Prioritization**: Cast your vote to prioritize features [here](https://github.com/Sathvik-Rao/ClipCascade/discussions/25).
+
+- **iOS Support:** Develop a version of ClipCascade for iOS.  
 - **Multiuser Support:** Implement multiuser functionality for a single instance, allowing multiple users to sync clipboards independently.  (For now, create separate instances for each user.)  
 - **OIDC/OAuth Authentication:** Integrate OpenID Connect (OIDC) and OAuth authentication for user login and management.  
 - **Clipboard Data Storage:** Implement secure storage for clipboard data to store and access it later.  
@@ -546,5 +549,5 @@ Here are some planned features and improvements for future releases of ClipCasca
 
 ## 💬 Support
 
-If you encounter any issues or have questions, feel free to open an issue on GitHub or contact me via [email](mailto:sathvik.poladi@gmail.com).
+If you have any issues or questions, feel free to open an issue on GitHub, start a discussion, or reach out to me via [email](mailto:sathvik.poladi@gmail.com).
 
