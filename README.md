@@ -62,7 +62,7 @@
 
 - **🔒 Secure Login Authentication:** Your data is safe. Login authentication ensures that only authorized users can access the clipboard sync.
 - **🚀 Live Sync:** Clipboard content syncs across your devices instantly, without needing any key press—just copy, and it's there!
-- **💻 Desktop Application:** A native desktop application for Windows and Linux, offering effortless setup and user-friendly operation.
+- **💻 Desktop Application:** A native desktop application for Windows, macOS and Linux, offering effortless setup and user-friendly operation.
 - **📱 Mobile Application:** Access your clipboard sync seamlessly on Android devices with a dedicated mobile app.
 - **📦 Self-Hosted Docker Image:** Host your own instance of ClipCascade effortlessly using the provided Docker image.
 - **🛡️ Privacy by Encryption:** Your clipboard data is end-to-end encrypted, ensuring that only you can access it.
@@ -240,7 +240,18 @@ Before proceeding, make sure ADB is installed on your system. Follow the instruc
 
 After executing three ADB commands, when you click the **Start** button, you will see a pop-up message. Click **"Allow."**
 
-<img src="https://github.com/user-attachments/assets/0d3649d7-1e57-448c-ade9-10641191402d" width="250" />
+<img src="https://github.com/user-attachments/assets/0d3649d7-1e57-448c-ade9-10641191402d" alt="allow_log_monitoring" width="250" />
+
+#### Samsung Users:
+If automatic clipboard monitoring doesn't work after executing the ADB commands, it may be due to **Secure Folder** being enabled, which prevents any ADB commands from executing.
+
+Refer to the resolved issue here: [GitHub Issue #6 - Comment](https://github.com/Sathvik-Rao/ClipCascade/issues/6#issuecomment-2395527817).
+
+##### Solution:
+1. Remove the Secure Folder.
+2. Reboot your device.
+3. Re-run the three ADB commands.
+
 
 ### 🐧🖱️ Linux Desktop Application (GUI):
 
@@ -541,7 +552,7 @@ Here are some planned features and improvements for future releases of ClipCasca
 
 🗳️ **Poll for Prioritization**: Cast your vote to prioritize features [here](https://github.com/Sathvik-Rao/ClipCascade/discussions/25).
 
-- **iOS Support:** Develop a version of ClipCascade for iOS.  
+- **iOS Support:** Develop and Release a version of ClipCascade for iOS.  
 - **Multiuser Support:** Implement multiuser functionality for a single instance, allowing multiple users to sync clipboards independently.  (For now, create separate instances for each user.)  
 - **OIDC/OAuth Authentication:** Integrate OpenID Connect (OIDC) and OAuth authentication for user login and management.  
 - **Clipboard Data Storage:** Implement secure storage for clipboard data to store and access it later.  
