@@ -224,7 +224,7 @@ Before proceeding, make sure ADB is installed on your system. Follow the instruc
    adb -d shell pm grant com.clipcascade android.permission.READ_LOGS
    ```
 
-2. **Allow "Drawing over other apps":**
+2. **Allow "Display/Drawing over other apps," "Screen overlay," or "Appear on top":**
    This permission can also be enabled from the device's Settings. To set it via ADB, use:
    ```bash
    adb -d shell appops set com.clipcascade SYSTEM_ALERT_WINDOW allow
@@ -241,16 +241,6 @@ Before proceeding, make sure ADB is installed on your system. Follow the instruc
 After executing three ADB commands, when you click the **Start** button, you will see a pop-up message. Click **"Allow."**
 
 <img src="https://github.com/user-attachments/assets/0d3649d7-1e57-448c-ade9-10641191402d" alt="allow_log_monitoring" width="250" />
-
-#### Samsung Users:
-If automatic clipboard monitoring doesn't work after executing the ADB commands, it may be due to **Secure Folder** being enabled, which prevents any ADB commands from executing.
-
-Refer to the resolved issue here: [GitHub Issue #6 - Comment](https://github.com/Sathvik-Rao/ClipCascade/issues/6#issuecomment-2395527817).
-
-##### Solution:
-1. Remove the Secure Folder.
-2. Reboot your device.
-3. Re-run the three ADB commands.
 
 
 ### 🐧🖱️ Linux Desktop Application (GUI):
