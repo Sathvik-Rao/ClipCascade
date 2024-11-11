@@ -24,7 +24,7 @@ from no_gui.info import CustomDialog
 from no_gui.tray import TaskbarPanel
 
 # App version
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 is_locked = False
 lock_file = None
@@ -232,15 +232,21 @@ def stomp_receive(
             previous_clipboard_hash = current_clipboard_hash
             try:
                 pyperclip.copy(text)
-            except Exception as e:
-                logging.warning(f"Failed to copy to clipboard using pyperclip: {e}")
-                process = subprocess.Popen(
-                    ["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE
+            except Exception as e1:
+                logging.warning(
+                    f"Failed to copy to clipboard using pyperclip: {e1}. Switching to xclip."
                 )
-                process.communicate(input=text.encode())
-                logging.info(
-                    "xclip has successfully copied the clipboard content as a failsafe."
-                )
+                try:
+                    process = subprocess.Popen(
+                        ["xclip", "-selection", "clipboard"],
+                        stdin=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    output, error = process.communicate(input=text.encode())
+                    if process.returncode != 0:  # Failed
+                        logging.error(f"xclip standard error: {error.decode()}")
+                except Exception as e2:
+                    logging.error(f"Failed to copy to clipboard using xclip: {e2}")
     except Exception as e:
         logging.error(f"Failed to process received clipboard data: {e}")
         logging.error(
