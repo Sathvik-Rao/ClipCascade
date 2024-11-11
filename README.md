@@ -425,6 +425,7 @@ sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-we
 
 
 #### Step 3: Install Gtk 3.0 for Clipboard Sharing
+If you encounter difficulties or errors while performing Step 3, you can skip it and proceed to Step 4.
 
 ##### Arch:
 ```
@@ -448,8 +449,10 @@ Start ClipCascade by running:
 sudo python3 main.py
 ```
 
+#### Step 4.1:  Fix 'Error: Can't open display: :1 - Authorization required, but no authorization protocol specified' Error (if applicable)
+Run `python3 main.py` without using `sudo`
 
-#### Step 4.1: Fix 'No module named `Crypto`' Error (if applicable)
+#### Step 4.2: Fix 'No module named `Crypto`' Error (if applicable)
 
 If you encounter the `No module named 'Crypto'` error, create a symbolic link for the Cryptodome library:
 [see more](https://github.com/openthread/openthread/issues/1137#issuecomment-140879139)
@@ -465,7 +468,7 @@ sudo ln -s /usr/lib/python3/dist-packages/Cryptodome /usr/lib/python3/dist-packa
 sudo ln -s /usr/lib/python3/site-packages/Cryptodome /usr/lib/python3/site-packages/Crypto
 ```
 
-#### Step 4.2:  Fix '`g-exec-error-quark`' Error (if applicable)
+#### Step 4.3:  Fix '`g-exec-error-quark`' Error (if applicable)
 
 ##### Debian/Ubuntu:
 ```
