@@ -14,7 +14,6 @@ import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.concurrent.thread
 import java.io.BufferedReader
 import java.io.InputStreamReader
 

@@ -123,7 +123,7 @@ class ClipboardFloatingActivity : AppCompatActivity() {
     companion object {
         fun getIntent(context: Context): Intent {
             return Intent(context.applicationContext, ClipboardFloatingActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
             }
         }
     }
