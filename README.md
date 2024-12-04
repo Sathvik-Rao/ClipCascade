@@ -142,6 +142,7 @@ To install the Windows desktop application, download the latest version from the
    - When prompted for the server connection, use the server IP and port, appending `/clipsocket` for the WebSocket connection (e.g., `ws://<server_ip>:<server_port>/clipsocket`).
    - If encryption is enabled, please ensure it is enabled on all devices.
 
+[Check Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
 
 **Important Note:** Since the application is not published or registered with Microsoft, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning or temporarily disable your antivirus during installation. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Microsoft requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
 
@@ -195,6 +196,8 @@ To install the macOS desktop application, download the latest version from the [
 
        <img src="https://github.com/user-attachments/assets/cadeb680-d1fd-4582-9d20-b41ba8713b39" alt="Startup" width="200" />
 
+[Check Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
+
 **Important Note:** Since the application is not published or registered with Apple, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Apple requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
 
 
@@ -208,6 +211,8 @@ To install the mobile application on your Android device, download the latest AP
 4. **Open** ClipCascade and log in to begin syncing your clipboard across devices.
    - When prompted for the server connection, use the server IP and port, appending `/clipsocket` for the WebSocket connection (e.g., `ws://<server_ip>:<server_port>/clipsocket`).
    - If encryption is enabled, please ensure it is enabled on all devices.
+
+[Check Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
 
 #### Android Automatic Clipboard Monitoring Setup:
 
@@ -371,6 +376,8 @@ To ensure ClipCascade starts automatically when your system boots, modify the pa
 cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
 ```
 
+[Check Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
+
 > **Note:** If clipboard monitoring doesn't work without \`sudo\`, ensure you are running the application with elevated privileges.
 
 
@@ -480,6 +487,8 @@ sudo apt install dbus-x11
 sudo dnf install dbus-x11
 ```
 
+[Check Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
+
 > **Note:** If clipboard monitoring doesn't work without \`sudo\`, ensure you are running the application with elevated privileges.
 
 
@@ -503,6 +512,7 @@ sudo dnf install dbus-x11
   - The main options include:
     - **Store Password Locally:** Enable this option if you are frequently getting logged out. The app stores the session cookie for an extended period, but due to the variety of devices used worldwide, exceptions may occur. This option can be very useful.
     - **Maximum Clipboard Size Local Limit:** If the app crashes or stops unexpectedly, it means it received a clipboard size greater than the platform's maximum limit. You can specify a local size limit by typing in the size in bytes (e.g., 512 KiB = 524288 bytes) to test different limits that work for your device. This local limit is in addition to the server-specified limit, ensuring smoother operation without crashes.
+    - **Run on System Startup:** Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
 
 ### End-to-End Encryption Configuration for Clipboard Data:
 
