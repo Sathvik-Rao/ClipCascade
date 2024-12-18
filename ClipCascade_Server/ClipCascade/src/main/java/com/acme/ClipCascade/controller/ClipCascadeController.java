@@ -16,8 +16,11 @@ public class ClipCascadeController {
 
     @MessageMapping("/cliptext")
     @SendTo("/topic/cliptext")
-    public ClipText broadcast(ClipText text) {
-        return new ClipText(text.getText());
+    public ClipText broadcast(ClipText ct) {
+        if (ct.getType() == null) {
+            ct.setType("text");
+        }
+        return new ClipText(ct.getText(), ct.getType());
     }
 
     @GetMapping("/max-size")

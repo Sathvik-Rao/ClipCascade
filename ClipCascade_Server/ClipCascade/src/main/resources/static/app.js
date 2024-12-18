@@ -29,7 +29,7 @@ function connect() {
     console.log("Connected: " + frame);
     showStatusMessage("Connected to WebSocket server.", "success");
     stompClient.subscribe("/topic/cliptext", (res) => {
-      showMessage(JSON.parse(res.body).text);
+      showMessage(JSON.parse(res.body));
     });
   };
 
@@ -80,20 +80,52 @@ function setConnected(connected) {
   $("#channel").empty();
 }
 
+function base64EncodeUnicode(str) {
+  // Encode the string as UTF-8 bytes
+  const utf8Bytes = new TextEncoder().encode(str);
+
+  // Convert the Uint8Array of UTF-8 bytes into a binary string
+  let binary = "";
+  for (let i = 0; i < utf8Bytes.length; i++) {
+    binary += String.fromCharCode(utf8Bytes[i]);
+  }
+
+  return btoa(binary);
+}
+
 function showMessage(message) {
   const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
   const filename = `${timestamp}.txt`;
+  const encodedText = base64EncodeUnicode(message.text);
 
   const row = $(`
           <tr>
-              <td>${message}</td>
-              <td><button class="btn btn-primary download-btn" onclick="downloadFile('${filename}', '${btoa(
-    message
-  )}')">Download</button></td>
+              <td>{text:${escapeHtml(message.text)}, type:${escapeHtml(
+    message.type
+  )}}</td>
+              <td>
+              <div class="button-container">
+                <button class="btn btn-primary download-btn" onclick="downloadFile('${escapeHtml(
+                  filename
+                )}', '${escapeHtml(encodedText)}')">Download</button>
+                <button class="btn btn-secondary copy-btn" onclick="copyToClipboard('${escapeHtml(
+                  message.text
+                )}')">Copy</button>
+              </div>
+              </td>
           </tr>
       `);
 
   $("#channel").append(row);
+}
+
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function downloadFile(filename, content) {
@@ -107,6 +139,18 @@ function downloadFile(filename, content) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+function copyToClipboard(text) {
+  navigator.clipboard
+    .writeText(text)
+    .then(() => {
+      console.log("Text copied to clipboard.");
+    })
+    .catch((err) => {
+      console.error("Could not copy text: ", err);
+      alert("Failed to copy to clipboard.");
+    });
 }
 
 function showStatusMessage(message, type) {

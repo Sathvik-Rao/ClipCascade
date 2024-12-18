@@ -69,4 +69,10 @@ label small {
     text-align: right;
 }
 
+.button-container {
+    display: inline-block; 
+}
 
+.button-container button {
+    margin-right: 10px;
+}
