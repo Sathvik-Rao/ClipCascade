@@ -54,8 +54,8 @@
 
 | 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 🍏 Desktop ([macOS](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-macos-desktop-application)) | 🤖📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui)) | 🐧⌨️ Desktop ([Linux_non-GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-terminal-based-application-non-gui)) | 
 |-----------------------|--------------------|--------------------|--------------------|--------------------|
-| <img src="https://github.com/user-attachments/assets/a73d18b9-ce0c-4a9e-9190-3a57a07596ce" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/ddaba240-4452-4d49-91e2-0a28b0b2fbe0" alt="Desktop (macOS)" width="360" /> | <img src="https://github.com/user-attachments/assets/bde3a00a-14a6-4c58-bbd4-3b9a723e594f" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/66344289-470b-4183-af6a-cf47097388b8" alt="Desktop (Linux_GUI)" width="360" /> | <img src="https://github.com/user-attachments/assets/6d9c1580-c4c5-4812-82d1-eaa0d395db60" alt="Desktop (Linux_non-GUI)" width="360" /> |
-| <img src="https://github.com/user-attachments/assets/6f2830cc-c552-431e-98c5-dbe1c9d1882d" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/173394db-8aac-4c67-95b7-42efa77a4796" alt="Desktop (macOS)" width="240" /> | <img src="https://github.com/user-attachments/assets/89a7d662-b985-4933-80a9-93dbc9255115" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/a2b941cc-f4df-4993-97d1-e4fe4721726e" alt="Desktop (Linux_GUI)" width="240" /> | <img src="https://github.com/user-attachments/assets/dc4e8ee6-e9a2-4ec7-910e-b9a5f8a03ade" alt="Desktop (Linux_non_GUI)" width="240" /> |
+| <img src="https://github.com/user-attachments/assets/dfaac09b-e92e-420a-ae54-e36dadee680e" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/f5bcdf02-5253-46aa-87eb-107800dec16e" alt="Desktop (macOS)" width="360" /> | <img src="https://github.com/user-attachments/assets/bde3a00a-14a6-4c58-bbd4-3b9a723e594f" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/6178eef0-bc1b-432f-8d19-ad3dc25958d3" alt="Desktop (Linux_GUI)" width="360" /> | <img src="https://github.com/user-attachments/assets/6841a5d9-b341-4172-b6bc-8bea9a622710" alt="Desktop (Linux_non-GUI)" width="360" /> |
+| <img src="https://github.com/user-attachments/assets/3d51539b-69d0-4b0d-8854-e262638333bd" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/3d473d8d-601e-4c78-bb7f-0684d39aef67" alt="Desktop (macOS)" width="240" /> | <img src="https://github.com/user-attachments/assets/89a7d662-b985-4933-80a9-93dbc9255115" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/394ab014-ae40-475d-8109-d95c9a69645b" alt="Desktop (Linux_GUI)" width="240" /> | <img src="https://github.com/user-attachments/assets/daf0a4ac-4dcc-4547-9171-7bb0546f6712" alt="Desktop (Linux_non_GUI)" width="240" /> |
 
 
 ## ✨ Features
@@ -69,6 +69,13 @@
 - **🌐 Web-Based Monitoring:** Monitor your clipboard activity in real-time via a sleek web interface.
 - **⚙️ Advanced Settings:** Customize your clipboard sync experience with additional settings for fine-tuning performance.
 - **🔔 Update Notifications:** Stay informed with timely update notifications across all platforms, keeping your app up to date with the latest features and security enhancements.
+
+| **Type**   | **Windows** | **MacOS** | **Linux GUI** | **Linux Non-GUI** | **Android** |
+|------------|-------------|-----------|---------------|-------------------|-------------|
+| **Text**   | ✔           | ✔        | ✔             | ✔                |            |
+| **Image**  | ✔           | ✔        | ✔             | ✔                |            |
+| **Files**  | ✔           | ✔        | ✔             | ✔                |            |
+
 
 ## 📥 Installation
 
@@ -248,46 +255,32 @@ After executing three ADB commands, when you click the **Start** button, you wil
 <img src="https://github.com/user-attachments/assets/0d3649d7-1e57-448c-ade9-10641191402d" alt="allow_log_monitoring" width="250" />
 
 
-### 🐧🖱️ Linux Desktop Application (GUI):
+### 🐧🖱️ Linux Desktop Application (GUI) / 🐧⌨️ Linux Terminal-Based Application (non-GUI):
 
-This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`. Navigate to the `ClipCascade/` folder, where you can find `main.py`, and open the terminal in that location.
-> **Important Note:** ClipCascade **GUI** may not function on **Wayland-only** distributions. If you encounter any issues, please consider using an **X11** session or **a terminal-based implementation, which is available for users who experience difficulties with the GUI setup.** [see here](https://github.com/Sathvik-Rao/ClipCascade#%EF%B8%8F-linux-terminal-based-application-non-gui)
+This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu, Fedora, and Arch-based systems. While the commands are specifically tailored for these distributions, you can adapt the process for other Linux distributions with minor modifications. The Linux code is available on the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`. Once downloaded, navigate to the `ClipCascade/` folder containing `main.py`, and open a terminal in that directory.
+> **Note:** Linux systems use different display servers, primarily `X11` and `Wayland`. `Wayland` can also include `XWayland`, which supports `X` sessions. The program automatically detects the display server and selects the appropriate interface, either **GUI** or **CLI**, based on the environment.
 
-#### Step 1: Update System and Install Required Packages
+#### Step 1: Check for updates and install required packages
 
 ##### Debian/Ubuntu:
 ```
 sudo apt update
-sudo apt install -y python3 python3-pip python3-gi xclip
+sudo apt install -y python3 python3-pip python3-gi xclip wl-clipboard dunst
 ```
 
 ##### Fedora:
 ```
 sudo dnf check-update
-sudo dnf install -y python3 python3-pip python3-gobject xclip dunst
+sudo dnf install -y python3 python3-pip python3-gobject xclip wl-clipboard dunst
 ```
 
-#### Step 2: Install Python Dependencies
-
-Run the following command to install the dependencies listed in `requirements.txt`:
+##### Arch:
 ```
-sudo pip3 install -r requirements.txt
-```
-
-If you encounter the `error: externally-managed-environment`, install the required Python packages manually:
-
-##### Debian/Ubuntu:
-```
-sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pystray python3-plyer
-```
-
-##### Fedora:
-```
-sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodome python3-tkinter python3-pystray python3-plyer
+sudo pacman -Syu --noconfirm python python-pip python-gobject xclip wl-clipboard dunst xdg-utils
 ```
 
 
-#### Step 3: Install Gtk 3.0 for Clipboard Sharing
+#### Step 2: Install GTK 3.0 for clipboard monitoring and GUI support
 
 ##### Debian/Ubuntu:
 ```
@@ -299,19 +292,57 @@ sudo apt install -y python3-gi-cairo gir1.2-gtk-3.0 gir1.2-gdk-3.0
 sudo dnf install -y libappindicator-gtk3
 ```
 
-> **Note:** If the tray icon is not available on GNOME-based systems like Fedora, you may need to install the GNOME tray support extension:
->  [GNOME AppIndicator Support](https://extensions.gnome.org/extension/615/appindicator-support/)
-
-
-#### Step 4: Run the Application
-
-Start ClipCascade by running:
+##### Arch:
 ```
-sudo python3 main.py
+sudo pacman -S --noconfirm python-gobject gtk3
 ```
 
+#### Step 3: Install GNOME tray support extension (if tray icon is unavailable)
+Install the [GNOME tray support extension](https://extensions.gnome.org/extension/615/appindicator-support/).
 
-#### Step 4.1: Fix 'No module named `Crypto`' Error (if applicable)
+
+#### Step 4: Install Python Dependencies
+
+##### Debian/Ubuntu/Fedora:
+```
+sudo pip3 install -r requirements.txt
+```
+
+##### Arch:
+```
+sudo pip install -r requirements.txt
+```
+
+#### Step 4.1: Fix `externally-managed-environment` Error (if applicable)
+
+If you encounter the `error: externally-managed-environment`, install the required Python packages manually.
+
+##### Debian/Ubuntu:
+```
+sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pystray python3-pyfiglet python3-plyer
+```
+
+##### Fedora:
+```
+sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodomex python3-tkinter python3-pystray python3-pyfiglet python3-plyer
+```
+
+##### Arch:
+```
+sudo pacman -S --noconfirm python-xxhash python-pyperclip python-requests python-websocket-client python-pycryptodome tk python-pystray python-pyfiglet python-plyer
+```
+If you encounter the `error: target not found: python-plyer`, install via `yay -S --noconfirm python-plyer`
+
+
+#### Step 5: Run the Application
+
+Start ClipCascade by running (use sudo if needed):
+```
+python3 main.py
+```
+
+
+#### Step 5.1: Fix 'No module named `Crypto`' Error (if applicable)
 
 If you encounter the `No module named 'Crypto'` error, create a symbolic link for the Cryptodome library:
 [see more](https://github.com/openthread/openthread/issues/1137#issuecomment-140879139)
@@ -325,6 +356,11 @@ sudo ln -s /usr/lib/python3/dist-packages/Cryptodome /usr/lib/python3/dist-packa
 ##### Fedora:
 ```
 sudo ln -s /usr/lib/python3/site-packages/Cryptodome /usr/lib/python3/site-packages/Crypto
+```
+
+##### Arch:
+```
+sudo ln -s /usr/lib/python3.*/site-packages/Cryptodome /usr/lib/python3.*/site-packages/Crypto
 ```
 
 #### Step 4.2: Fix 'ModuleNotFoundError: No module named `tkinter`' Error (if applicable)
@@ -341,9 +377,14 @@ sudo apt install -y python3-tkinter
 sudo dnf install -y python3-tkinter
 ```
 
+##### Arch:
+```
+sudo pacman -S --noconfirm tk
+```
+
 #### Step 4.3:  Fix '`gtk_widget_get_scale_factor: assertion 'GTK_IS_WIDGET (widget)' failed`' Error (if applicable)
 
-This error may be caused by a missing tray icon extension in GNOME. To fix it, you can install the AppIndicator Support extension by visiting [this link](https://extensions.gnome.org/extension/615/appindicator-support)
+This error occurs due to a missing tray icon extension in GNOME. To resolve it, you can install the extension from [here](https://extensions.gnome.org/extension/615/appindicator-support)
 
 
 #### Step 4.4:  Fix '`g-exec-error-quark`' Error (if applicable)
@@ -358,138 +399,47 @@ sudo apt install dbus-x11
 sudo dnf install dbus-x11
 ```
 
+##### Arch:
+```
+sudo pacman -S --noconfirm dbus
+```
 
-#### Step 5: Run the Application in the Background
+#### Step 6: Run the Application in the Background (if needed)
 
-To run ClipCascade as a background process:
+To run ClipCascade as a background process (if the GUI setup is functional), use the following command:
+```
+nohup python3 main.py &> /dev/null &
+```
+If root privileges are required, use:
 ```
 sudo nohup python3 main.py &> /dev/null &
 ```
 
 
-#### Step 6: Add ClipCascade to Startup
+#### Step 7: Add ClipCascade to Startup Script (if needed)
 
-To ensure ClipCascade starts automatically when your system boots, modify the path as necessary and add the following to your startup script:
+To ensure ClipCascade starts automatically when your system boots, modify the file paths as necessary and add the appropriate command to your startup script.
 
 ##### Example:
+##### GUI
+```
+cd /path/to/clipcascade/src/ && nohup python3 main.py &> /dev/null &
+```
+If root privileges are required, use:
 ```
 cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
 ```
 
-[Check Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
-
-> **Note:** If clipboard monitoring doesn't work without \`sudo\`, ensure you are running the application with elevated privileges.
-
-
-### 🐧⌨️ Linux Terminal-Based Application (non-GUI):
-
-This guide provides step-by-step instructions to install ClipCascade on Arch, Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux_Terminal.zip`. Navigate to the `ClipCascade/` folder, where you can find `main.py`, and open the terminal in that location.
-> **Note:** A GUI-based implementation is available for users who prefer a more intuitive, visual interface over the terminal setup. [see here](https://github.com/Sathvik-Rao/ClipCascade#%EF%B8%8F-linux-desktop-application-gui)
-
-#### Step 1: Update System and Install Required Packages
-
-##### Arch:
+##### non-GUI
 ```
-sudo pacman -Syu --noconfirm python python-pip python-gobject xclip
+cd /path/to/clipcascade/src/ && python3 main.py
 ```
-
-##### Debian/Ubuntu:
+If root privileges are required, use:
 ```
-sudo apt update
-sudo apt install -y python3 python3-pip python3-gi xclip
-```
-
-##### Fedora:
-```
-sudo dnf check-update
-sudo dnf install -y python3 python3-pip python3-gobject xclip
-```
-
-
-#### Step 2: Install Python Dependencies
-
-Run the following command to install the dependencies listed in `requirements.txt`:
-```
-sudo pip3 install -r requirements.txt
-```
-
-If you encounter the `error: externally-managed-environment`, install the required Python packages manually:
-
-##### Arch:
-```
-sudo pacman -S --noconfirm python-xxhash python-pyperclip python-requests python-websocket-client python-pycryptodome python-pyfiglet
-```
-
-##### Debian/Ubuntu:
-```
-sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-pyfiglet
-```
-
-##### Fedora:
-```
-sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodome python3-pyfiglet
-```
-
-
-#### Step 3: Install Gtk 3.0 for Clipboard Sharing
-If you encounter difficulties or errors while performing Step 3, you can skip it and proceed to Step 4.
-
-##### Arch:
-```
-sudo pacman -S --noconfirm python-gobject gtk3
-```
-
-##### Debian/Ubuntu:
-```
-sudo apt install -y python3-gi-cairo gir1.2-gtk-3.0 gir1.2-gdk-3.0
-```
-
-##### Fedora:
-```
-sudo dnf install -y libappindicator-gtk3
-```
-
-#### Step 4: Run the Application
-
-Start ClipCascade by running:
-```
-sudo python3 main.py
-```
-
-#### Step 4.1:  Fix 'Error: Can't open display: :1 - Authorization required, but no authorization protocol specified' Error (if applicable)
-Run `python3 main.py` without using `sudo`
-
-#### Step 4.2: Fix 'No module named `Crypto`' Error (if applicable)
-
-If you encounter the `No module named 'Crypto'` error, create a symbolic link for the Cryptodome library:
-[see more](https://github.com/openthread/openthread/issues/1137#issuecomment-140879139)
-
-
-##### Debian/Ubuntu:
-```
-sudo ln -s /usr/lib/python3/dist-packages/Cryptodome /usr/lib/python3/dist-packages/Crypto
-```
-
-##### Fedora:
-```
-sudo ln -s /usr/lib/python3/site-packages/Cryptodome /usr/lib/python3/site-packages/Crypto
-```
-
-#### Step 4.3:  Fix '`g-exec-error-quark`' Error (if applicable)
-
-##### Debian/Ubuntu:
-```
-sudo apt install dbus-x11
-```
-
-##### Fedora:
-```
-sudo dnf install dbus-x11
+cd /path/to/clipcascade/src/ && sudo python3 main.py
 ```
 
 [Check Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
-
-> **Note:** If clipboard monitoring doesn't work without \`sudo\`, ensure you are running the application with elevated privileges.
 
 
 ## ⚙️ Advanced Details
