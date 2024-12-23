@@ -53,9 +53,9 @@
 
 ## 📸 Screenshots
 
-| 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 🍏 Desktop ([macOS](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-macos-desktop-application)) | 🤖📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-non-gui)) | 🐧⌨️ Desktop ([Linux_non-GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-non-gui)) | 
+| 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 🍏 Desktop ([macOS](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-macos-desktop-application)) | 🤖📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-cli)) | 🐧⌨️ Desktop ([Linux_CLI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-cli)) | 
 |-----------------------|--------------------|--------------------|--------------------|--------------------|
-| <img src="https://github.com/user-attachments/assets/dfaac09b-e92e-420a-ae54-e36dadee680e" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/f5bcdf02-5253-46aa-87eb-107800dec16e" alt="Desktop (macOS)" width="360" /> | <img src="https://github.com/user-attachments/assets/c2500026-f8fb-45b7-9076-75138fbaddb6" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/6178eef0-bc1b-432f-8d19-ad3dc25958d3" alt="Desktop (Linux_GUI)" width="360" /> | <img src="https://github.com/user-attachments/assets/6841a5d9-b341-4172-b6bc-8bea9a622710" alt="Desktop (Linux_non-GUI)" width="360" /> |
+| <img src="https://github.com/user-attachments/assets/dfaac09b-e92e-420a-ae54-e36dadee680e" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/f5bcdf02-5253-46aa-87eb-107800dec16e" alt="Desktop (macOS)" width="360" /> | <img src="https://github.com/user-attachments/assets/c2500026-f8fb-45b7-9076-75138fbaddb6" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/6178eef0-bc1b-432f-8d19-ad3dc25958d3" alt="Desktop (Linux_GUI)" width="360" /> | <img src="https://github.com/user-attachments/assets/6841a5d9-b341-4172-b6bc-8bea9a622710" alt="Desktop (Linux_CLI)" width="360" /> |
 | <img src="https://github.com/user-attachments/assets/3d51539b-69d0-4b0d-8854-e262638333bd" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/3d473d8d-601e-4c78-bb7f-0684d39aef67" alt="Desktop (macOS)" width="240" /> | <img src="https://github.com/user-attachments/assets/607135ff-498f-45ae-b60e-18da525b6b19" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/394ab014-ae40-475d-8109-d95c9a69645b" alt="Desktop (Linux_GUI)" width="240" /> | <img src="https://github.com/user-attachments/assets/daf0a4ac-4dcc-4547-9171-7bb0546f6712" alt="Desktop (Linux_non_GUI)" width="240" /> |
 
 
@@ -71,7 +71,7 @@
 - **⚙️ Advanced Settings:** Customize your clipboard sync experience with additional settings for fine-tuning performance.
 - **🔔 Update Notifications:** Stay informed with timely update notifications across all platforms, keeping your app up to date with the latest features and security enhancements.
 
-| **Type**   | **Windows** | **MacOS** | **Linux GUI** | **Linux Non-GUI** | **Android** |
+| **Type**   | **Windows** | **MacOS** | **Linux GUI** | **Linux CLI** | **Android** |
 |------------|-------------|-----------|---------------|-------------------|-------------|
 | **Text**   | ✔           | ✔        | ✔             | ✔                | ✔           |
 | **Image**  | ✔           | ✔        | ✔             | ✔                | ✔           |
@@ -256,7 +256,7 @@ After executing three ADB commands, when you click the **Start** button, you wil
 <img src="https://github.com/user-attachments/assets/0d3649d7-1e57-448c-ade9-10641191402d" alt="allow_log_monitoring" width="250" />
 
 
-### 🐧🖱️ Linux Desktop Application (GUI) / 🐧⌨️ Linux Terminal-Based Application (non-GUI):
+### 🐧🖱️ Linux Desktop Application (GUI) / 🐧⌨️ Linux Terminal-Based Application (CLI):
 
 This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu, Fedora, and Arch-based systems. While the commands are specifically tailored for these distributions, you can adapt the process for other Linux distributions with minor modifications. The Linux code is available on the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`. Once downloaded, navigate to the `ClipCascade/` folder containing `main.py`, and open a terminal in that directory.
 > **Note:** Linux systems use different display servers, primarily `X11` and `Wayland`. `Wayland` can also include `XWayland`, which supports `X` sessions. The program automatically detects the display server and selects the appropriate interface, either **GUI** or **CLI**, based on the environment.
@@ -431,7 +431,7 @@ If root privileges are required, use:
 cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
 ```
 
-##### non-GUI
+##### CLI
 ```
 cd /path/to/clipcascade/src/ && python3 main.py
 ```
@@ -502,8 +502,68 @@ You can adjust these fields on the login page under the **Extra Config** section
    | **macOS**                 | Utilizes the `pasteboard` to monitor the clipboard with polling every 0.3 seconds. Instead of checking clipboard content directly, it compares a counter to detect changes efficiently. |
    | **Linux (X11)**           | Employs `Gtk.Clipboard` to capture clipboard changes in an event-driven manner, running in GUI mode.                                                         |
    | **Linux (XWayland, Unknown)** | Switches between `Gtk.Clipboard` (event-based) or `x-clip` (polling every 0.3 seconds) depending on permissions (requires sudo for `Gtk.Clipboard`). Both operate in GUI mode. |
-   | **Linux (Wayland, Hyprland)** | Uses `wl-clipboard` with polling every 5 seconds in non-GUI mode. The delay accounts for Wayland's requirement to focus a window to grab clipboard content, ensuring smoother OS interaction. |
+   | **Linux (Wayland, Hyprland)** | Uses `wl-clipboard` with polling every 5 seconds in CLI mode. The delay accounts for Wayland's requirement to focus a window to grab clipboard content, ensuring smoother OS interaction. |
    | **Android**               | Leverages `ClipboardManager` to capture clipboard changes in an event-driven manner.                                                                         |
+
+
+  <table border="1">
+  <tr>
+    <th rowspan="2">Type</th>
+    <th colspan="5">Send</th>
+    <th colspan="5">Receive</th>
+  </tr>
+  <tr>
+    <th>Windows</th>
+    <th>MacOS</th>
+    <th>Linux GUI</th>
+    <th>Linux CLI</th>
+    <th>Android</th>
+    <th>Windows</th>
+    <th>MacOS</th>
+    <th>Linux GUI</th>
+    <th>Linux CLI</th>
+    <th>Android</th>
+  </tr>
+  <tr>
+    <td>Text</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱ / share</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+  </tr>
+  <tr>
+    <td>Image</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱ / share</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+  </tr>
+  <tr>
+    <td>Files</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>share</td>
+    <td>click</td>
+    <td>click</td>
+    <td>click</td>
+    <td>click</td>
+    <td>click</td>
+  </tr>
+  </table>
 
 
 ## ⇄ Reverse Proxy Setup
