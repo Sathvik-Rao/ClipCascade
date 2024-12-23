@@ -50,12 +50,13 @@
 </div>
 
 
+
 ## 📸 Screenshots
 
 | 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 🍏 Desktop ([macOS](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-macos-desktop-application)) | 🤖📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-non-gui)) | 🐧⌨️ Desktop ([Linux_non-GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-non-gui)) | 
 |-----------------------|--------------------|--------------------|--------------------|--------------------|
-| <img src="https://github.com/user-attachments/assets/dfaac09b-e92e-420a-ae54-e36dadee680e" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/f5bcdf02-5253-46aa-87eb-107800dec16e" alt="Desktop (macOS)" width="360" /> | <img src="https://github.com/user-attachments/assets/bde3a00a-14a6-4c58-bbd4-3b9a723e594f" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/6178eef0-bc1b-432f-8d19-ad3dc25958d3" alt="Desktop (Linux_GUI)" width="360" /> | <img src="https://github.com/user-attachments/assets/6841a5d9-b341-4172-b6bc-8bea9a622710" alt="Desktop (Linux_non-GUI)" width="360" /> |
-| <img src="https://github.com/user-attachments/assets/3d51539b-69d0-4b0d-8854-e262638333bd" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/3d473d8d-601e-4c78-bb7f-0684d39aef67" alt="Desktop (macOS)" width="240" /> | <img src="https://github.com/user-attachments/assets/89a7d662-b985-4933-80a9-93dbc9255115" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/394ab014-ae40-475d-8109-d95c9a69645b" alt="Desktop (Linux_GUI)" width="240" /> | <img src="https://github.com/user-attachments/assets/daf0a4ac-4dcc-4547-9171-7bb0546f6712" alt="Desktop (Linux_non_GUI)" width="240" /> |
+| <img src="https://github.com/user-attachments/assets/dfaac09b-e92e-420a-ae54-e36dadee680e" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/f5bcdf02-5253-46aa-87eb-107800dec16e" alt="Desktop (macOS)" width="360" /> | <img src="https://github.com/user-attachments/assets/c2500026-f8fb-45b7-9076-75138fbaddb6" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/6178eef0-bc1b-432f-8d19-ad3dc25958d3" alt="Desktop (Linux_GUI)" width="360" /> | <img src="https://github.com/user-attachments/assets/6841a5d9-b341-4172-b6bc-8bea9a622710" alt="Desktop (Linux_non-GUI)" width="360" /> |
+| <img src="https://github.com/user-attachments/assets/3d51539b-69d0-4b0d-8854-e262638333bd" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/3d473d8d-601e-4c78-bb7f-0684d39aef67" alt="Desktop (macOS)" width="240" /> | <img src="https://github.com/user-attachments/assets/607135ff-498f-45ae-b60e-18da525b6b19" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/394ab014-ae40-475d-8109-d95c9a69645b" alt="Desktop (Linux_GUI)" width="240" /> | <img src="https://github.com/user-attachments/assets/daf0a4ac-4dcc-4547-9171-7bb0546f6712" alt="Desktop (Linux_non_GUI)" width="240" /> |
 
 
 ## ✨ Features
@@ -72,9 +73,9 @@
 
 | **Type**   | **Windows** | **MacOS** | **Linux GUI** | **Linux Non-GUI** | **Android** |
 |------------|-------------|-----------|---------------|-------------------|-------------|
-| **Text**   | ✔           | ✔        | ✔             | ✔                |            |
-| **Image**  | ✔           | ✔        | ✔             | ✔                |            |
-| **Files**  | ✔           | ✔        | ✔             | ✔                |            |
+| **Text**   | ✔           | ✔        | ✔             | ✔                | ✔           |
+| **Image**  | ✔           | ✔        | ✔             | ✔                | ✔           |
+| **Files**  | ✔           | ✔        | ✔             | ✔                | ✔           |
 
 
 ## 📥 Installation
@@ -448,15 +449,19 @@ cd /path/to/clipcascade/src/ && sudo python3 main.py
 - On Linux and macOS, a `ClipCascade.lock` file is created while the program is running. This file ensures that only a single instance of ClipCascade can be opened at a time.
 - The `DATA` file stores settings and user details, enabling the app to retain this information across both restarts and updates.
 
-### Extra Config:
-- **Maximum Clipboard Size Local Limit (in bytes)**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. You can set a local size limit by specifying a value in bytes (e.g., 512 KiB = 524288 bytes) to test different thresholds suitable for your device. This local limit works alongside the server-specified limit to ensure smoother operation without crashes. For example, on Android (particularly on the Pixel 6a as of 2024), the platform limit is typically less than 1 MiB. Since the server limit cannot go below 1 MiB, setting the local limit to around 900,000 bytes on the Pixel 6a can help prevent crashes.
+### Extra Config (Desktop/Mobile):
+- **Maximum Clipboard Size Local Limit (in bytes)**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. You can set a local size limit by specifying a value in bytes (e.g., 512 KiB = 524288 bytes) to test different thresholds suitable for your device. This local limit works alongside the server-specified limit to ensure smoother operation without crashes. For example, on Android (particularly on the Pixel 6a as of 2024), the platform limit(for text) is typically less than 1 MiB. Since the server limit cannot go below 1 MiB, setting the local limit to around 900,000 bytes on the Pixel 6a can help prevent crashes.
 - **Store Password Locally (not recommended)**: Enable this option if you frequently encounter session logouts. While the app stores session cookies for an extended period, a server restart may prompt a re-login. If re-entering the password becomes tedious, you can use this option to store your password locally for convenience.
 - **Enable Image Sharing and Enable File Sharing**: Enabling these options allows the app to send images or files. However, the app will continue to receive images and files even if these options are disabled.
 - **Enable Notification**: Turn on this option to receive notifications about WebSocket disconnections and reconnections.
 - **Enable Encryption (recommended)**: Enabling this option activates end-to-end encryption for clipboard data. This ensures that all clipboard content is encrypted before leaving your device. Refer to the section below on E2E encryption for detailed instructions on how it works and how to configure the `salt` and `hash rounds`.
 
-  ### Android:
+  ### Android (Specific):
   - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
+  - **Enable Periodic Checks**: Enabling this option performs periodic checks to ensure clipboard monitoring and the foreground service are running. It verifies the service status when monitoring starts and then checks every 15 minutes in the background. If the service is not running, a notification is displayed. Clicking the notification will restart the service.
+    
+    <img src="https://github.com/user-attachments/assets/7341b960-5e60-4af6-b627-2183088de262" alt="periodic_check_notification" width="250" />
+
 
 ### End-to-End Encryption Configuration for Clipboard Data:
 When encryption is enabled, clipboard data is encrypted directly on the client devices. The server does not store the encryption key, ensuring true end-to-end encryption. The encryption password is derived from the user’s password, combined with a **salt** and the number of **hash rounds**, allowing you to configure these settings:
@@ -477,9 +482,17 @@ You can adjust these fields on the login page under the **Extra Config** section
 - **Text and Images**: These are directly copied to the clipboard, enabling seamless sharing across devices.  
 - **Files**: When files are received, a notification icon appears in the system tray (on desktop platforms). Since the clipboard does not store files, only their file paths are retained.  
   
-   <img src="https://github.com/user-attachments/assets/c4f06a97-1fc5-47e6-9ff5-d4dc3ff41c68" alt="tray_icon_notification" />
+   <table>
+    <tr>
+      <td><img src="https://github.com/user-attachments/assets/c4f06a97-1fc5-47e6-9ff5-d4dc3ff41c68" alt="desktop_tray_icon" /></td>
+      <td><img src="https://github.com/user-attachments/assets/eca756ad-76de-4fb9-ba14-619e92172758" alt="desktop_tray_options" width="150" /></td>
+    </tr>
+    <tr>
+      <td><img src="https://github.com/user-attachments/assets/7708d786-3c95-4892-8815-0792fc2fd465" alt="android_notification" width="150" /></td>
+      <td><img src="https://github.com/user-attachments/assets/c06e8584-fbed-4ae1-b3b3-d12664115178" alt="android_home_screen" width="150" /></td>
+    </tr>
+  </table>
 
-   <img src="https://github.com/user-attachments/assets/eca756ad-76de-4fb9-ba14-619e92172758" alt="tray_files" width="150" />
 
 - **Clipboard Monitoring**:
 
@@ -495,11 +508,21 @@ You can adjust these fields on the login page under the **Extra Config** section
 
 ## ⇄ Reverse Proxy Setup
 
-Here is a screenshot showing how to set up a reverse proxy using **Cloudflare Tunnels**. You can apply a similar approach with other providers as well.
+Below is a screenshot demonstrating how to configure a reverse proxy using **Cloudflare Tunnels**. Similar configurations can be applied with other providers as well.
 
 <img src="https://github.com/user-attachments/assets/0f45879f-307a-4f5f-9f26-ca5d3de7b1cf" alt="Reverse Proxy" width="600" />
 
 <img src="https://github.com/user-attachments/assets/6d6d000f-4516-47be-ae1d-8726dc4d6535" alt="Reverse Proxy" width="400" />
+
+### Note:
+For other providers, you may need to configure HTTP to HTTPS redirection manually by adding a permanent redirection rule.
+
+Example: Caddy Configuration
+```
+http://clipcascade.sample.com {
+	redir https://clipcascade.sample.com{uri} permanent
+}
+```
 
 ## 🔧 Usage
 
