@@ -1,0 +1,10 @@
+certifi
+pyobjus==1.2.3
+pasteboard==0.4.0
+Pillow==11.0.0
+pycryptodome==3.20.0
+pyperclip==1.8.2
+pystray==0.19.5
+Requests==2.32.3
+websocket_client==1.8.0
+xxhash==3.5.0

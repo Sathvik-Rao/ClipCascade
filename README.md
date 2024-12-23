@@ -50,12 +50,13 @@
 </div>
 
 
+
 ## 📸 Screenshots
 
-| 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 🍏 Desktop ([macOS](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-macos-desktop-application)) | 🤖📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui)) | 🐧⌨️ Desktop ([Linux_non-GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-terminal-based-application-non-gui)) | 
+| 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 🍏 Desktop ([macOS](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-macos-desktop-application)) | 🤖📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-cli)) | 🐧⌨️ Desktop ([Linux_CLI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-cli)) | 
 |-----------------------|--------------------|--------------------|--------------------|--------------------|
-| <img src="https://github.com/user-attachments/assets/a73d18b9-ce0c-4a9e-9190-3a57a07596ce" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/ddaba240-4452-4d49-91e2-0a28b0b2fbe0" alt="Desktop (macOS)" width="360" /> | <img src="https://github.com/user-attachments/assets/bde3a00a-14a6-4c58-bbd4-3b9a723e594f" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/66344289-470b-4183-af6a-cf47097388b8" alt="Desktop (Linux_GUI)" width="360" /> | <img src="https://github.com/user-attachments/assets/6d9c1580-c4c5-4812-82d1-eaa0d395db60" alt="Desktop (Linux_non-GUI)" width="360" /> |
-| <img src="https://github.com/user-attachments/assets/6f2830cc-c552-431e-98c5-dbe1c9d1882d" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/173394db-8aac-4c67-95b7-42efa77a4796" alt="Desktop (macOS)" width="240" /> | <img src="https://github.com/user-attachments/assets/89a7d662-b985-4933-80a9-93dbc9255115" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/a2b941cc-f4df-4993-97d1-e4fe4721726e" alt="Desktop (Linux_GUI)" width="240" /> | <img src="https://github.com/user-attachments/assets/dc4e8ee6-e9a2-4ec7-910e-b9a5f8a03ade" alt="Desktop (Linux_non_GUI)" width="240" /> |
+| <img src="https://github.com/user-attachments/assets/dfaac09b-e92e-420a-ae54-e36dadee680e" alt="Desktop (Windows)" width="360" /> | <img src="https://github.com/user-attachments/assets/f5bcdf02-5253-46aa-87eb-107800dec16e" alt="Desktop (macOS)" width="360" /> | <img src="https://github.com/user-attachments/assets/c2500026-f8fb-45b7-9076-75138fbaddb6" alt="Mobile (Android)" width="360" /> | <img src="https://github.com/user-attachments/assets/6178eef0-bc1b-432f-8d19-ad3dc25958d3" alt="Desktop (Linux_GUI)" width="360" /> | <img src="https://github.com/user-attachments/assets/6841a5d9-b341-4172-b6bc-8bea9a622710" alt="Desktop (Linux_CLI)" width="360" /> |
+| <img src="https://github.com/user-attachments/assets/3d51539b-69d0-4b0d-8854-e262638333bd" alt="Desktop (Windows)" width="240" /> | <img src="https://github.com/user-attachments/assets/3d473d8d-601e-4c78-bb7f-0684d39aef67" alt="Desktop (macOS)" width="240" /> | <img src="https://github.com/user-attachments/assets/607135ff-498f-45ae-b60e-18da525b6b19" alt="Mobile (Android)" width="240" /> | <img src="https://github.com/user-attachments/assets/394ab014-ae40-475d-8109-d95c9a69645b" alt="Desktop (Linux_GUI)" width="240" /> | <img src="https://github.com/user-attachments/assets/daf0a4ac-4dcc-4547-9171-7bb0546f6712" alt="Desktop (Linux_non_GUI)" width="240" /> |
 
 
 ## ✨ Features
@@ -69,6 +70,13 @@
 - **🌐 Web-Based Monitoring:** Monitor your clipboard activity in real-time via a sleek web interface.
 - **⚙️ Advanced Settings:** Customize your clipboard sync experience with additional settings for fine-tuning performance.
 - **🔔 Update Notifications:** Stay informed with timely update notifications across all platforms, keeping your app up to date with the latest features and security enhancements.
+
+| **Type**   | **Windows** | **MacOS** | **Linux GUI** | **Linux CLI** | **Android** |
+|------------|-------------|-----------|---------------|-------------------|-------------|
+| **Text**   | ✔           | ✔        | ✔             | ✔                | ✔           |
+| **Image**  | ✔           | ✔        | ✔             | ✔                | ✔           |
+| **Files**  | ✔           | ✔        | ✔             | ✔                | ✔           |
+
 
 ## 📥 Installation
 
@@ -248,46 +256,32 @@ After executing three ADB commands, when you click the **Start** button, you wil
 <img src="https://github.com/user-attachments/assets/0d3649d7-1e57-448c-ade9-10641191402d" alt="allow_log_monitoring" width="250" />
 
 
-### 🐧🖱️ Linux Desktop Application (GUI):
+### 🐧🖱️ Linux Desktop Application (GUI) / 🐧⌨️ Linux Terminal-Based Application (CLI):
 
-This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`. Navigate to the `ClipCascade/` folder, where you can find `main.py`, and open the terminal in that location.
-> **Important Note:** ClipCascade **GUI** may not function on **Wayland-only** distributions. If you encounter any issues, please consider using an **X11** session or **a terminal-based implementation, which is available for users who experience difficulties with the GUI setup.** [see here](https://github.com/Sathvik-Rao/ClipCascade#%EF%B8%8F-linux-terminal-based-application-non-gui)
+This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu, Fedora, and Arch-based systems. While the commands are specifically tailored for these distributions, you can adapt the process for other Linux distributions with minor modifications. The Linux code is available on the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`. Once downloaded, navigate to the `ClipCascade/` folder containing `main.py`, and open a terminal in that directory.
+> **Note:** Linux systems use different display servers, primarily `X11` and `Wayland`. `Wayland` can also include `XWayland`, which supports `X` sessions. The program automatically detects the display server and selects the appropriate interface, either **GUI** or **CLI**, based on the environment.
 
-#### Step 1: Update System and Install Required Packages
+#### Step 1: Check for updates and install required packages
 
 ##### Debian/Ubuntu:
 ```
 sudo apt update
-sudo apt install -y python3 python3-pip python3-gi xclip
+sudo apt install -y python3 python3-pip python3-gi xclip wl-clipboard dunst
 ```
 
 ##### Fedora:
 ```
 sudo dnf check-update
-sudo dnf install -y python3 python3-pip python3-gobject xclip dunst
+sudo dnf install -y python3 python3-pip python3-gobject xclip wl-clipboard dunst
 ```
 
-#### Step 2: Install Python Dependencies
-
-Run the following command to install the dependencies listed in `requirements.txt`:
+##### Arch:
 ```
-sudo pip3 install -r requirements.txt
-```
-
-If you encounter the `error: externally-managed-environment`, install the required Python packages manually:
-
-##### Debian/Ubuntu:
-```
-sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pystray python3-plyer
-```
-
-##### Fedora:
-```
-sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodome python3-tkinter python3-pystray python3-plyer
+sudo pacman -Syu --noconfirm python python-pip python-gobject xclip wl-clipboard dunst xdg-utils
 ```
 
 
-#### Step 3: Install Gtk 3.0 for Clipboard Sharing
+#### Step 2: Install GTK 3.0 for clipboard monitoring and GUI support
 
 ##### Debian/Ubuntu:
 ```
@@ -299,19 +293,57 @@ sudo apt install -y python3-gi-cairo gir1.2-gtk-3.0 gir1.2-gdk-3.0
 sudo dnf install -y libappindicator-gtk3
 ```
 
-> **Note:** If the tray icon is not available on GNOME-based systems like Fedora, you may need to install the GNOME tray support extension:
->  [GNOME AppIndicator Support](https://extensions.gnome.org/extension/615/appindicator-support/)
-
-
-#### Step 4: Run the Application
-
-Start ClipCascade by running:
+##### Arch:
 ```
-sudo python3 main.py
+sudo pacman -S --noconfirm python-gobject gtk3
 ```
 
+#### Step 3: Install GNOME tray support extension (if tray icon is unavailable)
+Install the [GNOME tray support extension](https://extensions.gnome.org/extension/615/appindicator-support/).
 
-#### Step 4.1: Fix 'No module named `Crypto`' Error (if applicable)
+
+#### Step 4: Install Python Dependencies
+
+##### Debian/Ubuntu/Fedora:
+```
+sudo pip3 install -r requirements.txt
+```
+
+##### Arch:
+```
+sudo pip install -r requirements.txt
+```
+
+#### Step 4.1: Fix `externally-managed-environment` Error (if applicable)
+
+If you encounter the `error: externally-managed-environment`, install the required Python packages manually.
+
+##### Debian/Ubuntu:
+```
+sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pystray python3-pyfiglet python3-plyer
+```
+
+##### Fedora:
+```
+sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodomex python3-tkinter python3-pystray python3-pyfiglet python3-plyer
+```
+
+##### Arch:
+```
+sudo pacman -S --noconfirm python-xxhash python-pyperclip python-requests python-websocket-client python-pycryptodome tk python-pystray python-pyfiglet python-plyer
+```
+If you encounter the `error: target not found: python-plyer`, install via `yay -S --noconfirm python-plyer`
+
+
+#### Step 5: Run the Application
+
+Start ClipCascade by running (use sudo if needed):
+```
+python3 main.py
+```
+
+
+#### Step 5.1: Fix 'No module named `Crypto`' Error (if applicable)
 
 If you encounter the `No module named 'Crypto'` error, create a symbolic link for the Cryptodome library:
 [see more](https://github.com/openthread/openthread/issues/1137#issuecomment-140879139)
@@ -327,7 +359,12 @@ sudo ln -s /usr/lib/python3/dist-packages/Cryptodome /usr/lib/python3/dist-packa
 sudo ln -s /usr/lib/python3/site-packages/Cryptodome /usr/lib/python3/site-packages/Crypto
 ```
 
-#### Step 4.2: Fix 'ModuleNotFoundError: No module named `tkinter`' Error (if applicable)
+##### Arch:
+```
+sudo ln -s /usr/lib/python3.*/site-packages/Cryptodome /usr/lib/python3.*/site-packages/Crypto
+```
+
+#### Step 5.2: Fix 'ModuleNotFoundError: No module named `tkinter`' Error (if applicable)
 
 If you encounter the `No module named 'tkinter'` error:
 
@@ -341,12 +378,17 @@ sudo apt install -y python3-tkinter
 sudo dnf install -y python3-tkinter
 ```
 
-#### Step 4.3:  Fix '`gtk_widget_get_scale_factor: assertion 'GTK_IS_WIDGET (widget)' failed`' Error (if applicable)
+##### Arch:
+```
+sudo pacman -S --noconfirm tk
+```
 
-This error may be caused by a missing tray icon extension in GNOME. To fix it, you can install the AppIndicator Support extension by visiting [this link](https://extensions.gnome.org/extension/615/appindicator-support)
+#### Step 5.3:  Fix '`gtk_widget_get_scale_factor: assertion 'GTK_IS_WIDGET (widget)' failed`' Error (if applicable)
+
+This error occurs due to a missing tray icon extension in GNOME. To resolve it, you can install the extension from [here](https://extensions.gnome.org/extension/615/appindicator-support)
 
 
-#### Step 4.4:  Fix '`g-exec-error-quark`' Error (if applicable)
+#### Step 5.4:  Fix '`g-exec-error-quark`' Error (if applicable)
 
 ##### Debian/Ubuntu:
 ```
@@ -358,181 +400,189 @@ sudo apt install dbus-x11
 sudo dnf install dbus-x11
 ```
 
+##### Arch:
+```
+sudo pacman -S --noconfirm dbus
+```
 
-#### Step 5: Run the Application in the Background
+#### Step 6: Run the Application in the Background (if needed)
 
-To run ClipCascade as a background process:
+To run ClipCascade as a background process (if the GUI setup is functional), use the following command:
+```
+nohup python3 main.py &> /dev/null &
+```
+If root privileges are required, use:
 ```
 sudo nohup python3 main.py &> /dev/null &
 ```
 
 
-#### Step 6: Add ClipCascade to Startup
+#### Step 7: Add ClipCascade to Startup Script (if needed)
 
-To ensure ClipCascade starts automatically when your system boots, modify the path as necessary and add the following to your startup script:
+To ensure ClipCascade starts automatically when your system boots, modify the file paths as necessary and add the appropriate command to your startup script.
 
 ##### Example:
+##### GUI
+```
+cd /path/to/clipcascade/src/ && nohup python3 main.py &> /dev/null &
+```
+If root privileges are required, use:
 ```
 cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
 ```
 
-[Check Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
-
-> **Note:** If clipboard monitoring doesn't work without \`sudo\`, ensure you are running the application with elevated privileges.
-
-
-### 🐧⌨️ Linux Terminal-Based Application (non-GUI):
-
-This guide provides step-by-step instructions to install ClipCascade on Arch, Debian/Ubuntu and Fedora-based systems. While the commands are tailored for these distributions, the process can be adapted for other Linux distros with some tweaks. You can find the code for Linux in the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux_Terminal.zip`. Navigate to the `ClipCascade/` folder, where you can find `main.py`, and open the terminal in that location.
-> **Note:** A GUI-based implementation is available for users who prefer a more intuitive, visual interface over the terminal setup. [see here](https://github.com/Sathvik-Rao/ClipCascade#%EF%B8%8F-linux-desktop-application-gui)
-
-#### Step 1: Update System and Install Required Packages
-
-##### Arch:
+##### CLI
 ```
-sudo pacman -Syu --noconfirm python python-pip python-gobject xclip
+cd /path/to/clipcascade/src/ && python3 main.py
 ```
-
-##### Debian/Ubuntu:
+If root privileges are required, use:
 ```
-sudo apt update
-sudo apt install -y python3 python3-pip python3-gi xclip
-```
-
-##### Fedora:
-```
-sudo dnf check-update
-sudo dnf install -y python3 python3-pip python3-gobject xclip
-```
-
-
-#### Step 2: Install Python Dependencies
-
-Run the following command to install the dependencies listed in `requirements.txt`:
-```
-sudo pip3 install -r requirements.txt
-```
-
-If you encounter the `error: externally-managed-environment`, install the required Python packages manually:
-
-##### Arch:
-```
-sudo pacman -S --noconfirm python-xxhash python-pyperclip python-requests python-websocket-client python-pycryptodome python-pyfiglet
-```
-
-##### Debian/Ubuntu:
-```
-sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-pyfiglet
-```
-
-##### Fedora:
-```
-sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodome python3-pyfiglet
-```
-
-
-#### Step 3: Install Gtk 3.0 for Clipboard Sharing
-If you encounter difficulties or errors while performing Step 3, you can skip it and proceed to Step 4.
-
-##### Arch:
-```
-sudo pacman -S --noconfirm python-gobject gtk3
-```
-
-##### Debian/Ubuntu:
-```
-sudo apt install -y python3-gi-cairo gir1.2-gtk-3.0 gir1.2-gdk-3.0
-```
-
-##### Fedora:
-```
-sudo dnf install -y libappindicator-gtk3
-```
-
-#### Step 4: Run the Application
-
-Start ClipCascade by running:
-```
-sudo python3 main.py
-```
-
-#### Step 4.1:  Fix 'Error: Can't open display: :1 - Authorization required, but no authorization protocol specified' Error (if applicable)
-Run `python3 main.py` without using `sudo`
-
-#### Step 4.2: Fix 'No module named `Crypto`' Error (if applicable)
-
-If you encounter the `No module named 'Crypto'` error, create a symbolic link for the Cryptodome library:
-[see more](https://github.com/openthread/openthread/issues/1137#issuecomment-140879139)
-
-
-##### Debian/Ubuntu:
-```
-sudo ln -s /usr/lib/python3/dist-packages/Cryptodome /usr/lib/python3/dist-packages/Crypto
-```
-
-##### Fedora:
-```
-sudo ln -s /usr/lib/python3/site-packages/Cryptodome /usr/lib/python3/site-packages/Crypto
-```
-
-#### Step 4.3:  Fix '`g-exec-error-quark`' Error (if applicable)
-
-##### Debian/Ubuntu:
-```
-sudo apt install dbus-x11
-```
-
-##### Fedora:
-```
-sudo dnf install dbus-x11
+cd /path/to/clipcascade/src/ && sudo python3 main.py
 ```
 
 [Check Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
-
-> **Note:** If clipboard monitoring doesn't work without \`sudo\`, ensure you are running the application with elevated privileges.
 
 
 ## ⚙️ Advanced Details
 
-### Windows and Linux:
-- Logs (`clipcascade_log.log`) are present in the installed path, allowing you to review application activity. These logs reset upon reopening the application, so they don’t grow indefinitely.
-- You can customize advanced settings in the **DATA** file, which is also located in the installed path. This file is generated only after your first login and remains there indefinitely.
-- On Linux, you will see a `ClipCascade.lock` file while the program is running. This file prevents the user from opening multiple instances of ClipCascade.
+- Logs (`clipcascade_log.log`) are stored in the installation directory on Windows and Linux, and in `<current user>/Library/Application Support/ClipCascade/` on macOS. These logs allow you to review application activity and are automatically reset each time the application is reopened, preventing indefinite growth.
+- On Linux and macOS, a `ClipCascade.lock` file is created while the program is running. This file ensures that only a single instance of ClipCascade can be opened at a time.
+- The `DATA` file stores settings and user details, enabling the app to retain this information across both restarts and updates.
 
-### macOS
-- Program files are located in `<current user>/Library/Application Support/ClipCascade/`. To open it, click **Program Files**.
-  
-    <img src="https://github.com/user-attachments/assets/7b78e3f7-0bb0-4e64-9752-2834f3d792e1" alt="macOS Program Files" width="140" />  
-- **Logs** (`clipcascade_log.log`): Review application activity. These logs reset upon reopening the application to prevent them from growing indefinitely.
-- You can customize advanced settings in the **DATA** file. This file is generated only after your first login and remains there indefinitely.
-- You will see a `ClipCascade.lock` file while the program is running. This file prevents the user from opening multiple instances of ClipCascade.
+### Extra Config (Desktop/Mobile):
+- **Maximum Clipboard Size Local Limit (in bytes)**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. You can set a local size limit by specifying a value in bytes (e.g., 512 KiB = 524288 bytes) to test different thresholds suitable for your device. This local limit works alongside the server-specified limit to ensure smoother operation without crashes. For example, on Android (particularly on the Pixel 6a as of 2024), the platform limit(for text) is typically less than 1 MiB. Since the server limit cannot go below 1 MiB, setting the local limit to around 900,000 bytes on the Pixel 6a can help prevent crashes.
+- **Store Password Locally (not recommended)**: Enable this option if you frequently encounter session logouts. While the app stores session cookies for an extended period, a server restart may prompt a re-login. If re-entering the password becomes tedious, you can use this option to store your password locally for convenience.
+- **Enable Image Sharing and Enable File Sharing**: Enabling these options allows the app to send images or files. However, the app will continue to receive images and files even if these options are disabled.
+- **Enable Notification**: Turn on this option to receive notifications about WebSocket disconnections and reconnections.
+- **Enable Encryption (recommended)**: Enabling this option activates end-to-end encryption for clipboard data. This ensures that all clipboard content is encrypted before leaving your device. Refer to the section below on E2E encryption for detailed instructions on how it works and how to configure the `salt` and `hash rounds`.
 
-### Android:
-- You can configure advanced settings on the login page by clicking **Enable Extra Config**. 
-  - The main options include:
-    - **Store Password Locally:** Enable this option if you are frequently getting logged out. The app stores the session cookie for an extended period, but due to the variety of devices used worldwide, exceptions may occur. This option can be very useful.
-    - **Maximum Clipboard Size Local Limit:** If the app crashes or stops unexpectedly, it means it received a clipboard size greater than the platform's maximum limit. You can specify a local size limit by typing in the size in bytes (e.g., 512 KiB = 524288 bytes) to test different limits that work for your device. This local limit is in addition to the server-specified limit, ensuring smoother operation without crashes.
-    - **Run on System Startup:** Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
+  ### Android (Specific):
+  - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
+  - **Enable Periodic Checks**: Enabling this option performs periodic checks to ensure clipboard monitoring and the foreground service are running. It verifies the service status when monitoring starts and then checks every 15 minutes in the background. If the service is not running, a notification is displayed. Clicking the notification will restart the service.
+    
+    <img src="https://github.com/user-attachments/assets/7341b960-5e60-4af6-b627-2183088de262" alt="periodic_check_notification" width="250" />
+
 
 ### End-to-End Encryption Configuration for Clipboard Data:
+When encryption is enabled, clipboard data is encrypted directly on the client devices. The server does not store the encryption key, ensuring true end-to-end encryption. The encryption password is derived from the user’s password, combined with a **salt** and the number of **hash rounds**, allowing you to configure these settings:
 
-When encryption is enabled, the clipboard data is encrypted on client devices. The server does not store this key, ensuring end-to-end encryption. The encryption password is generated using the user’s password, a salt, and the number of rounds, allowing you to control the **salt** and **number of rounds** used. This process creates a unique hashed password based on the specified salt and number of rounds.
+- **Hash Rounds**: An integer value specifying the number of hashing iterations.  
+- **Salt**: Any string value used as an additional input for the hashing process.
 
-However, it is crucial to use the same salt and number of rounds across all client devices. The default number of hash rounds is set to **664,937**, referred to as `hash_rounds`, while the default salt is set to empty, referred to as `salt`.
+It is essential to use the same **salt** and **hash rounds** across all client devices to maintain compatibility. By default:  
+- **Hash Rounds**: 664,937  
+- **Salt**: (Empty string)  
 
-In the desktop application, you can find these fields in the **DATA** file located in the software's directory. On mobile devices, you can adjust these settings on the login page under **extra config**.
-
-Before making any changes, ensure you log out and exit the application. After editing the `hash_rounds` or `salt` fields, log back in for the changes to take effect.
+You can adjust these fields on the login page under the **Extra Config** section.
 
 <img src="https://github.com/user-attachments/assets/008ba861-5d91-4044-badf-43fa425366b8" alt="e2e" />
 
+
+### Clipboard Functioning
+- **Text and Images**: These are directly copied to the clipboard, enabling seamless sharing across devices.  
+- **Files**: When files are received, a notification icon appears in the system tray (on desktop platforms). Since the clipboard does not store files, only their file paths are retained.  
+  
+   <table>
+    <tr>
+      <td><img src="https://github.com/user-attachments/assets/c4f06a97-1fc5-47e6-9ff5-d4dc3ff41c68" alt="desktop_tray_icon" /></td>
+      <td><img src="https://github.com/user-attachments/assets/eca756ad-76de-4fb9-ba14-619e92172758" alt="desktop_tray_options" width="150" /></td>
+    </tr>
+    <tr>
+      <td><img src="https://github.com/user-attachments/assets/7708d786-3c95-4892-8815-0792fc2fd465" alt="android_notification" width="150" /></td>
+      <td><img src="https://github.com/user-attachments/assets/c06e8584-fbed-4ae1-b3b3-d12664115178" alt="android_home_screen" width="150" /></td>
+    </tr>
+  </table>
+
+
+- **Clipboard Monitoring**:
+
+   | **Platform**              | **Implementation Details**                                                                                                                                              |
+   |---------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
+   | **Windows**               | Uses `win32gui`, `win32api`, `win32con`, and `win32clipboard` to capture clipboard changes in an event-driven manner.                                         |
+   | **macOS**                 | Utilizes the `pasteboard` to monitor the clipboard with polling every 0.3 seconds. Instead of checking clipboard content directly, it compares a counter to detect changes efficiently. |
+   | **Linux (X11)**           | Employs `Gtk.Clipboard` to capture clipboard changes in an event-driven manner, running in GUI mode.                                                         |
+   | **Linux (XWayland, Unknown)** | Switches between `Gtk.Clipboard` (event-based) or `x-clip` (polling every 0.3 seconds) depending on permissions (requires sudo for `Gtk.Clipboard`). Both operate in GUI mode. |
+   | **Linux (Wayland, Hyprland)** | Uses `wl-clipboard` with polling every 5 seconds in CLI mode. The delay accounts for Wayland's requirement to focus a window to grab clipboard content, ensuring smoother OS interaction. |
+   | **Android**               | Leverages `ClipboardManager` to capture clipboard changes in an event-driven manner.                                                                         |
+
+
+  <table border="1">
+  <tr>
+    <th rowspan="2">Type</th>
+    <th colspan="5">Send</th>
+    <th colspan="5">Receive</th>
+  </tr>
+  <tr>
+    <th>Windows</th>
+    <th>MacOS</th>
+    <th>Linux GUI</th>
+    <th>Linux CLI</th>
+    <th>Android</th>
+    <th>Windows</th>
+    <th>MacOS</th>
+    <th>Linux GUI</th>
+    <th>Linux CLI</th>
+    <th>Android</th>
+  </tr>
+  <tr>
+    <td>Text</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱ / share</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+  </tr>
+  <tr>
+    <td>Image</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱ / share</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+  </tr>
+  <tr>
+    <td>Files</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>✱</td>
+    <td>share</td>
+    <td>click</td>
+    <td>click</td>
+    <td>click</td>
+    <td>click</td>
+    <td>click</td>
+  </tr>
+  </table>
+
+
 ## ⇄ Reverse Proxy Setup
 
-Here is a screenshot showing how to set up a reverse proxy using **Cloudflare Tunnels**. You can apply a similar approach with other providers as well.
+Below is a screenshot demonstrating how to configure a reverse proxy using **Cloudflare Tunnels**. Similar configurations can be applied with other providers as well.
 
 <img src="https://github.com/user-attachments/assets/0f45879f-307a-4f5f-9f26-ca5d3de7b1cf" alt="Reverse Proxy" width="600" />
 
 <img src="https://github.com/user-attachments/assets/6d6d000f-4516-47be-ae1d-8726dc4d6535" alt="Reverse Proxy" width="400" />
+
+### Note:
+For other providers, you may need to configure HTTP to HTTPS redirection manually by adding a permanent redirection rule.
+
+Example: Caddy Configuration
+```
+http://clipcascade.sample.com {
+	redir https://clipcascade.sample.com{uri} permanent
+}
+```
 
 ## 🔧 Usage
 
@@ -559,7 +609,6 @@ Here are some planned features and improvements for future releases of ClipCasca
 - **Multiuser Support:** Implement multiuser functionality for a single instance, allowing multiple users to sync clipboards independently.  (For now, create separate instances for each user.)  
 - **OIDC/OAuth Authentication:** Integrate OpenID Connect (OIDC) and OAuth authentication for user login and management.  
 - **Clipboard Data Storage:** Implement secure storage for clipboard data to store and access it later.  
-- **Image and File Support:** Enable clipboard syncing for images and files, in addition to text data.
 
 ## 💬 Support
 

@@ -15,11 +15,13 @@ import java.util.concurrent.TimeUnit
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequest
 import android.util.Log
+import android.net.Uri
 
 
 class MainActivity : ReactActivity() {
     companion object {
         const val TAG = "ClipCascade"
+        const val WORK_NAME = "schedule_work"
     }
 
     /**
@@ -38,15 +40,27 @@ class MainActivity : ReactActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         intent?.let { handleIntent(it) }
-        scheduleJob()
-        if(ScheduleService.hasNotificationPermission(applicationContext) == true) {
-            ScheduleService.removeNotificationIfPresent(applicationContext)
+
+        var bridgeData : AsyncStorageBridge? = null
+        try{
+            bridgeData = AsyncStorageBridge(applicationContext)
+            val enablePeriodicChecks = bridgeData.getValue("enable_periodic_checks")?.toBoolean() ?: true
+            if(enablePeriodicChecks) { 
+                scheduleJob()
+                if(ScheduleService.hasNotificationPermission(applicationContext) == true) {
+                    ScheduleService.removeNotificationIfPresent(applicationContext)
+                }
+            } else {
+                WorkManager.getInstance(applicationContext).cancelAllWorkByTag(WORK_NAME)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error scheduling job", e)
+        } finally {
+            bridgeData?.disconnect()
         }
     }
 
     private fun scheduleJob() {
-        val WORK_NAME = "schedule_work"
-
         // Check if the work is already scheduled
         val workInfos = WorkManager.getInstance(applicationContext).getWorkInfosByTag(WORK_NAME).get()
         if (workInfos.isEmpty() || 
@@ -73,7 +87,7 @@ class MainActivity : ReactActivity() {
     }
 
     private fun handleIntent(intent: Intent) {
-        // shared text to app action
+        // Handle single shared text
         if (Intent.ACTION_SEND == intent.action && "text/plain" == intent.type) {
             val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
             sharedText?.let {
@@ -81,11 +95,36 @@ class MainActivity : ReactActivity() {
             }
         }
 
-        // text selection popup menu action
-        if (Intent.ACTION_PROCESS_TEXT == intent.action && "text/plain" == intent.type) {
+        // Handle text via text-selection popup (PROCESS_TEXT)
+        else if (Intent.ACTION_PROCESS_TEXT == intent.action && "text/plain" == intent.type) {
             val sharedText = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)
             sharedText?.let {
                 sendToReactNative("SHARED_TEXT", "text", it.toString())
+            }
+        }
+
+        // Handle single image
+        else if (Intent.ACTION_SEND == intent.action && intent.type?.startsWith("image/") == true) {
+            val imageUri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+            imageUri?.let {
+                sendToReactNative("SHARED_IMAGE", "image", it.toString())
+            }
+        }
+        
+        // Handle single file (any type)
+        else if (Intent.ACTION_SEND == intent.action && intent.type != null) {
+            val fileUri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+            fileUri?.let {
+                sendToReactNative("SHARED_FILES", "files", it.toString())
+            }
+        }
+
+        // Handle multiple files (any type)
+        else if (Intent.ACTION_SEND_MULTIPLE == intent.action && intent.type != null) {
+            val fileUris = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+            fileUris?.let {
+                val uriList = it.map(Uri::toString).joinToString(",")
+                sendToReactNative("SHARED_FILES", "files", uriList)
             }
         }
 

@@ -127,4 +127,10 @@ dependencies {
 
     // WorkManager
     implementation "androidx.work:work-runtime-ktx:2.9.1"
+
+    // DocumentFile
+    implementation "androidx.documentfile:documentfile:1.0.1"
+
+    // Kotlin serialization 
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.1"
 }
