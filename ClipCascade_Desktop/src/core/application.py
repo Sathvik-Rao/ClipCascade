@@ -36,25 +36,33 @@ class Application:
         data_file_path=DATA_FILE_NAME,
         mutex_identifier=MUTEX_NAME,
     ):
-        self.log_file_path = os.path.join(get_program_files_directory(), log_file_path)
-        self.data_file_path = os.path.join(
-            get_program_files_directory(), data_file_path
-        )
-        self.mutex_identifier = mutex_identifier
-
-        if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
-            self.lock_file = None  # File(lock) object
-            self.mutex_identifier = os.path.join(
-                get_program_files_directory(), self.mutex_identifier
+        try:
+            self.log_file_path = os.path.join(
+                get_program_files_directory(), log_file_path
             )
+            self.data_file_path = os.path.join(
+                get_program_files_directory(), data_file_path
+            )
+            self.mutex_identifier = mutex_identifier
 
-        self.config = Config(
-            file_name=self.data_file_path
-        )  # Maintain a single configuration instance for the entire application lifecycle.
+            if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
+                self.lock_file = None  # File(lock) object
+                self.mutex_identifier = os.path.join(
+                    get_program_files_directory(), self.mutex_identifier
+                )
 
-        self.request_manager = RequestManager(self.config)
-        self.stomp_manager = STOMPManager(self.config)
-        self.cipher_manager = CipherManager(self.config)
+            self.config = Config(
+                file_name=self.data_file_path
+            )  # Maintain a single configuration instance for the entire application lifecycle.
+
+            self.request_manager = RequestManager(self.config)
+            self.stomp_manager = STOMPManager(self.config)
+            self.cipher_manager = CipherManager(self.config)
+        except Exception as e:
+            CustomDialog(
+                f"An error occurred during application initialization: {e}",
+                msg_type="error",
+            ).mainloop()
 
     def setup_logging(self):
         LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"

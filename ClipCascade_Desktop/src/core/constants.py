@@ -72,7 +72,7 @@ if PLATFORM.startswith(LINUX):
 if PLATFORM == WINDOWS:
     APP_VERSION = "1.3.0"
 elif PLATFORM == MACOS:
-    APP_VERSION = "1.3.0"
+    APP_VERSION = "1.3.1"
 elif PLATFORM.startswith(LINUX):
     if XMODE:
         APP_VERSION = "1.3.0"  # gui version
@@ -115,9 +115,16 @@ def get_program_files_directory():
     Get the directory containing the program files.
     """
     if PLATFORM == MACOS:
-        return os.path.join(
+        app_dir = os.path.join(
             get_user_home_directory(), "Library", "Application Support", "ClipCascade"
         )
+        if not os.path.exists(app_dir):
+            try:
+                os.makedirs(app_dir)
+            except Exception as e:
+                raise e
+
+        return app_dir
     else:
         if getattr(sys, "frozen", False):  # Running as a PyInstaller executable
             return os.path.dirname(sys.executable)

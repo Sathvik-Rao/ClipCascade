@@ -21,7 +21,7 @@ class LoginForm(tk.Tk):
         self.on_login_callback = on_login_callback
         self.on_quit_callback = on_quit_callback
 
-        if PLATFORM.startswith(LINUX):
+        if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
             # Set an initial size to avoid 0 size issue
             # self.geometry("800x450")
             self.update_idletasks()
