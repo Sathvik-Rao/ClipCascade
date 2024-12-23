@@ -6,6 +6,8 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.WritableMap
 
 import android.os.Build
 import android.Manifest
@@ -37,13 +39,42 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
 
     @ReactMethod
     fun startListening() {
-        if (isListening) return
+        if (isListening) {
+            return
+        }
 
         listener = ClipboardManager.OnPrimaryClipChangedListener {
             val clip = clipboardManager.primaryClip
-            val text = clip?.getItemAt(0)?.text
-            if (text != null) {
-                sendEventToJS(text.toString())
+            if (clip != null && clip.itemCount > 0) {
+
+                val description = clip.description
+                if (description != null) { 
+
+                    val mimeType = description.getMimeType(0)
+                    if (mimeType != null) {
+                        
+                        val item = clip.getItemAt(0)
+                        val params: WritableMap = Arguments.createMap()
+                        
+                        if (mimeType.startsWith("text/") && item.text != null) {
+                            // Text
+                            params.putString("content", item.text.toString())
+                            params.putString("type", "text")
+                        }
+                        else if (mimeType.startsWith("image/") && item.uri != null) {
+                            // Image
+                            params.putString("content", item.uri.toString())
+                            params.putString("type", "image")
+                        }
+                        else if (item.uri != null) {
+                            // Files
+                            params.putString("content", item.uri.toString())
+                            params.putString("type", "files")
+                        }
+
+                        sendEventToJS(params)
+                    }
+                }
             }
         }
         clipboardManager.addPrimaryClipChangedListener(listener)
@@ -97,13 +128,13 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
     }
 
 
-    private fun sendEventToJS(clipContent: String) {
+    private fun sendEventToJS(params: WritableMap) {
         val currentTime = System.currentTimeMillis()
         if (currentTime - lastEmittedTime > debounceTime) {
             lastEmittedTime = currentTime
             reactApplicationContext
                 .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                .emit("onClipboardChange", clipContent)
+                .emit("onClipboardChange", params)
         }
     }
 

@@ -9,6 +9,8 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  NativeModules,
+  Alert,
 } from 'react-native';
 
 import {useEffect, useState} from 'react'; // hooks
@@ -18,6 +20,7 @@ import CheckBox from '@react-native-community/checkbox'; // checkbox
 import notifee from '@notifee/react-native'; // notification, foreground service
 import {pbkdf2} from '@react-native-module/pbkdf2'; // hashing
 import {Buffer} from 'buffer'; // handling streams of binary data
+import DocumentPicker from 'react-native-document-picker'; // file picker
 
 import {
   setDataInAsyncStorage,
@@ -37,10 +40,14 @@ import StartForegroundService from './StartForegroundService'; // foreground ser
  * (file) android\app\src\main\java\com\clipcascade\HeadlessTaskService.kt
  * (file) android\app\src\main\java\com\clipcascade\MainActivity.kt
  * (file) android\app\src\main\java\com\clipcascade\MainApplication.kt
+ * (file) android\app\src\main\java\com\clipcascade\NativeBridgeModule.kt
+ * (file) android\app\src\main\java\com\clipcascade\NativeBridgePackage.kt
  * (file) android\app\src\main\java\com\clipcascade\ScheduleService.kt
  * (file) android\app\src\main\AndroidManifest.xml
- * (file) android\app\build.gradle
  * (folder) android\app\src\main\res\
+ * (file) android\app\build.gradle
+ * (file) android\app\my-upload-key.keystore
+ * (file) android\gradle.properties
  * (file) AsyncStorageManagement.js
  * (file) HeadlessTask.js
  * (file) index.js
@@ -48,10 +55,12 @@ import StartForegroundService from './StartForegroundService'; // foreground ser
  */
 
 // App version
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 
 // Main App
 export default function App() {
+  const {NativeBridgeModule} = NativeModules;
+
   const [newVersionAvailable, setNewVersionAvailable] = useState([false, '']);
 
   // Retry login attempts
@@ -88,7 +97,17 @@ export default function App() {
     save_password: 'false',
     max_clipboard_size_local_limit_bytes: '',
     relaunch_on_boot: 'false',
+    enable_periodic_checks: 'true',
+    enable_image_sharing: 'true',
+    enable_file_sharing: 'true',
   });
+
+  /*
+   * Virtual/Helper Async Storage Fields:
+   *
+   * downloadFiles, filesAvailableToDownload, dirPath, wsStatusMessage, echo, wsIsRunning,
+   * enableWSButton, foreground_service_stopped_running, password
+   */
 
   // get data from async storage
   const getAsyncStorage = async () => {
@@ -127,11 +146,28 @@ export default function App() {
       // remove work manager notification if exists
       await notifee.cancelAllNotifications();
 
+      // stop foreground service(if any)
+      await notifee.stopForegroundService();
+
       // start foreground service
       const result = await StartForegroundService();
       if (result[0] === false) {
         throw result[1];
       }
+    } catch (e) {
+      throw e;
+    }
+  };
+
+  const clearFiles = async () => {
+    try {
+      await setDataInAsyncStorage('filesAvailableToDownload', 'false');
+      await setDataInAsyncStorage('downloadFiles', 'false');
+      await setDataInAsyncStorage('dirPath', '');
+      await notifee.cancelNotification(
+        'ClipCascade_Download_Files_Notification_Id',
+      );
+      setEnableFilesDownloadButton(false);
     } catch (e) {
       throw e;
     }
@@ -147,8 +183,8 @@ export default function App() {
         // enable websocket button
         await setDataInAsyncStorage('enableWSButton', 'true');
 
-        // start interval for websocket status message
-        intervalId = startIntervalWSM();
+        // start interval
+        intervalId = startInterval();
 
         // get data from async storage and initialize data hook
         let data_s = await getAsyncStorage();
@@ -167,25 +203,22 @@ export default function App() {
         // check if foreground service is running
         if (wsIsRunning_s === 'true') {
           let foregroundServiceIsActive = false;
-          if (
-            foregroundServiceStoppedRunning === null ||
-            foregroundServiceStoppedRunning === 'false'
-          ) {
-            setLoadingPageMessage('Checking foreground service...');
-            await setDataInAsyncStorage('echo', 'ping');
-            let iterate = 35; //3500 ms
-            while (iterate > 0) {
-              await new Promise(resolve => setTimeout(resolve, 100)); //100 ms
-              const echo = await getDataFromAsyncStorage('echo');
-              if (echo && echo === 'pong') {
-                foregroundServiceIsActive = true;
-                break;
-              }
-              iterate--;
+
+          setLoadingPageMessage('Checking foreground service...');
+          await setDataInAsyncStorage('echo', 'ping');
+          let iterate = 35; //3500 ms
+          while (iterate > 0) {
+            await new Promise(resolve => setTimeout(resolve, 100)); //100 ms
+            const echo = await getDataFromAsyncStorage('echo');
+            if (echo && echo === 'pong') {
+              foregroundServiceIsActive = true;
+              break;
             }
+            iterate--;
           }
           if (!foregroundServiceIsActive) {
             wsIsRunning_s = 'false';
+            await clearFiles();
             await setDataInAsyncStorage(
               'wsStatusMessage',
               '⚠️ Foreground service stopped running',
@@ -425,14 +458,24 @@ export default function App() {
     }
   };
 
-  // Function to start the interval for WebSocket StatusMessage
-  const startIntervalWSM = () => {
+  const startInterval = () => {
     try {
       return setInterval(async () => {
         if ((await getDataFromAsyncStorage('wsIsRunning')) === 'true') {
+          // Websocket status message
           const msg = await getDataFromAsyncStorage('wsStatusMessage');
           if (msg !== null && msg !== '') {
             setWsPageMessage(msg);
+          }
+
+          // Files available to download
+          if (
+            (await getDataFromAsyncStorage('filesAvailableToDownload')) ===
+            'true'
+          ) {
+            setEnableFilesDownloadButton(true);
+          } else {
+            setEnableFilesDownloadButton(false);
           }
         }
       }, 300);
@@ -447,6 +490,7 @@ export default function App() {
       if ((await getDataFromAsyncStorage('enableWSButton')) === 'true') {
         await setDataInAsyncStorage('enableWSButton', 'false');
         setWsPageMessage('');
+        await clearFiles();
         wsIsRunning_s = wsIsRunning === 'true' ? 'false' : 'true'; // toggle
         await setDataInAsyncStorage('wsIsRunning', wsIsRunning_s);
         if (wsIsRunning_s === 'true') {
@@ -460,6 +504,7 @@ export default function App() {
           await new Promise(resolve => setTimeout(resolve, 1500));
           setWsPageMessage('');
         }
+        await NativeBridgeModule.clearImageCache();
 
         setWsIsRunning(wsIsRunning_s);
       }
@@ -540,6 +585,11 @@ export default function App() {
       } else {
         setLoginStatusMessage(['✅ ', loginResult[1]].join(''));
 
+        // Stop periodic checks work manager notification (if disabled)
+        if (data_s.enable_periodic_checks === 'false') {
+          NativeBridgeModule.stopWorkManager();
+        }
+
         // Save password in async storage
         if (data_s.save_password === 'true') {
           await setDataInAsyncStorage('password', password_s);
@@ -573,6 +623,29 @@ export default function App() {
 
   // State to manage websocket page message
   const [wsPageMessage, setWsPageMessage] = useState('');
+
+  // files download button
+  const [enableFilesDownloadButton, setEnableFilesDownloadButton] =
+    useState(false);
+
+  // download files
+  const downloadFiles = async () => {
+    try {
+      if (
+        (await getDataFromAsyncStorage('filesAvailableToDownload')) === 'true'
+      ) {
+        const res = await DocumentPicker.pickDirectory();
+        await setDataInAsyncStorage('dirPath', res.uri);
+        await setDataInAsyncStorage('downloadFiles', 'true');
+      } else {
+        setEnableFilesDownloadButton(false);
+      }
+    } catch (e) {
+      if (!DocumentPicker.isCancel(e)) {
+        Alert.alert('Error', 'Unknown error: ' + JSON.stringify(e));
+      }
+    }
+  };
 
   // view
   if (initError[0]) {
@@ -796,6 +869,36 @@ export default function App() {
                   }
                 />
               </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Enable Periodic Checks:</Text>
+                <CheckBox
+                  value={data.enable_periodic_checks === 'true' ? true : false}
+                  onValueChange={newValue =>
+                    handleInputChange(
+                      'enable_periodic_checks',
+                      String(newValue),
+                    )
+                  }
+                />
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Enable Image Sharing:</Text>
+                <CheckBox
+                  value={data.enable_image_sharing === 'true' ? true : false}
+                  onValueChange={newValue =>
+                    handleInputChange('enable_image_sharing', String(newValue))
+                  }
+                />
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.label}>Enable File Sharing:</Text>
+                <CheckBox
+                  value={data.enable_file_sharing === 'true' ? true : false}
+                  onValueChange={newValue =>
+                    handleInputChange('enable_file_sharing', String(newValue))
+                  }
+                />
+              </View>
             </>
           )}
           {/* GitHub Icon */}
@@ -835,18 +938,26 @@ export default function App() {
                 {wsIsRunning === 'true' ? 'Stop' : 'Start'}
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={[styles.loginButton, {backgroundColor: '#800020'}]}
               onPress={logout}>
               <Text style={styles.loginButtonText}>Logout</Text>
             </TouchableOpacity>
-
             {/* Display status message */}
             {wsPageMessage !== '' && (
               <Text style={styles.message}>{wsPageMessage}</Text>
             )}
-
+            {/* File download button */}
+            {enableFilesDownloadButton &&
+              enableFilesDownloadButton === true && (
+                <TouchableOpacity
+                  style={[styles.loginButton, {backgroundColor: '#4bab4e'}]}
+                  onPress={downloadFiles}>
+                  <Text style={styles.loginButtonText}>
+                    📥 Download File(s)
+                  </Text>
+                </TouchableOpacity>
+              )}
             {/* new version display message */}
             {newVersionAvailable[0] && (
               <TouchableOpacity
@@ -870,7 +981,6 @@ export default function App() {
                 </Text>
               </TouchableOpacity>
             )}
-
             <View style={{marginTop: 20, paddingHorizontal: 10}}>
               <Text
                 style={[styles.message, {fontWeight: 'bold', fontSize: 18}]}>
@@ -889,14 +999,14 @@ export default function App() {
                 </Text>
                 <View style={{marginTop: 10, marginLeft: 15}}>
                   <Text style={styles.label}>
-                    1. Select the text you want to copy.
+                    1. Select the text, image, or file(s) you want to copy.
                   </Text>
                   <Text style={styles.label}>
-                    2. Tap 'ClipCascade' instead of 'Copy'.
+                    2. Tap 'Share', select 'ClipCascade'.
                   </Text>
                   <Text style={[styles.label, {marginLeft: 15}]}>(or)</Text>
                   <Text style={[styles.label, {marginLeft: 15}]}>
-                    Tap 'Share', select 'ClipCascade'.
+                    Tap 'ClipCascade' instead of 'Copy'.
                   </Text>
                 </View>
                 <Text

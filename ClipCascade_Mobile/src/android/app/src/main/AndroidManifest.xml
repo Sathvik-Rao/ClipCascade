@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.READ_LOGS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
 
     <application
@@ -30,12 +32,30 @@
           <action android:name="android.intent.action.MAIN" />
           <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
-        <!-- Intent filter for receiving shared text -->
         <intent-filter>
+          <!-- Intent filter for receiving shared text -->
           <action android:name="android.intent.action.SEND" />
           <action android:name="android.intent.action.PROCESS_TEXT" />
           <category android:name="android.intent.category.DEFAULT" />
           <data android:mimeType="text/plain" />
+        </intent-filter>
+        <intent-filter>
+          <!-- For single image sharing -->
+          <action android:name="android.intent.action.SEND" />
+          <category android:name="android.intent.category.DEFAULT" />
+          <data android:mimeType="image/*" />
+        </intent-filter>
+        <intent-filter>
+          <!-- For single file sharing -->
+          <action android:name="android.intent.action.SEND" />
+          <category android:name="android.intent.category.DEFAULT" />
+          <data android:mimeType="*/*" />
+        </intent-filter>
+        <intent-filter>
+          <!-- For multiple files of any type -->
+          <action android:name="android.intent.action.SEND_MULTIPLE" />
+          <category android:name="android.intent.category.DEFAULT" />
+          <data android:mimeType="*/*" />
         </intent-filter>
       </activity>
       <activity
@@ -59,5 +79,15 @@
       <service
         android:name=".HeadlessTaskService"
         android:exported="false" />
+
+      <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.fileprovider"
+        android:exported="false"
+        android:grantUriPermissions="true">
+        <meta-data
+            android:name="android.support.FILE_PROVIDER_PATHS"
+            android:resource="@xml/provider_paths" />
+      </provider>
     </application>
 </manifest>

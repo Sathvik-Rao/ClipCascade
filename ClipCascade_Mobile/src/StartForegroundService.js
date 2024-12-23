@@ -2,6 +2,7 @@ import {
   NativeEventEmitter,
   NativeModules,
   DeviceEventEmitter,
+  Alert,
 } from 'react-native';
 
 import notifee, {AndroidImportance} from '@notifee/react-native'; // notification, foreground service
@@ -30,8 +31,12 @@ module.exports = async (inputData = null) => {
   notifee.registerForegroundService(notification => {
     return new Promise(async () => {
       try {
+        const {NativeBridgeModule} = NativeModules;
+
         let previous_clipboard_content_hash = '';
         let toggle = false;
+        let block_image_once = false;
+        let files_in_memory = null;
 
         // get data from async storage
         const websocket_url = await getDataFromAsyncStorage('websocket_url');
@@ -94,9 +99,56 @@ module.exports = async (inputData = null) => {
           return previous_clipboard_content_hash !== hcb;
         };
 
+        const calculateBase64DecodedLength = async base64Str => {
+          // Calculates the decoded byte length of a Base64-encoded string.
+          const n = base64Str.length;
+          const padding = (base64Str.match(/=/g) || []).length;
+          return 3 * (n / 4) - padding;
+        };
+
         // validate clipboard size
-        const validateClipboardSize = async (clipContent, direction) => {
-          const clipContentByteLength = Buffer.byteLength(clipContent, 'utf8');
+        const validateClipboardSize = async (clipContent, type, direction) => {
+          let clipContentByteLength = 0;
+          if (type === 'text') {
+            clipContentByteLength = Buffer.byteLength(clipContent, 'utf8');
+          } else if (type === 'image') {
+            if (
+              direction.toLowerCase() === 'outbound' &&
+              typeof clipContent === 'string'
+            ) {
+              clipContentByteLength = Number(
+                await NativeBridgeModule.getFileSize(clipContent),
+              );
+            } else if (direction.toLowerCase() === 'inbound') {
+              clipContentByteLength = await calculateBase64DecodedLength(
+                clipContent,
+              );
+            }
+          } else if (type === 'files') {
+            if (
+              direction.toLowerCase() === 'outbound' &&
+              typeof clipContent === 'string'
+            ) {
+              const file_paths = clipContent
+                .split(',')
+                .filter(item => item.trim() !== '');
+              for (const file_path of file_paths) {
+                clipContentByteLength += Number(
+                  await NativeBridgeModule.getFileSize(file_path),
+                );
+              }
+            } else if (direction.toLowerCase() === 'inbound') {
+              let files = JSON.parse(clipContent);
+              for (const file in files) {
+                clipContentByteLength += await calculateBase64DecodedLength(
+                  files[file],
+                );
+              }
+            }
+          } else {
+            return false;
+          }
+
           if (
             clipContentByteLength <= maxsize &&
             clipContentByteLength <= max_clipboard_size_local_limit_bytes
@@ -118,7 +170,7 @@ module.exports = async (inputData = null) => {
           return false;
         };
 
-        // ClipCascade when clipboard content is shared to app (or) when text selection popup menu action is invoked
+        // Event triggered when text content is shared with the app. (or) when text selection popup menu action is invoked
         DeviceEventEmitter.addListener('SHARED_TEXT', async event => {
           try {
             const clipContent = event.text;
@@ -129,7 +181,37 @@ module.exports = async (inputData = null) => {
                * If both events are triggered successfully, the content won't be sent twice because the same content is hashed, ensuring that identical data is only processed once.
                */
               Clipboard.setString(clipContent);
-              await sendClipBoard(clipContent);
+              await sendClipBoard(clipContent, 'text');
+            }
+          } catch (e) {
+            await setDataInAsyncStorage(
+              'wsStatusMessage',
+              '❌ Outbound Error: ' + e,
+            );
+          }
+        });
+
+        // Event listener triggered when image is shared with the app.
+        DeviceEventEmitter.addListener('SHARED_IMAGE', async event => {
+          try {
+            const clipContent = event.image;
+            if (clipContent) {
+              await sendClipBoard(clipContent, 'image');
+            }
+          } catch (e) {
+            await setDataInAsyncStorage(
+              'wsStatusMessage',
+              '❌ Outbound Error: ' + e,
+            );
+          }
+        });
+
+        // Event listener triggered when files are shared with the app.
+        DeviceEventEmitter.addListener('SHARED_FILES', async event => {
+          try {
+            const clipContent = event.files;
+            if (clipContent) {
+              await sendClipBoard(clipContent, 'files');
             }
           } catch (e) {
             await setDataInAsyncStorage(
@@ -147,9 +229,11 @@ module.exports = async (inputData = null) => {
         // clipboard listener callback
         const clipboardOnChange = clipboardListener.addListener(
           'onClipboardChange',
-          async clipContent => {
+          async params => {
             try {
-              await sendClipBoard(clipContent);
+              if (params && params.content && params.type) {
+                await sendClipBoard(params.content, params.type);
+              }
             } catch (e) {
               await setDataInAsyncStorage(
                 'wsStatusMessage',
@@ -158,6 +242,16 @@ module.exports = async (inputData = null) => {
             }
           },
         );
+
+        const clearFiles = async () => {
+          files_in_memory = null;
+          await notifee.cancelNotification(
+            'ClipCascade_Download_Files_Notification_Id',
+          );
+          await setDataInAsyncStorage('filesAvailableToDownload', 'false');
+          await setDataInAsyncStorage('downloadFiles', 'false');
+          await setDataInAsyncStorage('dirPath', '');
+        };
 
         // websocket stomp client
         const stompClient = new Client({
@@ -172,6 +266,7 @@ module.exports = async (inputData = null) => {
             // Subscribe to a topic
             stompClient.subscribe(subscription_destination, async message => {
               try {
+                await clearFiles();
                 toggle = false;
                 await setDataInAsyncStorage(
                   'wsStatusMessage',
@@ -179,16 +274,52 @@ module.exports = async (inputData = null) => {
                 );
 
                 if (message && message.body) {
-                  let cb = String(JSON.parse(message.body).text);
+                  const payload = JSON.parse(message.body);
+                  let cb = String(payload.text);
+                  const type_ = payload.type;
+
+                  //decrypt
                   if (cipher_enabled === 'true') {
                     cb = await decrypt(JSON.parse(cb));
                   }
 
-                  if (await validateClipboardSize(cb, 'Inbound')) {
-                    const hcb = await hashCB(cb);
-                    if (await newCB(hcb)) {
-                      previous_clipboard_content_hash = hcb;
-                      Clipboard.setString(cb);
+                  // hash clipboard content
+                  const hcb = await hashCB(cb);
+                  if (await newCB(hcb)) {
+                    previous_clipboard_content_hash = hcb;
+
+                    // validate clipboard size
+                    if (await validateClipboardSize(cb, type_, 'Inbound')) {
+                      // set clipboard content
+                      if (type_ === 'text') {
+                        Clipboard.setString(cb);
+                      } else if (type_ === 'image') {
+                        await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
+                          cb,
+                        );
+                        block_image_once = true;
+                      } else if (type_ === 'files') {
+                        // Display a silent notification
+                        await notifee.displayNotification({
+                          id: 'ClipCascade_Download_Files_Notification_Id',
+                          title: '📥 Download File(s)',
+                          android: {
+                            channelId: 'ClipCascade',
+                            smallIcon: 'ic_small_icon',
+                            color: 'gray',
+                            pressAction: {
+                              id: 'default',
+                              launchActivity: 'default',
+                            },
+                          },
+                        });
+
+                        files_in_memory = cb;
+                        await setDataInAsyncStorage(
+                          'filesAvailableToDownload',
+                          'true',
+                        );
+                      }
                     }
                   }
                 }
@@ -227,29 +358,74 @@ module.exports = async (inputData = null) => {
         stompClient.activate();
 
         // send clipboard content
-        const sendClipBoard = async clipContent => {
+        const sendClipBoard = async (clipContent, type_ = 'text') => {
           try {
+            await clearFiles();
             if (stompClient && stompClient.connected && !toggle) {
-              if (await validateClipboardSize(clipContent, 'Outbound')) {
+              if (
+                (type_ === 'image' &&
+                  (await getDataFromAsyncStorage('enable_image_sharing')) ===
+                    'false') ||
+                (type_ === 'files' &&
+                  (await getDataFromAsyncStorage('enable_file_sharing')) ===
+                    'false')
+              ) {
+                return;
+              }
+
+              if (await validateClipboardSize(clipContent, type_, 'Outbound')) {
+                // base64 encode
+                if (type_ === 'image') {
+                  clipContent = await NativeBridgeModule.getFileAsBase64(
+                    clipContent,
+                  );
+                } else if (type_ === 'files') {
+                  temp = {};
+                  const file_paths = clipContent
+                    .split(',')
+                    .filter(item => item.trim() !== '');
+
+                  for (const file_path of file_paths) {
+                    temp[await NativeBridgeModule.getFileName(file_path)] =
+                      await NativeBridgeModule.getFileAsBase64(file_path);
+                  }
+                  clipContent = JSON.stringify(temp);
+                }
+
+                // clipboad content hash
                 const hcb = await hashCB(clipContent);
                 if (await newCB(hcb)) {
-                  toggle = true;
                   previous_clipboard_content_hash = hcb;
-                  if (cipher_enabled === 'true') {
-                    clipContent = await encrypt(clipContent);
+
+                  if (block_image_once) {
+                    block_image_once = false;
+                  } else {
+                    toggle = true;
+                    if (cipher_enabled === 'true') {
+                      //ecrypt
+                      clipContent = await encrypt(clipContent);
+                    }
+
+                    await setDataInAsyncStorage(
+                      'wsStatusMessage',
+                      '✅ Connected - Broadcasting',
+                    );
+
+                    // send
+                    stompClient.publish({
+                      destination: send_destination,
+                      body: JSON.stringify({
+                        text: String(clipContent),
+                        type: type_,
+                      }),
+                    });
                   }
-                  await setDataInAsyncStorage(
-                    'wsStatusMessage',
-                    '✅ Connected - Broadcasting',
-                  );
-                  stompClient.publish({
-                    destination: send_destination,
-                    body: JSON.stringify({text: String(clipContent)}),
-                  });
                 }
               }
             }
           } catch (e) {
+            toggle = false;
+            block_image_once = false;
             throw e;
           }
         };
@@ -278,6 +454,50 @@ module.exports = async (inputData = null) => {
           const echo = await getDataFromAsyncStorage('echo');
           if (echo && echo === 'ping') {
             await setDataInAsyncStorage('echo', 'pong');
+          }
+
+          // check if user wants to download files
+          if (
+            ((await getDataFromAsyncStorage('downloadFiles')) === 'true' &&
+              (await getDataFromAsyncStorage('filesAvailableToDownload'))) ===
+            'true'
+          ) {
+            try {
+              await setDataInAsyncStorage('downloadFiles', 'false');
+              const dirPath = await getDataFromAsyncStorage('dirPath');
+
+              // display progress notification
+              const channelIdProgress = await notifee.createChannel({
+                id: 'ClipCascade_Progress',
+                name: 'ClipCascade Download Progress',
+                importance: AndroidImportance.DEFAULT,
+              });
+
+              await notifee.displayNotification({
+                id: 'ClipCascade_Download_Files_Progress_Notification_Id',
+                title: 'Downloading File(s)...',
+                android: {
+                  channelId: channelIdProgress,
+                  smallIcon: 'ic_small_icon',
+                  progress: {
+                    indeterminate: true,
+                  },
+                },
+              });
+
+              // save files
+              await NativeBridgeModule.saveBase64Files(
+                dirPath,
+                files_in_memory,
+              );
+            } catch (e) {
+              // Alert is displayed only when the app is open because this is called from foreground service
+              Alert.alert('Error', 'Failed to download files: ' + e);
+            } finally {
+              await notifee.cancelNotification(
+                'ClipCascade_Download_Files_Progress_Notification_Id',
+              );
+            }
           }
         }, 1000);
       } catch (error) {
