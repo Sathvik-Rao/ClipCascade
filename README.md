@@ -445,6 +445,15 @@ cd /path/to/clipcascade/src/ && sudo python3 main.py
 
 ## ⚙️ Advanced Details
 
+### Server:
+The server supports the following environment variables:
+- **`CC_USERNAME`** – Specifies the default username.  
+- **`CC_PASSWORD`** – Sets the password for authentication.  
+- **`CC_MAX_MESSAGE_SIZE`** – Defines the maximum clipboard size limit globally, measured in MiB (Megabytes). Typical values:  
+  - **Windows Desktop:** Up to 25 MiB (for text).  
+  - **Android Mobile:** Approximately 1 MiB (for text).  
+
+### Client Apps:
 - Logs (`clipcascade_log.log`) are stored in the installation directory on Windows and Linux, and in `<current user>/Library/Application Support/ClipCascade/` on macOS. These logs allow you to review application activity and are automatically reset each time the application is reopened, preventing indefinite growth.
 - On Linux and macOS, a `ClipCascade.lock` file is created while the program is running. This file ensures that only a single instance of ClipCascade can be opened at a time.
 - The `DATA` file stores settings and user details, enabling the app to retain this information across both restarts and updates.
