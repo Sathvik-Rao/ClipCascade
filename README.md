@@ -71,11 +71,42 @@
 - **⚙️ Advanced Settings:** Customize your clipboard sync experience with additional settings for fine-tuning performance.
 - **🔔 Update Notifications:** Stay informed with timely update notifications across all platforms, keeping your app up to date with the latest features and security enhancements.
 
-   | **Type**   | **Windows** | **MacOS** | **Linux GUI** | **Linux CLI** | **Android** |
-   |------------|-------------|-----------|---------------|-------------------|-------------|
-   | **Text**   | ✔           | ✔        | ✔             | ✔                | ✔           |
-   | **Image**  | ✔           | ✔        | ✔             | ✔                | ✔           |
-   | **Files**  | ✔           | ✔        | ✔             | ✔                | ✔           |
+<div align="center">
+<table>
+  <tr>
+    <th>Type</th>
+    <th>Windows</th>
+    <th>MacOS</th>
+    <th>Linux GUI</th>
+    <th>Linux CLI</th>
+    <th>Android</th>
+  </tr>
+  <tr>
+    <td><strong>Text</strong></td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+  </tr>
+  <tr>
+    <td><strong>Image</strong></td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+  </tr>
+  <tr>
+    <td><strong>Files</strong></td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+    <td>✔</td>
+  </tr>
+</table>
+</div>
 
 
 ## 📥 Installation
