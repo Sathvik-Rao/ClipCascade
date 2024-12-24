@@ -71,11 +71,11 @@
 - **⚙️ Advanced Settings:** Customize your clipboard sync experience with additional settings for fine-tuning performance.
 - **🔔 Update Notifications:** Stay informed with timely update notifications across all platforms, keeping your app up to date with the latest features and security enhancements.
 
-| **Type**   | **Windows** | **MacOS** | **Linux GUI** | **Linux CLI** | **Android** |
-|------------|-------------|-----------|---------------|-------------------|-------------|
-| **Text**   | ✔           | ✔        | ✔             | ✔                | ✔           |
-| **Image**  | ✔           | ✔        | ✔             | ✔                | ✔           |
-| **Files**  | ✔           | ✔        | ✔             | ✔                | ✔           |
+   | **Type**   | **Windows** | **MacOS** | **Linux GUI** | **Linux CLI** | **Android** |
+   |------------|-------------|-----------|---------------|-------------------|-------------|
+   | **Text**   | ✔           | ✔        | ✔             | ✔                | ✔           |
+   | **Image**  | ✔           | ✔        | ✔             | ✔                | ✔           |
+   | **Files**  | ✔           | ✔        | ✔             | ✔                | ✔           |
 
 
 ## 📥 Installation
@@ -484,14 +484,18 @@ You can adjust these fields on the login page under the **Extra Config** section
   
    <table>
     <tr>
-      <td><img src="https://github.com/user-attachments/assets/c4f06a97-1fc5-47e6-9ff5-d4dc3ff41c68" alt="desktop_tray_icon" /></td>
-      <td><img src="https://github.com/user-attachments/assets/eca756ad-76de-4fb9-ba14-619e92172758" alt="desktop_tray_options" width="150" /></td>
+        <td align="center"><strong>Desktop</strong></td>
+        <td align="center"><strong>Mobile</strong></td>
     </tr>
     <tr>
-      <td><img src="https://github.com/user-attachments/assets/7708d786-3c95-4892-8815-0792fc2fd465" alt="android_notification" width="150" /></td>
-      <td><img src="https://github.com/user-attachments/assets/c06e8584-fbed-4ae1-b3b3-d12664115178" alt="android_home_screen" width="150" /></td>
+        <td><img src="https://github.com/user-attachments/assets/c4f06a97-1fc5-47e6-9ff5-d4dc3ff41c68" alt="desktop_tray_icon" /></td>
+        <td><img src="https://github.com/user-attachments/assets/7708d786-3c95-4892-8815-0792fc2fd465" alt="android_notification" width="150" /></td>
     </tr>
-  </table>
+    <tr>
+	<td><img src="https://github.com/user-attachments/assets/eca756ad-76de-4fb9-ba14-619e92172758" alt="desktop_tray_options" width="150" /></td>
+        <td><img src="https://github.com/user-attachments/assets/c06e8584-fbed-4ae1-b3b3-d12664115178" alt="android_home_screen" width="150" /></td>
+    </tr>
+   </table>
 
 
 - **Clipboard Monitoring**:
@@ -509,8 +513,8 @@ You can adjust these fields on the login page under the **Extra Config** section
   <table border="1">
   <tr>
     <th rowspan="2">Type</th>
-    <th colspan="5">Send</th>
-    <th colspan="5">Receive</th>
+    <th colspan="5" align="center">Send</th>
+    <th colspan="5" align="center">Receive</th>
   </tr>
   <tr>
     <th>Windows</th>
