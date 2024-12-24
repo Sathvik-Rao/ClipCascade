@@ -75,9 +75,9 @@ elif PLATFORM == MACOS:
     APP_VERSION = "1.3.1"
 elif PLATFORM.startswith(LINUX):
     if XMODE:
-        APP_VERSION = "1.3.0"  # gui version
+        APP_VERSION = "1.3.2"  # gui version
     else:
-        APP_VERSION = "1.3.0"  # non-gui(cli) version
+        APP_VERSION = "1.3.2"  # non-gui(cli) version
 
 
 # core constants

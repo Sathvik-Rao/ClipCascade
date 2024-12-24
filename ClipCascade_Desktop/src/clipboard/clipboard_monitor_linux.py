@@ -65,9 +65,9 @@ def _monitor_x_wl_clipboard(
     ]
 
     if x_mode:
-        timeout = 0.3  # seconds
+        timeout = 0.3  # xclip seconds
     else:
-        timeout = 5  # seconds
+        timeout = 5  # wl-clipboard seconds
 
     while _run_poll.is_set():
         if x_mode:
@@ -224,16 +224,31 @@ def execute_command(*args) -> tuple:
         return (False, error.decode())
 
 
+def is_x_clipboard_owner():
+    # Check if the X clipboard is owned by the current user
+    success, msg = execute_command(
+        "xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"
+    )
+    if not success:
+        if msg.lower().find("there is no owner for the clipboard selection") != -1:
+            logging.warning(
+                f"{msg}\nX clipboard is not owned by the current user switching to wl-clipboard."
+            )
+            return False
+
+    return True
+
+
 def _start_clipboard_polling(enable_image_monitoring, enable_file_monitoring):
     if XMODE:
         _monitor_x_wl_clipboard(
-            x_mode=True,
+            x_mode=is_x_clipboard_owner(),
             enable_image_monitoring=enable_image_monitoring,
             enable_file_monitoring=enable_file_monitoring,
         )
     else:
         _monitor_x_wl_clipboard(
-            x_mode=False,
+            x_mode=XMODE,
             enable_image_monitoring=enable_image_monitoring,
             enable_file_monitoring=enable_file_monitoring,
         )
@@ -260,10 +275,13 @@ def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
             _is_gdk_running = True
             Gtk.main()
         else:
+            logging.warning(
+                f"Unsupported display server detected ${str(type(Gdk.Display.get_default())).lower()}. Starting polling mode for {detect_linux_display_server()} server as fallback."
+            )
             _start_clipboard_polling(enable_image_monitoring, enable_file_monitoring)
     except Exception as e:
         logging.error(
-            f"Failed to start clipboard monitor: Error {e}\nStarting polling mode for {detect_linux_display_server()} server as fallback"
+            f"Failed to start clipboard monitor: Error {e}\nStarting polling mode for {detect_linux_display_server()} server as fallback."
         )
         _start_clipboard_polling(enable_image_monitoring, enable_file_monitoring)
 
