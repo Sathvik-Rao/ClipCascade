@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import re
 from core.constants import *
 
 
@@ -10,24 +11,21 @@ class Config:
         self.data = {
             "cipher_enabled": True,
             "server_url": "http://localhost:8080",
-            "websocket_url": "ws://localhost:8080/clipsocket",
+            "websocket_url": "",
             "username": "",
             "hashed_password": None,
             "cookie": None,
             "maxsize": None,
-            "subscription_destination": "/topic/cliptext",
-            "send_destination": "/app/cliptext",
             "hash_rounds": 664937,
-            "login_url": "/login",
-            "logout_url": "/logout",
-            "maxsize_url": "/max-size",
             "salt": "",
+            "csrf_token": "",
             "notification": True,
             "save_password": False,
             "password": "",
             "max_clipboard_size_local_limit_bytes": None,
             "enable_image_sharing": True,
             "enable_file_sharing": True,
+            "default_file_download_location": "",
         }
 
     def save(self):
@@ -66,3 +64,25 @@ class Config:
                     "Try deleting DATA file in the program directory, and re-run the program again"
                 )
         return False
+
+    @staticmethod
+    def convert_to_websocket_url(input_url):
+        if not input_url or not isinstance(input_url, str):
+            raise ValueError("Invalid URL provided")
+
+        # Trim whitespace, remove trailing slashes, and convert to lowercase
+        input_url = re.sub(r"/+$", "", input_url.strip()).lower()
+
+        # Determine protocol and convert
+        if input_url.startswith("https://"):
+            ws_url = input_url.replace("https://", "wss://", 1)
+        elif input_url.startswith("http://"):
+            ws_url = input_url.replace("http://", "ws://", 1)
+        else:
+            raise ValueError(f"Unsupported protocol in URL: {input_url}")
+
+        # Append the WebSocket endpoint and remove any trailing slash
+        ws_url += WEBSOCKET_ENDPOINT
+        ws_url = re.sub(r"/+$", "", ws_url)
+
+        return ws_url

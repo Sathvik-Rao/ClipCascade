@@ -61,12 +61,8 @@ class LoginForm:
             server_url.strip()
         )
 
-        websocket_url = (
-            input(f"websocket url [{self.config.data['websocket_url']}]: ")
-            or self.config.data["websocket_url"]
-        )
-        self.config.data["websocket_url"] = LoginForm.remove_trailing_slash(
-            websocket_url.strip()
+        self.config.data["websocket_url"] = Config.convert_to_websocket_url(
+            self.config.data["server_url"]
         )
 
         self.config.data["cipher_enabled"] = LoginForm.str_to_bool(
@@ -88,48 +84,6 @@ class LoginForm:
         if not LoginForm.str_to_bool(show_extra_fields):
             CustomDialog("Logging in...").mainloop()
             return
-
-        subscription_destination = (
-            input(
-                f"subscription destination [{self.config.data['subscription_destination']}]: "
-            )
-            or self.config.data["subscription_destination"]
-        )
-        self.config.data["subscription_destination"] = LoginForm.remove_trailing_slash(
-            subscription_destination.strip()
-        )
-
-        send_destination = (
-            input(f"send destination [{self.config.data['send_destination']}]: ")
-            or self.config.data["send_destination"]
-        )
-        self.config.data["send_destination"] = LoginForm.remove_trailing_slash(
-            send_destination.strip()
-        )
-
-        login_url = (
-            input(f"login url [{self.config.data['login_url']}]: ")
-            or self.config.data["login_url"]
-        )
-        self.config.data["login_url"] = LoginForm.remove_trailing_slash(
-            login_url.strip()
-        )
-
-        logout_url = (
-            input(f"logout url [{self.config.data['logout_url']}]: ")
-            or self.config.data["logout_url"]
-        )
-        self.config.data["logout_url"] = LoginForm.remove_trailing_slash(
-            logout_url.strip()
-        )
-
-        maxsize_url = (
-            input(f"maxsize url [{self.config.data['maxsize_url']}]: ")
-            or self.config.data["maxsize_url"]
-        )
-        self.config.data["maxsize_url"] = LoginForm.remove_trailing_slash(
-            maxsize_url.strip()
-        )
 
         # Validate hash_rounds
         while True:
@@ -209,6 +163,32 @@ class LoginForm:
             )
             or LoginForm.bool_to_str(self.config.data["enable_file_sharing"])
         )
+
+        # Validate default file download location
+        while True:
+            default_file_download_location = (
+                input(
+                    f"default file download location [{self.config.data['default_file_download_location']}]: "
+                )
+                or self.config.data["default_file_download_location"]
+            )
+
+            default_file_download_location = default_file_download_location.strip()
+            if default_file_download_location == "":
+                self.config.data["default_file_download_location"] = ""
+                break
+
+            if not os.path.isdir(default_file_download_location):
+                CustomDialog(
+                    "Invalid directory path.",
+                    msg_type="error",
+                ).mainloop()
+                continue
+
+            self.config.data["default_file_download_location"] = (
+                default_file_download_location
+            )
+            break
 
         CustomDialog("Logging in...").mainloop()
 

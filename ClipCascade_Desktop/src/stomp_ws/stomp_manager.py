@@ -71,7 +71,7 @@ class STOMPManager:
                     )
                 # receive event
                 self.client.subscribe(
-                    destination=self.config.data["subscription_destination"],
+                    destination=SUBSCRIPTION_DESTINATION,
                     callback=self._receive,
                 )
                 # send event
@@ -104,10 +104,8 @@ class STOMPManager:
                         payload = CipherManager.encode_to_json_string(
                             **self.cipher_manager.encrypt(payload)
                         )
-                    body = json.dumps({"text": payload, "type": payload_type})
-                    self.client.send(
-                        destination=self.config.data["send_destination"], body=body
-                    )
+                    body = json.dumps({"payload": payload, "type": payload_type})
+                    self.client.send(destination=SEND_DESTINATION, body=body)
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
 
@@ -115,7 +113,7 @@ class STOMPManager:
         try:
             if self.is_connected:
                 body = json.loads(frame.body)
-                payload = body["text"]
+                payload = body["payload"]
                 payload_type = body.get("type", "text")
                 if self.config.data["cipher_enabled"]:
                     payload = self.cipher_manager.decrypt(
