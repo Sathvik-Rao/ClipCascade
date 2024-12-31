@@ -5,6 +5,7 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.Promise
 import androidx.work.WorkManager
+import android.webkit.CookieManager
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
@@ -29,6 +30,17 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         return "NativeBridgeModule"
     }
 
+    @ReactMethod
+    fun clearCookies(promise: Promise) {
+        try {
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.removeAllCookies(null)
+            cookieManager.flush()
+            promise.resolve("Cookies cleared successfully!")
+        } catch (e: Exception) {
+            promise.reject("COOKIE_ERROR", "Failed to clear cookies", e)
+        }
+    }
     
     @ReactMethod
     fun stopWorkManager() {

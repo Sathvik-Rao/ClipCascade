@@ -27,6 +27,10 @@ import {
 } from './AsyncStorageManagement'; // persistent storage
 
 module.exports = async (inputData = null) => {
+  // Constants
+  const SUBSCRIPTION_DESTINATION = '/user/queue/cliptext';
+  const SEND_DESTINATION = '/app/cliptext';
+
   // forground service
   notifee.registerForegroundService(notification => {
     return new Promise(async () => {
@@ -40,12 +44,6 @@ module.exports = async (inputData = null) => {
 
         // get data from async storage
         const websocket_url = await getDataFromAsyncStorage('websocket_url');
-        const subscription_destination = await getDataFromAsyncStorage(
-          'subscription_destination',
-        );
-        const send_destination = await getDataFromAsyncStorage(
-          'send_destination',
-        );
         const cipher_enabled = await getDataFromAsyncStorage('cipher_enabled');
         const maxsize = Number(await getDataFromAsyncStorage('maxsize'));
         let max_clipboard_size_local_limit_bytes = Number(
@@ -262,9 +260,10 @@ module.exports = async (inputData = null) => {
           // appendMissingNULLonIncoming: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#appendMissingNULLonIncoming
           onConnect: async () => {
             await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
+            toggle = false;
 
             // Subscribe to a topic
-            stompClient.subscribe(subscription_destination, async message => {
+            stompClient.subscribe(SUBSCRIPTION_DESTINATION, async message => {
               try {
                 await clearFiles();
                 toggle = false;
@@ -274,13 +273,19 @@ module.exports = async (inputData = null) => {
                 );
 
                 if (message && message.body) {
-                  const payload = JSON.parse(message.body);
-                  let cb = String(payload.text);
-                  const type_ = payload.type;
+                  const body = JSON.parse(message.body);
+                  let cb = String(body.payload);
+                  const type_ = body.type;
 
                   //decrypt
                   if (cipher_enabled === 'true') {
-                    cb = await decrypt(JSON.parse(cb));
+                    try {
+                      cb = await decrypt(JSON.parse(cb));
+                    } catch (error) {
+                      throw new Error(
+                        `Encryption must be enabled on all devices if enabled. JSON parsing failed: ${error.message}`,
+                      );
+                    }
                   }
 
                   // hash clipboard content
@@ -332,21 +337,25 @@ module.exports = async (inputData = null) => {
             });
           },
           onDisconnect: async () => {
+            block_image_once = false;
             await setDataInAsyncStorage('wsStatusMessage', 'Disconnected');
           },
           onStompError: async frame => {
+            block_image_once = false;
             await setDataInAsyncStorage(
               'wsStatusMessage',
               '❌ STOMP Error: ' + JSON.stringify(frame, null, 2),
             );
           },
           onWebSocketError: async event => {
+            block_image_once = false;
             await setDataInAsyncStorage(
               'wsStatusMessage',
               '❌ WebSocket Error: ' + JSON.stringify(event, null, 2),
             );
           },
           onWebSocketClose: async event => {
+            block_image_once = false;
             await setDataInAsyncStorage(
               'wsStatusMessage',
               '⚠️ WebSocket Close: ' + event.reason,
@@ -401,6 +410,7 @@ module.exports = async (inputData = null) => {
                     block_image_once = false;
                   } else {
                     toggle = true;
+
                     if (cipher_enabled === 'true') {
                       //ecrypt
                       clipContent = await encrypt(clipContent);
@@ -413,9 +423,9 @@ module.exports = async (inputData = null) => {
 
                     // send
                     stompClient.publish({
-                      destination: send_destination,
+                      destination: SEND_DESTINATION,
                       body: JSON.stringify({
-                        text: String(clipContent),
+                        payload: String(clipContent),
                         type: type_,
                       }),
                     });

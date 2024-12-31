@@ -21,6 +21,8 @@ import notifee from '@notifee/react-native'; // notification, foreground service
 import {pbkdf2} from '@react-native-module/pbkdf2'; // hashing
 import {Buffer} from 'buffer'; // handling streams of binary data
 import DocumentPicker from 'react-native-document-picker'; // file picker
+import {sha3_512} from 'js-sha3';
+import {DOMParser} from 'react-native-html-parser';
 
 import {
   setDataInAsyncStorage,
@@ -55,7 +57,7 @@ import StartForegroundService from './StartForegroundService'; // foreground ser
  */
 
 // App version
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '2.0.0';
 
 // Main App
 export default function App() {
@@ -66,10 +68,19 @@ export default function App() {
   // Retry login attempts
   const MAX_LOGIN_AUTO_RETRY = 3;
 
+  const FETCH_TIMEOUT = 5000; // 5 seconds
+
+  // Constants
+  const LOGIN_URL = '/login';
+  const LOGOUT_URL = '/logout';
+  const MAXSIZE_URL = '/max-size';
+  const CSRF_URL = '/csrf-token';
+  const WEBSOCKET_ENDPOINT = '/clipsocket';
+
   // Request permissions for notifications
   PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
 
-  const fetchTimeout = async (input, init, timeout_ms = 5000) => {
+  const fetchTimeout = async (input, init, timeout_ms = FETCH_TIMEOUT) => {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout_ms);
@@ -83,17 +94,13 @@ export default function App() {
   const [data, setData] = useState({
     cipher_enabled: 'true',
     server_url: 'http://localhost:8080',
-    websocket_url: 'ws://localhost:8080/clipsocket',
+    websocket_url: '',
     username: '',
     hashed_password: '',
+    csrf_token: '',
     maxsize: '',
-    subscription_destination: '/topic/cliptext',
-    send_destination: '/app/cliptext',
     hash_rounds: '664937',
     salt: '',
-    login_url: '/login',
-    logout_url: '/logout',
-    maxsize_url: '/max-size',
     save_password: 'false',
     max_clipboard_size_local_limit_bytes: '',
     relaunch_on_boot: 'false',
@@ -254,7 +261,7 @@ export default function App() {
             setDataInAsyncStorage('wsIsRunning', 'false');
             if (data_s.save_password === 'true') {
               const pass = await getDataFromAsyncStorage('password');
-              if (pass !== null) {
+              if (pass !== null && pass !== '') {
                 setPassword(pass);
                 handleLogin(pass, data_s);
               }
@@ -264,7 +271,7 @@ export default function App() {
 
         // check for new version
         try {
-          const response = await fetch(
+          const response = await fetchTimeout(
             'https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json',
           );
           if (!response.ok) {
@@ -308,6 +315,31 @@ export default function App() {
     };
   }, []);
 
+  // Function to convert a server URL to a WebSocket URL
+  const convertToWebSocketUrl = async inputUrl => {
+    if (!inputUrl || typeof inputUrl !== 'string') {
+      throw new Error('Invalid URL provided');
+    }
+
+    inputUrl = inputUrl.trim().replace(/\/+$/, '').toLowerCase(); // Remove trailing slashes and convert to lowercase
+
+    let wsUrl;
+
+    if (inputUrl.startsWith('https://')) {
+      wsUrl = inputUrl.replace('https://', 'wss://');
+    } else if (inputUrl.startsWith('http://')) {
+      wsUrl = inputUrl.replace('http://', 'ws://');
+    } else {
+      throw new Error(`Unsupported protocol in URL: ${inputUrl}`);
+    }
+
+    wsUrl += WEBSOCKET_ENDPOINT;
+
+    wsUrl = wsUrl.replace(/\/+$/, '');
+
+    return wsUrl;
+  };
+
   // Generate a PBKDF2 hash to create an encryption key.
   const hash = async (data_s, password_s) => {
     try {
@@ -336,15 +368,17 @@ export default function App() {
     }
   };
 
+  // SHA3-512 hash for password
+  const stringToSHA3_512LowercaseHex = async input => {
+    return sha3_512(input).toLowerCase();
+  };
+
   // Function to validate session
   const validateSession = async data_s => {
     try {
-      const response = await fetchTimeout(
-        data_s.server_url + data_s.maxsize_url,
-        {
-          method: 'HEAD',
-        },
-      );
+      const response = await fetchTimeout(data_s.server_url + MAXSIZE_URL, {
+        method: 'HEAD',
+      });
 
       if (response.ok) {
         return [true, 'Cookie authentication is valid.'];
@@ -362,40 +396,88 @@ export default function App() {
   // Login
   const login = async (data_s, password_s) => {
     try {
-      const formData = new URLSearchParams();
-      formData.append('username', data_s.username);
-      formData.append('password', password_s);
-      formData.append('remember-me', 'on');
-
-      const loginResponse = await fetchTimeout(
-        data_s.server_url + data_s.login_url,
+      // 1. Fetch the login page to get CSRF token and initial cookie
+      const loginPageResponse = await fetchTimeout(
+        data_s.server_url + LOGIN_URL,
         {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: formData.toString(),
+          method: 'GET',
         },
       );
 
+      if (!loginPageResponse.ok) {
+        const msg = `Failed to fetch login page: ${loginPageResponse.status}`;
+        return [false, msg, data_s];
+      }
+
+      // parse HTML to get _csrf using react-native-html-parser
+      const htmlText = await loginPageResponse.text();
+
+      // Create a new DOM Parser instance
+      const parser = new DOMParser();
+      // Parse HTML
+      const doc = parser.parseFromString(htmlText, 'text/html');
+
+      // Find <input> elements and look for name="_csrf"
+      const inputElements = doc.getElementsByTagName('input');
+      let csrfToken = '';
+
+      for (let i = 0; i < inputElements.length; i++) {
+        const nameAttr = inputElements[i].getAttribute('name');
+        if (nameAttr === '_csrf') {
+          csrfToken = inputElements[i].getAttribute('value');
+          break;
+        }
+      }
+
+      if (csrfToken === '') {
+        return [false, 'No CSRF token found in login page', data_s];
+      }
+
+      // 2. Retrieve the cookie(s) from the "Set-Cookie" header
+      const setCookieHeader = loginPageResponse.headers.get('set-cookie');
+      if (!setCookieHeader) {
+        return [false, 'No Set-Cookie header returned from login page', null];
+      }
+
+      // 3. Prepare form data with the credentials AND the CSRF token
+      const formData = new URLSearchParams();
+      formData.append('username', data_s.username);
+      formData.append('password', password_s);
+      formData.append('_csrf', csrfToken);
+
+      // 4. Send a POST request to the login URL with cookies + form data
+      const loginResponse = await fetchTimeout(data_s.server_url + LOGIN_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          Cookie: setCookieHeader, // Include the cookies from the initial GET
+        },
+        body: formData.toString(),
+      });
+
       const loginResponseText = await loginResponse.text();
-      //login success
+
+      // 5. Check for login success
       if (
         loginResponse.ok &&
         !loginResponseText.toLowerCase().includes('bad credentials')
       ) {
+        //get CSRF token
+        data_s.csrf_token = await getCSRFToken(data_s);
+
         // Save max_size in async storage
         const maxSizeResponse = await fetchTimeout(
-          data_s.server_url + data_s.maxsize_url,
+          data_s.server_url + MAXSIZE_URL,
           {
             method: 'GET',
           },
         );
         if (!maxSizeResponse.ok) {
           return [
-            (false,
+            false,
             'Login Successful but unable to get max size \n Status: ' +
-              maxSizeResponse.status),
+              maxSizeResponse.status,
+            data_s,
           ];
         }
         maxSizeResponseText = await maxSizeResponse.text();
@@ -427,28 +509,56 @@ export default function App() {
     }
   };
 
+  // Get CSRF token
+  const getCSRFToken = async data_s => {
+    try {
+      const response = await fetchTimeout(data_s.server_url + CSRF_URL, {
+        method: 'GET',
+      });
+
+      const responseData = await response.json();
+      if (response.ok) {
+        return responseData.token || '';
+      }
+    } catch (error) {
+      return '';
+    }
+  };
+
   // Logout
   const logout = async () => {
     try {
       setWsPageMessage('⌛ Please wait...');
       await setDataInAsyncStorage('password', '');
-      await setDataInAsyncStorage('save_password', 'false');
       if (wsIsRunning === 'true') {
         await setDataInAsyncStorage('wsIsRunning', 'false');
         setWsIsRunning('false');
       }
-      const response = await fetchTimeout(data.server_url + data.logout_url, {
-        method: 'GET',
+
+      const formData = new URLSearchParams();
+      formData.append('_csrf', await getDataFromAsyncStorage('csrf_token'));
+
+      const response = await fetchTimeout(data.server_url + LOGOUT_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
       });
 
-      if (response.ok) {
+      if (response.status == 204) {
         setWsPageMessage('✅ Logout successful: ' + response.status);
-        setEnableWSPage(false);
-        setEnableLoginPage(true);
-        setLoginStatusMessage('');
       } else {
         setWsPageMessage('❌ Logout failed: ' + response.status);
       }
+
+      await setDataInAsyncStorage('csrf_token', '');
+      setEnableWSPage(false);
+      setEnableLoginPage(true);
+      setLoginStatusMessage('');
+
+      // clear cookies if any
+      NativeBridgeModule.clearCookies();
     } catch (error) {
       if (error.name === 'AbortError') {
         setWsPageMessage('❌ Error: Request timed out');
@@ -555,8 +665,14 @@ export default function App() {
     try {
       setLoginStatusMessage('⌛ Please wait...');
 
-      let password_s = password;
-      if (pass !== null) {
+      // clear cookies if any
+      await NativeBridgeModule.clearCookies();
+
+      let password_s = null;
+      if (pass === null) {
+        password_s = await stringToSHA3_512LowercaseHex(password);
+      } else {
+        // saved password
         password_s = pass;
       }
 
@@ -568,9 +684,11 @@ export default function App() {
         data_s = {...data};
       }
 
-      // replace trailing slashes in server_url and websocket_url with an empty string
+      // remove trailing slashes in server_url
       data_s.server_url = data_s.server_url.replace(/\/+$/, '');
-      data_s.websocket_url = data_s.websocket_url.replace(/\/+$/, '');
+
+      // convert server_url to websocket url
+      data_s.websocket_url = await convertToWebSocketUrl(data_s.server_url);
 
       let iteration = 0;
       let loginResult;
@@ -581,6 +699,7 @@ export default function App() {
 
       data_s = loginResult[2];
       if (!loginResult[0]) {
+        setPassword('');
         setLoginStatusMessage(['❌ ', loginResult[1]].join(''));
       } else {
         setLoginStatusMessage(['✅ ', loginResult[1]].join(''));
@@ -707,17 +826,6 @@ export default function App() {
             />
           </View>
           <View style={styles.row}>
-            <Text style={styles.label}>WebSocket URL:</Text>
-            <TextInput
-              style={styles.input}
-              value={data.websocket_url}
-              onChangeText={text =>
-                handleInputChange('websocket_url', text.trim())
-              }
-              autoCapitalize="none"
-            />
-          </View>
-          <View style={styles.row}>
             <Text style={styles.label}>Enable Encryption (recommended):</Text>
             <CheckBox
               value={data.cipher_enabled === 'true' ? true : false}
@@ -753,28 +861,6 @@ export default function App() {
           {showExtraConfig && (
             <>
               <View style={styles.row}>
-                <Text style={styles.label}>Subscription Destination:</Text>
-                <TextInput
-                  style={styles.input}
-                  value={data.subscription_destination}
-                  onChangeText={text =>
-                    handleInputChange('subscription_destination', text.trim())
-                  }
-                  autoCapitalize="none"
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Send Destination:</Text>
-                <TextInput
-                  style={styles.input}
-                  value={data.send_destination}
-                  onChangeText={text =>
-                    handleInputChange('send_destination', text.trim())
-                  }
-                  autoCapitalize="none"
-                />
-              </View>
-              <View style={styles.row}>
                 <Text style={styles.label}>Hash Rounds:</Text>
                 <TextInput
                   style={styles.input}
@@ -793,39 +879,6 @@ export default function App() {
                   style={styles.input}
                   value={data.salt}
                   onChangeText={text => handleInputChange('salt', text)}
-                  autoCapitalize="none"
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Login URL:</Text>
-                <TextInput
-                  style={styles.input}
-                  value={data.login_url}
-                  onChangeText={text =>
-                    handleInputChange('login_url', text.trim())
-                  }
-                  autoCapitalize="none"
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Logout URL:</Text>
-                <TextInput
-                  style={styles.input}
-                  value={data.logout_url}
-                  onChangeText={text =>
-                    handleInputChange('logout_url', text.trim())
-                  }
-                  autoCapitalize="none"
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Max Size URL:</Text>
-                <TextInput
-                  style={styles.input}
-                  value={data.maxsize_url}
-                  onChangeText={text =>
-                    handleInputChange('maxsize_url', text.trim())
-                  }
                   autoCapitalize="none"
                 />
               </View>
