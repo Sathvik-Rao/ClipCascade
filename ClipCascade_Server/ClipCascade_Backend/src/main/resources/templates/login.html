@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="https://www.thymeleaf.org">
+  <head>
+    <title>ClipCascade - Please Log In</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+	<link rel="icon" type="image/png" href="/images/logo.png">
+    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M" crossorigin="anonymous">
+    <style>
+      .form-signin {
+        max-width: 330px;
+        padding: 15px;
+        margin: auto;
+        margin-top: 10%;
+      }
+      .form-signin-heading {
+        /* text-align: center; */
+        font-size: 1.75rem;
+      }
+      .app-title {
+        text-align: center;
+        margin-top: 20px;
+        font-size: 34px;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="app-title">ClipCascade</div>
+      <form class="form-signin" id="loginForm" th:action="@{/login}" method="post">
+        <h2 class="form-signin-heading">Please sign in</h2>
+        <div th:if="${param.error}" class="alert alert-danger">
+          <!-- Don't change this error message -->
+          Bad credentials
+        </div>
+        <div th:if="${param.logout}" class="alert alert-success">
+          You have been signed out
+        </div>
+        <div th:if="${param.expired}" class="alert alert-warning">
+          Your session has expired
+        </div>
+        <p>
+          <label for="username" class="sr-only">Username</label>
+          <input type="text" id="username" name="username" class="form-control" placeholder="Username" required="required" autofocus="autofocus">
+        </p>
+        <p>
+          <label for="password" class="sr-only">Password</label>
+          <input type="password" id="password" name="password" class="form-control" placeholder="Password" required="required">
+        </p>
+        <button class="btn btn-lg btn-primary btn-block" type="submit">Sign in</button>
+      </form>
+    </div>
+
+	<!-- js-sha3 library (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/js-sha3@0.8.0/build/sha3.min.js"></script>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", function() {
+        const loginForm = document.getElementById("loginForm");
+        const passwordField = document.getElementById("password");
+
+		loginForm.addEventListener("submit", function(event) {
+          // 1) Get the raw password value
+          const rawPassword = passwordField.value;
+
+          // 2) Compute the SHA3-512 hash (returns a lowercase hex string)
+          const hashedPassword = sha3_512(rawPassword);
+
+          // 3) Replace the password field's value with the hashed version
+          passwordField.value = hashedPassword;
+        });
+      });
+    </script>
+  </body>
+</html>	

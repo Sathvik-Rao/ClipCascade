@@ -96,3 +96,16 @@ class CipherManager:
                     + f"Expected 'str' for Base64 decoding."
                 )
         return decoded_data
+
+    @staticmethod
+    def string_to_sha3_512_lowercase_hex(input_string: str) -> str:
+        """
+        Convert a string to its lowercase hexadecimal SHA3-512 hash.
+
+        Args:
+            input_string (str): The input string to hash.
+
+        Returns:
+            str: The lowercase hexadecimal representation of the SHA3-512 hash.
+        """
+        return hashlib.sha3_512(input_string.encode("utf-8")).hexdigest()

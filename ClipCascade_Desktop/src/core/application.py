@@ -137,10 +137,11 @@ class Application:
                 and self.config.data["save_password"]
                 and not used_saved_credentials
             ):
-                # Attempt to connect with raw password when using saved credentials
+                # Attempt to connect with password when using saved credentials
                 used_saved_credentials = True
             else:
                 display_login_success_dialog = True
+                self.config.data["password"] = ""  # Clear the password
                 login_form = LoginForm(
                     self.config,
                     on_quit_callback=(
@@ -150,11 +151,17 @@ class Application:
                     ),
                 )
                 login_form.mainloop()  # wait until login form is closed
+                self.config.data["password"] = (
+                    CipherManager.string_to_sha3_512_lowercase_hex(
+                        self.config.data["password"]
+                    )
+                )  # Hash the password
 
             login_successful, msg_login, self.config.data["cookie"] = (
                 self.request_manager.login()
             )
             if login_successful:
+                self.config.data["csrf_token"] = self.request_manager.get_csrf_token()
                 self.config.data["maxsize"] = self.request_manager.maxsize()
                 stomp_conn_successful, msg_stomp = self.stomp_manager.connect()
                 if stomp_conn_successful:
@@ -219,6 +226,7 @@ class Application:
             self.config.data["cookie"] = None
             self.config.data["maxsize"] = None
             self.config.data["password"] = ""
+            self.config.data["csrf_token"] = ""
             self.config.save()
         except Exception as e:
             raise Exception(f"Error during logging off: {e}")
@@ -248,6 +256,7 @@ class Application:
                 new_version_available=update_available,
                 github_url=GITHUB_URL,
                 stomp_manager=self.stomp_manager,
+                config=self.config,
             )
             self.stomp_manager.set_tray_ref(sys_tray)
             sys_tray.run()

@@ -8,6 +8,7 @@ import webbrowser
 from pystray import Icon, MenuItem as item, Menu
 from PIL import Image, ImageDraw
 
+from core.config import Config
 from gui.info import CustomDialog
 from core.constants import *
 
@@ -18,12 +19,13 @@ if PLATFORM != WINDOWS:
 class TaskbarPanel:
     def __init__(
         self,
-        on_connect_callback=None,
-        on_disconnect_callback=None,
-        on_logoff_callback=None,
-        new_version_available=None,
-        github_url=None,
+        on_connect_callback: callable = None,
+        on_disconnect_callback: callable = None,
+        on_logoff_callback: callable = None,
+        new_version_available: list = None,
+        github_url: str = GITHUB_URL,
         stomp_manager=None,
+        config: Config = None,
     ):
         self.on_connect_callback = on_connect_callback
         self.on_disconnect_callback = on_disconnect_callback
@@ -31,6 +33,7 @@ class TaskbarPanel:
         self.new_version_available = new_version_available
         self.github_url = github_url
         self.stomp_manager = stomp_manager
+        self.config = config
 
         self.root = tk.Tk()
         self.root.withdraw()  # Hide the root window
@@ -267,10 +270,15 @@ class TaskbarPanel:
         """Download the files to the user's Downloads folder."""
         try:
             try:
-                target_directory = filedialog.askdirectory(
-                    title="Select location to Save File(s)",
-                    initialdir=get_downloads_folder(),
-                )
+                if self.config.data["default_file_download_location"] != "":
+                    target_directory = self.config.data[
+                        "default_file_download_location"
+                    ]
+                else:
+                    target_directory = filedialog.askdirectory(
+                        title="Select location to Save File(s)",
+                        initialdir=get_downloads_folder(),
+                    )
                 if not target_directory:
                     logging.debug("No directory selected. Exiting.")
                     return

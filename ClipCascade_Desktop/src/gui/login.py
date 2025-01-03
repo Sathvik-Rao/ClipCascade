@@ -88,17 +88,6 @@ class LoginForm(tk.Tk):
         self.server_url_entry.insert(0, self.config.data["server_url"])
         self.server_url_entry.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
 
-        # WebSocket URL
-        ws_label = ttk.Label(self.field_frame, text="WebSocket URL:")
-        ws_label.grid(row=3, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.websocket_url_entry = ttk.Entry(
-            self.field_frame, width=50, font=("Helvetica", 13)
-        )
-        self.websocket_url_entry.insert(0, self.config.data["websocket_url"])
-        self.websocket_url_entry.grid(
-            row=3, column=1, padx=10, pady=5, sticky=tk.W + tk.E
-        )
-
         # Configure grid weights to ensure entries expand
         self.field_frame.columnconfigure(1, weight=1)
 
@@ -189,91 +178,42 @@ class LoginForm(tk.Tk):
             "<Configure>", self._on_extra_container_configure
         )
 
-        # Subscription Destination
-        subscription_label = ttk.Label(
-            self.extra_frame, text="Subscription Destination:"
-        )
-        subscription_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.subscription_entry = ttk.Entry(
-            self.extra_frame, width=50, font=("Helvetica", 13)
-        )
-        self.subscription_entry.insert(0, self.config.data["subscription_destination"])
-        self.subscription_entry.grid(
-            row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E
-        )
-
-        # Send Destination
-        send_label = ttk.Label(self.extra_frame, text="Send Destination:")
-        send_label.grid(row=1, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.send_entry = ttk.Entry(self.extra_frame, width=50, font=("Helvetica", 13))
-        self.send_entry.insert(0, self.config.data["send_destination"])
-        self.send_entry.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
-
-        # Login URL
-        login_label = ttk.Label(self.extra_frame, text="Login URL:")
-        login_label.grid(row=2, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.login_url_entry = ttk.Entry(
-            self.extra_frame, width=50, font=("Helvetica", 13)
-        )
-        self.login_url_entry.insert(0, self.config.data["login_url"])
-        self.login_url_entry.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
-
-        # Logout URL
-        logout_label = ttk.Label(self.extra_frame, text="Logout URL:")
-        logout_label.grid(row=3, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.logout_url_entry = ttk.Entry(
-            self.extra_frame, width=50, font=("Helvetica", 13)
-        )
-        self.logout_url_entry.insert(0, self.config.data["logout_url"])
-        self.logout_url_entry.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
-
-        # Maxsize URL
-        maxsize_label = ttk.Label(self.extra_frame, text="Maxsize URL:")
-        maxsize_label.grid(row=4, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.maxsize_url_entry = ttk.Entry(
-            self.extra_frame, width=50, font=("Helvetica", 13)
-        )
-        self.maxsize_url_entry.insert(0, self.config.data["maxsize_url"])
-        self.maxsize_url_entry.grid(
-            row=4, column=1, padx=10, pady=5, sticky=tk.W + tk.E
-        )
-
         # Hash Rounds
         hash_rounds_label = ttk.Label(self.extra_frame, text="Hash Rounds:")
-        hash_rounds_label.grid(row=5, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        hash_rounds_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.hash_rounds_entry = ttk.Entry(
             self.extra_frame, width=50, font=("Helvetica", 13)
         )
         self.hash_rounds_entry.insert(0, str(self.config.data["hash_rounds"]))
         self.hash_rounds_entry.grid(
-            row=5, column=1, padx=10, pady=5, sticky=tk.W + tk.E
+            row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E
         )
 
         # Salt
         salt_label = ttk.Label(self.extra_frame, text="Salt:")
-        salt_label.grid(row=6, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        salt_label.grid(row=1, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.salt_entry = ttk.Entry(self.extra_frame, width=50, font=("Helvetica", 13))
         self.salt_entry.insert(0, self.config.data["salt"])
-        self.salt_entry.grid(row=6, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self.salt_entry.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
 
         # Save Password Locally Checkbox
         save_password_label = ttk.Label(
             self.extra_frame, text="Store Password Locally\n(not recommended):"
         )
-        save_password_label.grid(row=7, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        save_password_label.grid(row=2, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.save_password_var = tk.BooleanVar(value=self.config.data["save_password"])
         self.save_password_checkbox = ttk.Checkbutton(
             self.extra_frame,
             variable=self.save_password_var,
         )
-        self.save_password_checkbox.grid(row=7, column=1, padx=10, pady=5, sticky=tk.W)
+        self.save_password_checkbox.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
 
         # Maximum Clipboard Size - Local Limit
         local_clipboard_size_label = ttk.Label(
             self.extra_frame, text="Maximum Clipboard Size\nLocal Limit (in bytes):"
         )
         local_clipboard_size_label.grid(
-            row=8, column=0, padx=(0, 10), pady=5, sticky=tk.W
+            row=3, column=0, padx=(0, 10), pady=5, sticky=tk.W
         )
         self.local_clipboard_size_entry = ttk.Entry(
             self.extra_frame, width=50, font=("Helvetica", 13)
@@ -282,7 +222,7 @@ class LoginForm(tk.Tk):
             0, str(self.config.data["max_clipboard_size_local_limit_bytes"] or "")
         )
         self.local_clipboard_size_entry.grid(
-            row=8, column=1, padx=10, pady=5, sticky=tk.W + tk.E
+            row=3, column=1, padx=10, pady=5, sticky=tk.W + tk.E
         )
 
         # Enable Image Sharing Checkbox
@@ -290,7 +230,7 @@ class LoginForm(tk.Tk):
             self.extra_frame, text="Enable Image Sharing:"
         )
         enable_image_sharing_label.grid(
-            row=9, column=0, padx=(0, 10), pady=5, sticky=tk.W
+            row=4, column=0, padx=(0, 10), pady=5, sticky=tk.W
         )
         self.enable_image_sharing_var = tk.BooleanVar(
             value=self.config.data["enable_image_sharing"]
@@ -300,7 +240,7 @@ class LoginForm(tk.Tk):
             variable=self.enable_image_sharing_var,
         )
         self.enable_image_sharing_checkbox.grid(
-            row=9, column=1, padx=10, pady=5, sticky=tk.W
+            row=4, column=1, padx=10, pady=5, sticky=tk.W
         )
 
         # Enable File Sharing Checkbox
@@ -308,7 +248,7 @@ class LoginForm(tk.Tk):
             self.extra_frame, text="Enable File Sharing:"
         )
         enable_file_sharing_label.grid(
-            row=10, column=0, padx=(0, 10), pady=5, sticky=tk.W
+            row=5, column=0, padx=(0, 10), pady=5, sticky=tk.W
         )
         self.enable_file_sharing_var = tk.BooleanVar(
             value=self.config.data["enable_file_sharing"]
@@ -318,7 +258,24 @@ class LoginForm(tk.Tk):
             variable=self.enable_file_sharing_var,
         )
         self.enable_file_sharing_checkbox.grid(
-            row=10, column=1, padx=10, pady=5, sticky=tk.W
+            row=5, column=1, padx=10, pady=5, sticky=tk.W
+        )
+
+        # Default File Download Location
+        default_file_download_location_label = ttk.Label(
+            self.extra_frame, text="Default File Download Location:"
+        )
+        default_file_download_location_label.grid(
+            row=6, column=0, padx=(0, 10), pady=5, sticky=tk.W
+        )
+        self.default_file_download_location_entry = ttk.Entry(
+            self.extra_frame, width=50, font=("Helvetica", 13)
+        )
+        self.default_file_download_location_entry.insert(
+            0, self.config.data["default_file_download_location"]
+        )
+        self.default_file_download_location_entry.grid(
+            row=6, column=1, padx=10, pady=5, sticky=tk.W + tk.E
         )
 
         # Configure grid weights for extra_frame
@@ -440,28 +397,13 @@ class LoginForm(tk.Tk):
         self.config.data["server_url"] = LoginForm.remove_trailing_slash(
             self.server_url_entry.get().strip()
         )
-        self.config.data["websocket_url"] = LoginForm.remove_trailing_slash(
-            self.websocket_url_entry.get().strip()
+        self.config.data["websocket_url"] = Config.convert_to_websocket_url(
+            self.config.data["server_url"]
         )
         self.config.data["cipher_enabled"] = self.cipher_var.get()
         self.config.data["notification"] = self.notification_var.get()
 
         # extra fields
-        self.config.data["subscription_destination"] = LoginForm.remove_trailing_slash(
-            self.subscription_entry.get().strip()
-        )
-        self.config.data["send_destination"] = LoginForm.remove_trailing_slash(
-            self.send_entry.get().strip()
-        )
-        self.config.data["login_url"] = LoginForm.remove_trailing_slash(
-            self.login_url_entry.get().strip()
-        )
-        self.config.data["logout_url"] = LoginForm.remove_trailing_slash(
-            self.logout_url_entry.get().strip()
-        )
-        self.config.data["maxsize_url"] = LoginForm.remove_trailing_slash(
-            self.maxsize_url_entry.get().strip()
-        )
 
         # Validate hash_rounds
         hash_rounds_input = self.hash_rounds_entry.get().strip()
@@ -497,6 +439,23 @@ class LoginForm(tk.Tk):
 
         self.config.data["enable_image_sharing"] = self.enable_image_sharing_var.get()
         self.config.data["enable_file_sharing"] = self.enable_file_sharing_var.get()
+
+        # Validate file download location
+        default_file_download_location = (
+            self.default_file_download_location_entry.get().strip()
+        )
+        if default_file_download_location == "":
+            self.config.data["default_file_download_location"] = ""
+        else:
+            if not os.path.exists(default_file_download_location):
+                CustomDialog(
+                    "Invalid Input\nDefault File Download Location does not exist.",
+                    msg_type="error",
+                ).mainloop()
+                return  # retry login
+            self.config.data["default_file_download_location"] = (
+                default_file_download_location
+            )
 
         # call login callback
         if self.on_login_callback:

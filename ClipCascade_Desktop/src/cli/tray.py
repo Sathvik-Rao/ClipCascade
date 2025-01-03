@@ -7,6 +7,7 @@ import webbrowser
 
 from cli.echo import Echo
 from cli.info import CustomDialog
+from core.config import Config
 from core.constants import *
 from itertools import count
 
@@ -18,12 +19,13 @@ if PLATFORM != WINDOWS:
 class TaskbarPanel:
     def __init__(
         self,
-        on_connect_callback=None,
-        on_disconnect_callback=None,
-        on_logoff_callback=None,
-        new_version_available=None,
-        github_url=None,
+        on_connect_callback: callable = None,
+        on_disconnect_callback: callable = None,
+        on_logoff_callback: callable = None,
+        new_version_available: list = None,
+        github_url: str = GITHUB_URL,
         stomp_manager=None,
+        config: Config = None,
     ):
         self.on_connect_callback = on_connect_callback
         self.on_disconnect_callback = on_disconnect_callback
@@ -31,6 +33,7 @@ class TaskbarPanel:
         self.new_version_available = new_version_available
         self.github_url = github_url
         self.stomp_manager = stomp_manager
+        self.config = config
 
         # Initial state: Connected
         self.is_connected = True
@@ -254,7 +257,10 @@ class TaskbarPanel:
 
     def _on_download(self, files):
         try:
-            target_directory = input("Enter the location to save file(s): ").strip()
+            if self.config.data["default_file_download_location"] != "":
+                target_directory = self.config.data["default_file_download_location"]
+            else:
+                target_directory = input("Enter the location to save file(s): ").strip()
             if not target_directory:
                 CustomDialog(
                     "No input provided. Please enter a valid directory path.",

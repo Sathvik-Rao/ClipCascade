@@ -67,7 +67,7 @@ def _monitor_x_wl_clipboard(
     if x_mode:
         timeout = 0.3  # xclip seconds
     else:
-        timeout = 5  # wl-clipboard seconds
+        timeout = 1  # wl-clipboard seconds
 
     while _run_poll.is_set():
         if x_mode:
@@ -226,23 +226,18 @@ def execute_command(*args) -> tuple:
 
 def is_x_clipboard_owner():
     # Check if the X clipboard is owned by the current user
-    success, msg = execute_command(
-        "xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"
-    )
-    if not success:
-        if msg.lower().find("there is no owner for the clipboard selection") != -1:
-            logging.warning(
-                f"{msg}\nX clipboard is not owned by the current user switching to wl-clipboard."
-            )
-            return False
-
-    return True
+    return execute_command("xclip", "-selection", "clipboard", "-t", "TARGETS", "-o")[0]
 
 
 def _start_clipboard_polling(enable_image_monitoring, enable_file_monitoring):
     if XMODE:
+        x_clipboard_owner = is_x_clipboard_owner()
+        if not x_clipboard_owner:
+            logging.warning(
+                "x-clip is not owned by the current user. Switching to wl-clipboard."
+            )
         _monitor_x_wl_clipboard(
-            x_mode=is_x_clipboard_owner(),
+            x_mode=x_clipboard_owner,
             enable_image_monitoring=enable_image_monitoring,
             enable_file_monitoring=enable_file_monitoring,
         )

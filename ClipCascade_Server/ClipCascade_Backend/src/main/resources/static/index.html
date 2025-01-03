@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ClipCascade</title>
+
+  <!-- Bootstrap CSS -->
+  <link
+    rel="stylesheet"
+    href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css"
+    integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u"
+    crossorigin="anonymous"
+  />
+  
+  <link rel="icon" type="image/png" href="/images/logo.png" />
+  
+  <!-- custom stylesheet -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- =======================================
+       ===========  NAVIGATION BAR  ===========
+       ======================================= -->
+  <nav class="navbar navbar-inverse navbar-static-top">
+    <div class="container-fluid">
+      <div class="navbar-header">
+        <a href="#" class="navbar-brand">ClipCascade</a>
+        <span id="max-message-size" class="navbar-text" style="margin-left: 15px;">
+          Max Message Size: Loading...
+        </span>
+        <span id="username" class="navbar-text" style="margin-left: 15px;">
+          Hi, <span id="user-name">User</span>
+        </span>
+      </div>
+      <ul class="nav navbar-nav navbar-right">
+        <!-- Change Username (ONLY SHOW IF ADMIN) -->
+        <li>
+          <a href="#" id="change-username-link">Change Username</a>
+        </li>
+        <!-- Change Password -->
+        <li>
+          <a href="#" id="change-password-link">Change Password</a>
+        </li>
+        <!-- Logoff -->
+        <li>
+          <a href="#" id="logout-link">Logoff</a>
+        </li>
+        <!-- LOGOFF FROM ALL DEVICES -->
+        <li>
+          <a href="#" id="logout-all-devices-link">Logoff from All Devices</a>
+        </li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Main Container -->
+  <div class="container">
+    <noscript>
+      <h2 style="color: #f00">
+        Seems your browser doesn't support JavaScript!
+        <br />
+        WebSocket relies on JavaScript being enabled. Please enable JavaScript
+        and reload this page!
+      </h2>
+    </noscript>
+
+    <!-- =================================================
+         ===========    USER (HOME) SECTION    ===========
+         ================================================= -->
+    <div id="user-section">
+      <h2>Monitoring</h2>
+      <hr />
+
+      <div class="row">
+        <div class="col-md-6">
+          <form class="form">
+            <div class="form-group">
+              <label for="broker-url">WebSocket URL:</label>
+              <input
+                type="text"
+                id="broker-url"
+                class="form-control"
+                placeholder="Enter WebSocket URL"
+              />
+            </div>
+            <div class="form-group">
+              <button id="connect" class="btn btn-default" type="button">
+                Connect
+              </button>
+              <button id="disconnect" class="btn btn-default" type="button" disabled>
+                Disconnect
+              </button>
+            </div>
+          </form>
+          <div
+            id="status-message"
+            class="alert"
+            style="display: none;"
+          ></div>
+        </div>
+        <div class="col-md-6">
+          <form class="form-inline">
+            <div class="form-group">
+              <label for="ws_text">
+                Broadcast cliptext to all devices
+                <br />
+                <small>
+                  <strong>Note:</strong> This will only function when encryption is disabled on the remote devices, as the server does not possess the encryption key.
+                </small>
+              </label>
+              <input
+                type="text"
+                id="ws_text"
+                class="form-control"
+                placeholder="Enter some text"
+              />
+            </div>
+            <button id="send" class="btn btn-default" type="button">
+              Send
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top: 30px;">
+        <div class="col-md-12">
+          <div class="table-wrapper">
+            <table
+              id="conversation"
+              class="table table-striped"
+              style="display: none;"
+            >
+              <thead>
+                <tr>
+                  <th>Channel</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="channel"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- /#user-section -->
+
+    <!-- ================================================
+         ===========    ADMIN SECTION     ===============
+         ================================================ -->
+    <div id="admin-section">
+      <h2>Admin Panel</h2>
+      <hr />
+
+      <p><strong>Note:</strong> After editing the username, if you are aware that the user has an active WebSocket connection, please restart the server to terminate the WebSocket connection. While the server will log out the session for the edited user, the running WebSocket connection will not be terminated unless the server is restarted.</p>
+
+      <div>
+        <button id="load-users-btn" class="btn btn-primary">Load Users</button>
+        <button
+          id="open-add-user-modal-btn"
+          class="btn btn-success"
+          style="margin-left:10px;"
+        >
+          Add New User
+        </button>
+      </div>
+
+      <div class="table-wrapper">
+        <table id="users-table" class="table table-bordered table-striped" style="margin-top:20px;">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Enabled</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody">
+            <!-- Populated dynamically -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <!-- /#admin-section -->
+  </div>
+  <!-- /.container -->
+
+  <!-- =====================================================
+       ===========    MODALS FOR ADMIN ACTIONS    ===========
+       ===================================================== -->
+  <!-- ==========  Modal for Adding a New User  ========== -->
+  <div id="add-user-modal" class="modal">
+    <div class="modal-content">
+      <span class="modal-close" onclick="hideAddUserModal()">&times;</span>
+      <h3>Add New User</h3>
+      <form id="add-user-form">
+        <div class="form-group">
+          <label>Username</label>
+          <input
+            type="text"
+            class="form-control"
+            id="add-username-input"
+            required
+          />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input
+            type="password"
+            class="form-control"
+            id="add-password-input"
+            required
+          />
+        </div>
+        <div class="form-group">
+          <label>Enabled</label>
+          <select class="form-control" id="add-enabled-select">
+            <option value="true">Enabled</option>
+            <option value="false">Disabled</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:10px;">
+          Submit
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==========  Modal for Editing a User  ========== -->
+  <div id="edit-user-modal" class="modal">
+    <div class="modal-content">
+      <span class="modal-close" onclick="hideEditUserModal()">&times;</span>
+      <h3>Edit User</h3>
+      <form id="edit-user-form">
+        <input type="hidden" id="edit-user-old-username" />
+        <div class="form-group">
+          <label>New Username</label>
+          <input
+            type="text"
+            class="form-control"
+            id="edit-user-new-username"
+          />
+        </div>
+        <div class="form-group">
+          <label>New Password</label>
+          <input
+            type="password"
+            class="form-control"
+            id="edit-user-new-password"
+          />
+        </div>
+        <div class="form-group">
+          <label>Enabled</label>
+          <select class="form-control" id="edit-user-enabled">
+            <option value="true">Enabled</option>
+            <option value="false">Disabled</option>
+          </select>
+        </div>
+        <button
+          type="submit"
+          class="btn btn-primary"
+          style="margin-top:10px;"
+        >
+          Save
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ========================================
+       ===========    JAVASCRIPT    ===========
+       ======================================== -->
+  <!-- 1) Include jQuery -->
+  <script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+  <!-- 2) Include StompJS -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"
+  ></script>
+  <!-- 3) Include js-sha3 for SHA3-512 hashing -->
+  <script src="https://cdn.jsdelivr.net/npm/js-sha3@0.8.0/src/sha3.min.js"></script>
+
+  <!-- custom main script -->
+  <script src="main.js"></script>
+</body>
+</html>

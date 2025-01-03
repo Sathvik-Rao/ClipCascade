@@ -70,14 +70,14 @@ if PLATFORM.startswith(LINUX):
 
 # App version
 if PLATFORM == WINDOWS:
-    APP_VERSION = "1.3.0"
+    APP_VERSION = "2.0.0"
 elif PLATFORM == MACOS:
-    APP_VERSION = "1.3.1"
+    APP_VERSION = "2.0.0"
 elif PLATFORM.startswith(LINUX):
     if XMODE:
-        APP_VERSION = "1.3.2"  # gui version
+        APP_VERSION = "2.0.0"  # gui version
     else:
-        APP_VERSION = "1.3.2"  # non-gui(cli) version
+        APP_VERSION = "2.0.0"  # non-gui(cli) version
 
 
 # core constants
@@ -87,6 +87,14 @@ LOG_FILE_NAME = "clipcascade_log.log"
 LOG_LEVEL = logging.INFO  # Use valid levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
 DATA_FILE_NAME = "DATA"
 MAX_SIZE = 1048576  # 1 MiB
+SUBSCRIPTION_DESTINATION = "/user/queue/cliptext"
+SEND_DESTINATION = "/app/cliptext"
+LOGIN_URL = "/login"
+LOGOUT_URL = "/logout"
+MAXSIZE_URL = "/max-size"
+CSRF_URL = "/csrf-token"
+WEBSOCKET_ENDPOINT = "/clipsocket"
+
 VERSION_URL = (
     "https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json"
 )

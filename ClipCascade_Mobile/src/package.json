@@ -16,11 +16,13 @@
     "@react-native-module/pbkdf2": "^0.4.3",
     "@stomp/stompjs": "^7.0.0",
     "ClipCascade": "file:",
+    "js-sha3": "^0.9.3",
     "js-xxhash": "^4.0.0",
     "react": "18.3.1",
     "react-native": "0.75.2",
     "react-native-aes-gcm-crypto": "^0.2.2",
     "react-native-document-picker": "^9.3.1",
+    "react-native-html-parser": "^0.1.0",
     "text-encoding": "^0.7.0"
   },
   "devDependencies": {

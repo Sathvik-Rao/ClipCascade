@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confirm Log Out?</title>
+    <style>
+      body {
+          font-family: system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+          background-color: #eee;
+          padding: 40px 0;
+          margin: 0;
+          line-height: 1.5;
+      }
+
+      h2 {
+          margin-top: 0;
+          margin-bottom: 0.5rem;
+          font-size: 2rem;
+          font-weight: 500;
+          line-height: 2rem;
+      }
+
+      .content {
+          margin-right: auto;
+          margin-left: auto;
+          padding-right: 15px;
+          padding-left: 15px;
+          width: 100%;
+          box-sizing: border-box;
+      }
+
+      @media (min-width: 800px) {
+          .content {
+              max-width: 760px;
+          }
+      }
+
+      /* Logout form layout */
+      .logout-form {
+          max-width: 340px;
+          padding: 0 15px 15px 15px;
+          margin: 0 auto 2rem auto;
+          box-sizing: border-box;
+      }
+
+      /* Button Styles */
+      button {
+          padding: 0.5rem 1rem;
+          font-size: 1.25rem;
+          line-height: 1.5;
+          border: none;
+          border-radius: 0.1rem;
+          width: 100%;
+          cursor: pointer;
+      }
+
+      button.primary {
+          color: #fff;
+          background-color: #06f;
+      }
+
+      button.primary:hover {
+          background-color: #003c97;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="content">
+      <form class="logout-form" th:action="@{/logout}" method="post">
+        <h2>Are you sure you want to log out?</h2>
+        <button class="primary" type="submit">Log Out</button>
+      </form>
+    </div>
+  </body>
+</html>
