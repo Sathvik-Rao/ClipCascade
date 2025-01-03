@@ -576,7 +576,7 @@ It is crucial to ensure the same **salt** and **hash rounds** are used across al
 
 You can adjust these settings in the **Extra Config** section on the login page for users who require enhanced encryption options.
 
-<img src="https://github.com/user-attachments/assets/6df28e9a-be2a-4ff5-af16-31ed2b2c796d" alt="e2e" />
+<img src="https://github.com/user-attachments/assets/59252f1c-c149-43c2-b0a2-c09ca075a5c1" alt="e2e" />
 
 
 ### 📋 Clipboard Functioning
