@@ -135,6 +135,7 @@ class Application:
             if (
                 self.config.data.get("cookie") is not None
                 and self.config.data["save_password"]
+                and self.config.data["cipher_enabled"] == False
                 and not used_saved_credentials
             ):
                 # Attempt to connect with password when using saved credentials
@@ -151,10 +152,11 @@ class Application:
                     ),
                 )
                 login_form.mainloop()  # wait until login form is closed
+                raw_password = self.config.data[
+                    "password"
+                ]  # Store the raw password temporarily for hashing
                 self.config.data["password"] = (
-                    CipherManager.string_to_sha3_512_lowercase_hex(
-                        self.config.data["password"]
-                    )
+                    CipherManager.string_to_sha3_512_lowercase_hex(raw_password)
                 )  # Hash the password
 
             login_successful, msg_login, self.config.data["cookie"] = (
@@ -168,7 +170,7 @@ class Application:
                     self.stomp_manager.is_login_phase = False
                     if self.config.data["cipher_enabled"]:
                         self.config.data["hashed_password"] = (
-                            self.cipher_manager.hash_password()
+                            self.cipher_manager.hash_password(raw_password)
                         )
                     if not self.config.data["save_password"]:
                         self.config.data["password"] = ""
@@ -188,6 +190,7 @@ class Application:
             else:
                 CustomDialog("Login Failed\n" + msg_login, msg_type="error").mainloop()
 
+            raw_password = None  # Clear the raw password
             if PLATFORM.startswith(LINUX) and not XMODE:
                 Echo("-" * 53)
 

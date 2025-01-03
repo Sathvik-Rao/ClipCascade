@@ -57,7 +57,7 @@ import StartForegroundService from './StartForegroundService'; // foreground ser
  */
 
 // App version
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.0.1';
 
 // Main App
 export default function App() {
@@ -261,7 +261,11 @@ export default function App() {
             setDataInAsyncStorage('wsIsRunning', 'false');
             if (data_s.save_password === 'true') {
               const pass = await getDataFromAsyncStorage('password');
-              if (pass !== null && pass !== '') {
+              if (
+                pass !== null &&
+                pass !== '' &&
+                data_s.cipher_enabled !== 'true'
+              ) {
                 setPassword(pass);
                 handleLogin(pass, data_s);
               }
@@ -483,9 +487,9 @@ export default function App() {
         maxSizeResponseText = await maxSizeResponse.text();
         data_s.maxsize = String(JSON.parse(maxSizeResponseText).maxsize);
 
-        // Hash the password
+        // Hash the password for encryption
         if (data_s.cipher_enabled === 'true') {
-          hashResult = await hash(data_s, password_s);
+          hashResult = await hash(data_s, password);
           data_s = hashResult[2];
           if (!hashResult[0]) {
             return [
@@ -884,7 +888,8 @@ export default function App() {
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>
-                  Store Password Locally (not recommended):
+                  Store Password Locally (not recommended; only works if
+                  encryption is disabled):
                 </Text>
                 <CheckBox
                   value={data.save_password === 'true' ? true : false}

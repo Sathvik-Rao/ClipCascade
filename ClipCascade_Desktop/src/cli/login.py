@@ -112,7 +112,7 @@ class LoginForm:
 
         self.config.data["save_password"] = LoginForm.str_to_bool(
             input(
-                f"store password locally(not recommended) [{LoginForm.bool_to_str(self.config.data['save_password'])}]: "
+                f"store password locally(not recommended; only works if encryption is disabled) [{LoginForm.bool_to_str(self.config.data['save_password'])}]: "
             )
             or LoginForm.bool_to_str(self.config.data["save_password"])
         )

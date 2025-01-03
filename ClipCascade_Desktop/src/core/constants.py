@@ -70,14 +70,14 @@ if PLATFORM.startswith(LINUX):
 
 # App version
 if PLATFORM == WINDOWS:
-    APP_VERSION = "2.0.0"
+    APP_VERSION = "2.0.1"
 elif PLATFORM == MACOS:
-    APP_VERSION = "2.0.0"
+    APP_VERSION = "2.0.1"
 elif PLATFORM.startswith(LINUX):
     if XMODE:
-        APP_VERSION = "2.0.0"  # gui version
+        APP_VERSION = "2.0.1"  # gui version
     else:
-        APP_VERSION = "2.0.0"  # non-gui(cli) version
+        APP_VERSION = "2.0.1"  # non-gui(cli) version
 
 
 # core constants

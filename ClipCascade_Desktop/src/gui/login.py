@@ -198,7 +198,8 @@ class LoginForm(tk.Tk):
 
         # Save Password Locally Checkbox
         save_password_label = ttk.Label(
-            self.extra_frame, text="Store Password Locally\n(not recommended):"
+            self.extra_frame,
+            text="Store Password Locally\n(not recommended; \nonly works if encryption is disabled):",
         )
         save_password_label.grid(row=2, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.save_password_var = tk.BooleanVar(value=self.config.data["save_password"])

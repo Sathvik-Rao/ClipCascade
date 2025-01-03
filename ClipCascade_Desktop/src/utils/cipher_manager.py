@@ -18,14 +18,12 @@ class CipherManager:
         # encryption
         self.mode = AES.MODE_GCM
 
-    def hash_password(self) -> bytes:
+    def hash_password(self, password: str) -> bytes:
         return hashlib.pbkdf2_hmac(
             hash_name=self.hash_name,
-            password=self.config.data["password"].encode(),
+            password=password.encode(),
             salt=(
-                self.config.data["username"]
-                + self.config.data["password"]
-                + self.config.data["salt"]
+                self.config.data["username"] + password + self.config.data["salt"]
             ).encode("utf-8"),
             iterations=self.config.data["hash_rounds"],
             dklen=self.dklen,
