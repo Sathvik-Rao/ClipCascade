@@ -1,7 +1,7 @@
 {
-    "android"       : "2.0.0",
-    "windows"       : "2.0.0",
-    "linux_gui"     : "2.0.0",
-    "linux_non_gui" : "2.0.0",
-    "macos"         : "2.0.0"
+    "android"       : "2.0.1",
+    "windows"       : "2.0.1",
+    "linux_gui"     : "2.0.1",
+    "linux_non_gui" : "2.0.1",
+    "macos"         : "2.0.1"
 }
