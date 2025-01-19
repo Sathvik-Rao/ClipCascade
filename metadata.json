@@ -1,0 +1,79 @@
+{
+  "name": "ClipCascade",
+  "version": "https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json",
+  "description": "A lightweight utility to sync clipboard content seamlessly across devices with privacy and encryption.",
+  "author": {
+    "name": "Sathvik Rao",
+    "email": "sathvik.poladi@gmail.com",
+    "website": "https://github.com/Sathvik-Rao/ClipCascade"
+  },
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sathvik-Rao/ClipCascade"
+  },
+  "releaseDate": "2024-09-22",
+  "funding": "https://www.paypal.com/donate/?business=SKHQU2CL3TCLN&no_recurring=0&item_name=Support+Sathvik-Rao%27s+open+source+work&currency_code=USD",
+  "keywords": [
+    "clipboard",
+    "sync",
+    "cross-platform",
+    "open-source",
+    "utility",
+    "encryption"
+  ],
+  "bugs": {
+    "url": "https://github.com/Sathvik-Rao/ClipCascade/issues",
+    "email": "sathvik.poladi@gmail.com"
+  },
+  "discussions": {
+    "url": "https://github.com/Sathvik-Rao/ClipCascade/discussions"
+  },
+  "releases": {
+    "url": "https://github.com/Sathvik-Rao/ClipCascade/releases"
+  },
+  "platforms": {
+    "server": {
+      "backend": {
+        "description": "",
+        "languages": ["Java"],
+        "frameworks": ["Spring Boot"],
+        "builds": ["jar"]
+      },
+      "frontend": {
+        "description": "",
+        "languages": ["HTML", "CSS", "JavaScript"],
+        "frameworks": [],
+        "builds": []
+      }
+    },
+    "mobile": {
+      "android": {
+        "description": "",
+        "languages": ["Kotlin", "JavaScript"],
+        "frameworks": ["React Native"],
+        "builds": ["apk"]
+      }
+    },
+    "desktop": {
+      "windows": {
+        "description": "",
+        "languages": ["Python"],
+        "frameworks": [],
+        "builds": ["exe"]
+      },
+      "macos": {
+        "description": "",
+        "languages": ["Python"],
+        "frameworks": [],
+        "builds": ["app"]
+      },
+      "linux": {
+        "description": "",
+        "languages": ["Python"],
+        "frameworks": [],
+        "builds": []
+      }
+    }
+  }
+}
