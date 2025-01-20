@@ -385,22 +385,29 @@ function fetchCsrfToken() {
 }
 function fetchMaxMessageSize() {
   return new Promise((resolve, reject) => {
-    $.ajax({
-      url: ENDPOINTS.maxMessageSize,
-      method: "GET",
-      success: (data) => {
-        MAX_MESSAGE_SIZE = data.maxmessagesize;
-        $(SELECTORS.maxMessageSize).text(
-          `Max Message Size: ${MAX_MESSAGE_SIZE} MiB`
-        );
-        resolve();
-      },
-      error: (err) => {
-        console.error("Failed to fetch max message size:", err);
-        $(SELECTORS.maxMessageSize).text("Max Message Size: Unknown");
-        reject(err);
-      },
-    });
+    if (CURRENT_MODE === "P2P") {
+      // Set max message size to "infinite" for P2P mode
+      MAX_MESSAGE_SIZE = "∞";
+      $(SELECTORS.maxMessageSize).text(`Max Message Size: ${MAX_MESSAGE_SIZE}`);
+      resolve();
+    } else {
+      $.ajax({
+        url: ENDPOINTS.maxMessageSize,
+        method: "GET",
+        success: (data) => {
+          MAX_MESSAGE_SIZE = data.maxmessagesize;
+          $(SELECTORS.maxMessageSize).text(
+            `Max Message Size: ${MAX_MESSAGE_SIZE} MiB`
+          );
+          resolve();
+        },
+        error: (err) => {
+          console.error("Failed to fetch max message size:", err);
+          $(SELECTORS.maxMessageSize).text("Max Message Size: Unknown");
+          reject(err);
+        },
+      });
+    }
   });
 }
 function fetchServerMode() {
