@@ -4,9 +4,6 @@ import java.security.MessageDigest;
 import java.util.List;
 import java.util.function.Consumer;
 
-import org.springframework.security.core.session.SessionInformation;
-import org.springframework.security.core.session.SessionRegistry;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -16,63 +13,84 @@ import com.acme.clipcascade.repo.UserRepo;
 import com.acme.clipcascade.utils.HashingUtility;
 import com.acme.clipcascade.utils.UserValidator;
 
-import jakarta.persistence.EntityNotFoundException;
-
 @Service
 public class UserService {
 
     private final UserRepo userRepo;
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final MessageDigest shaPasswordEncoder;
-    private final SessionRegistry sessionRegistry;
 
     public UserService(UserRepo userRepo,
             BCryptPasswordEncoder bCryptPasswordEncoder,
-            MessageDigest shaPasswordEncoder,
-            SessionRegistry sessionRegistry) {
+            MessageDigest shaPasswordEncoder) {
 
         this.userRepo = userRepo;
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
         this.shaPasswordEncoder = shaPasswordEncoder;
-        this.sessionRegistry = sessionRegistry;
     }
 
-    public void insertDefaultUserIfEmpty() {
-        // insert default user if empty
-        if (userRepo.count() == 0) {
-            userRepo.save(new Users("admin",
-                    HashingUtility.doubleHash("admin123", shaPasswordEncoder,
-                            bCryptPasswordEncoder),
-                    RoleConstants.ADMIN,
-                    true));
-        }
+    public void doubleHashAndCreateUser(
+            String username,
+            String password,
+            String role,
+            boolean enabled) {
+
+        userRepo.save(new Users(
+                username,
+                HashingUtility.doubleHash(password, shaPasswordEncoder,
+                        bCryptPasswordEncoder),
+                role,
+                enabled));
+    }
+
+    public boolean isTableEmpty() {
+        return userRepo.count() == 0;
     }
 
     public Users registerUser(Users user) {
-        // validate user
-        if (!UserValidator.isValid(user)
-                || userRepo.findByUsernameIgnoreCase(user.getUsername()) != null) {
-            return null;
-        }
-
-        // hash password
-        user.setPassword(bCryptPasswordEncoder.encode(user.getPassword()));
+        user.setPassword(bCryptPasswordEncoder.encode(user.getPassword())); // hash password
         return userRepo.save(user); // save user
     }
 
-    public List<Users> getAllUsers() {
-        List<Users> users = userRepo.findByRole(RoleConstants.USER);
+    public boolean userExists(String username) {
+        return userRepo.findByUsernameIgnoreCase(username) != null;
+    }
+
+    public List<Users> getUsers(String role) {
+        List<Users> users = userRepo.findByRole(role);
         users.forEach(user -> {
             user.setPassword(null);
         }); // Set password to null
         return users;
     }
 
-    public boolean deleteUser(String username) {
-        if (!UserValidator.isValidUsername(username)) {
-            return false;
+    public long countUsers() {
+        return userRepo.countByRole(RoleConstants.USER);
+    }
+
+    public List<Users> getAllUsers() {
+        List<Users> users = userRepo.findAll();
+        users.forEach(user -> {
+            user.setPassword(null);
+        }); // Set password to null
+        return users;
+    }
+
+    public Users verifyAdminExistence() {
+        List<Users> users = userRepo.findByRole(RoleConstants.ADMIN);
+
+        if (users.isEmpty()) {
+            throw new IllegalStateException("No admin user exists!");
         }
 
+        if (users.size() > 1) {
+            throw new IllegalStateException("More than one admin user exists!");
+        }
+
+        return users.get(0);
+    }
+
+    public boolean deleteUser(String username) {
         return userRepo.findById(username).map(user -> {
             userRepo.deleteById(username);
             return true;
@@ -81,14 +99,7 @@ public class UserService {
 
     public Users updateUsername(
             String oldUsername,
-            String newUsername,
-            String principalUsername) {
-
-        if (!UserValidator.isValidUsername(oldUsername)
-                || !UserValidator.isValidUsername(newUsername)
-                || userRepo.findByUsernameIgnoreCase(newUsername) != null) {
-            return null;
-        }
+            String newUsername) {
 
         Users oldUser = userRepo.findById(oldUsername).get();
         Users newUser = new Users(
@@ -96,12 +107,6 @@ public class UserService {
                 oldUser.getPassword(),
                 oldUser.getRole(),
                 oldUser.getEnabled()); // clone user with new username
-
-        if (principalUsername.equals(oldUsername)) {
-            // If the admin is changing their own username, logout the admin sessions
-            // before deleting the user to avoid session inconsistencies
-            logoutSessions(oldUsername);
-        }
 
         userRepo.deleteById(oldUsername); // first delete the old user
 
@@ -111,6 +116,7 @@ public class UserService {
     public Users updatePassword(String username, String newPassword) {
         if (!UserValidator.isValidUsername(username)
                 || !UserValidator.isValidPassword(newPassword)) {
+
             return null;
         }
 
@@ -120,6 +126,7 @@ public class UserService {
     public Users updateUserRole(String username, String role) {
         if (!UserValidator.isValidUsername(username)
                 || !UserValidator.isValidRole(role)) {
+
             return null;
         }
 
@@ -134,37 +141,13 @@ public class UserService {
         return updateUserField(username, user -> user.setEnabled(enable));
     }
 
-    public String logoutSessions(String username) {
+    public boolean isNonAdminUser(String username) {
         if (!UserValidator.isValidUsername(username)) {
-            throw new IllegalArgumentException("Invalid username");
+            return true;
         }
 
-        // Check if user exists
-        userRepo.findById(username).orElseThrow(() -> new EntityNotFoundException("User not found"));
-
-        // Iterate over all principals in the SessionRegistry
-        List<Object> principals = sessionRegistry.getAllPrincipals();
-        boolean foundUser = false;
-
-        for (Object principal : principals) {
-            if (principal instanceof UserDetails userDetails) {
-                if (userDetails.getUsername().equals(username)) {
-                    foundUser = true;
-                    // Get all active sessions for this principal
-                    List<SessionInformation> sessions = sessionRegistry.getAllSessions(principal, false);
-                    // Expire each session to effectively force logout
-                    for (SessionInformation sessionInfo : sessions) {
-                        sessionInfo.expireNow(); // mark it as expired
-                    }
-                }
-            }
-        }
-
-        if (!foundUser) {
-            return "No active sessions found for username: " + username;
-        }
-
-        return "User '" + username + "' has been logged out of all active sessions.";
+        Users user = userRepo.findById(username).orElse(null);
+        return user == null || !RoleConstants.ADMIN.equals(user.getRole());
     }
 
     private Users updateUserField(String username, Consumer<Users> updater) {

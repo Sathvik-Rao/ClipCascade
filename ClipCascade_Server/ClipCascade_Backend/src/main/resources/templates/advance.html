@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="https://www.thymeleaf.org">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ClipCascade - Advance</title>
+    <link rel="icon" type="image/png" href="/images/logo.png" />
+
+    <!-- Bootstrap CSS -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM"
+      crossorigin="anonymous"
+    />
+
+    <style>
+      body {
+        padding: 20px;
+        background-color: #f8f9fa;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+      h2 {
+        margin-bottom: 1rem;
+      }
+      .section-container {
+        border: 1px solid #dee2e6;
+        padding: 15px;
+        background-color: #fff;
+        margin-bottom: 20px;
+        border-radius: 5px;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      }
+      .table-responsive {
+        max-height: 300px;
+        overflow: auto;
+      }
+      .table thead th {
+        white-space: nowrap;
+      }
+      .unlock-user-btn {
+        margin-top: 32px;
+      }
+      #websocket-stats-output,
+      #server-time-output {
+        min-height: 20px;
+        padding: 8px;
+        background-color: #f1f3f5;
+        border-radius: 4px;
+        font-size: 0.95rem;
+        color: #212529;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <!-- Website Header -->
+      <header class="mb-4">
+        <h1 class="text-center text-secondary">ClipCascade - Advance</h1>
+      </header>
+
+      <!-- 1) User Details -->
+      <div class="section-container">
+        <h2>User Details</h2>
+        <button class="btn btn-primary mb-3" onclick="getUserDetails()">
+          Get
+        </button>
+        <div class="table-responsive">
+          <table class="table table-bordered table-striped">
+            <thead>
+              <tr>
+                <th>username</th>
+                <th>markedForDeletion</th>
+                <th>firstSignup</th>
+                <th>lastLogin</th>
+                <th>firstSignupIp</th>
+                <th>lastLoginIp</th>
+                <th>failedLoginAttempts</th>
+                <th>lockoutTime</th>
+                <th>passwordChangedAt</th>
+                <th>email</th>
+                <th>otp</th>
+                <th>phone</th>
+                <th>firstName</th>
+                <th>lastName</th>
+                <th>notes</th>
+              </tr>
+            </thead>
+            <tbody id="user-details-tbody">
+              <!-- Data will be appended here via JavaScript -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 2) WebSocket Stats -->
+      <div class="section-container">
+        <h2>WebSocket Stats</h2>
+        <button class="btn btn-primary mb-3" onclick="getWebsocketStats()">
+          Get
+        </button>
+        <div id="websocket-stats-output">
+          <!-- WebSocket stats text goes here -->
+        </div>
+      </div>
+
+      <!-- 3) Brute Force Protection Tracker Snapshot -->
+      <div class="section-container">
+        <h2>Brute Force Protection Tracker Snapshot</h2>
+        <button class="btn btn-primary" onclick="getBfaTracker()">Get</button>
+        <button class="btn btn-primary" onclick="downloadBfaSnapshot()">
+          Download
+        </button>
+
+        <!-- Table to display BFA tracker data -->
+        <div class="table-responsive mt-3">
+          <table class="table table-bordered table-striped">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>IP</th>
+                <th>Attempts (IP)</th>
+                <th>Lock Count (IP)</th>
+                <th>Lock Timeout (IP)</th>
+                <th>Unique IPs</th>
+                <th>User Lock Timeout</th>
+              </tr>
+            </thead>
+            <tbody id="bfa-snapshot-tbody">
+              <!-- Data will be appended here by getBfaTracker() -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 4) Unlock user -->
+      <div class="section-container">
+        <h2>Unlock User</h2>
+        <form id="unlock-user-form" onsubmit="unlockUser(event)">
+          <input type="hidden" th:name="_csrf" th:value="${_csrf.token}" />
+          <div class="row">
+            <div class="col-md-4 mb-3">
+              <label for="unlock-username" class="form-label">Username</label>
+              <input
+                id="unlock-username"
+                name="username"
+                type="text"
+                class="form-control"
+                placeholder="Enter username"
+              />
+            </div>
+            <div class="col-md-4">
+              <button type="submit" class="btn btn-danger unlock-user-btn">
+                Unlock
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- 5) Show server time -->
+      <div class="section-container">
+        <h2>Server Time</h2>
+        <button class="btn btn-primary mb-3" onclick="showServerTime()">
+          Get Server Time
+        </button>
+        <div id="server-time-output">
+          <!-- Server time text goes here -->
+        </div>
+      </div>
+
+      <!-- 6) Environment Variables -->
+      <div class="section-container">
+        <h2>Environment Variables</h2>
+        <div>
+          <p th:text="${envVariables}"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bootstrap JS Bundle -->
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+      integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz"
+      crossorigin="anonymous"
+    ></script>
+
+    <script>
+      /**
+       * Constants for the API endpoints
+       */
+      const ENDPOINTS = {
+        USER_DETAILS: "/admin/user-details",
+        WEBSOCKET_STATS: "/admin/websocket-stats",
+        BFA_SNAPSHOT: "/admin/bfa-snapshot",
+        BFA_SNAPSHOT_FILE: "/admin/bfa-snapshot-file",
+        UNLOCK_USER: "/admin/unlock-user",
+        SERVER_TIME: "/admin/server-time",
+      };
+
+      /**
+       * A reusable fetch function that handles basic error checking.
+       *
+       * @param {string} url - The URL endpoint to call.
+       * @param {string} [method='GET'] - The HTTP method, default is GET.
+       * @param {Object|null} [body=null] - The request body, if any.
+       * @returns {Promise<Response>} - The fetch response object.
+       */
+      async function fetchData(url, method = "GET", body = null, headers = {}) {
+        try {
+          const options = { method, headers: { ...headers } };
+          if (body) {
+            options.headers["Content-Type"] = "application/json";
+            options.body = JSON.stringify(body);
+          }
+          const response = await fetch(url, options);
+          if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+          }
+          return response;
+        } catch (error) {
+          console.error("Fetch error:", error);
+          throw error;
+        }
+      }
+
+      /**
+       * 1) Fetch and display user details.
+       */
+      async function getUserDetails() {
+        try {
+          const response = await fetchData(ENDPOINTS.USER_DETAILS);
+          const data = await response.json();
+
+          const userDetailsTableBody =
+            document.getElementById("user-details-tbody");
+          userDetailsTableBody.innerHTML = "";
+
+          data.forEach((user) => {
+            const row = document.createElement("tr");
+            // For each of the known keys, create a table cell
+            Object.keys(user).forEach((key) => {
+              const cell = document.createElement("td");
+              cell.textContent = user[key];
+              row.appendChild(cell);
+            });
+            userDetailsTableBody.appendChild(row);
+          });
+        } catch (error) {
+          console.error("Error fetching user details:", error);
+          alert("Error fetching user details.");
+        }
+      }
+
+      /**
+       * 2) Fetch and display WebSocket stats.
+       */
+      async function getWebsocketStats() {
+        try {
+          const response = await fetchData(ENDPOINTS.WEBSOCKET_STATS);
+          const textData = await response.text();
+          document.getElementById("websocket-stats-output").textContent =
+            textData;
+        } catch (error) {
+          console.error("Error fetching WebSocket stats:", error);
+          alert("Error fetching WebSocket stats.");
+        }
+      }
+
+      /**
+       * 3a) Fetch Brute Force Protection Tracker data (JSON) and populate table.
+       */
+      async function getBfaTracker() {
+        try {
+          const response = await fetchData(ENDPOINTS.BFA_SNAPSHOT);
+          // trackerData is a Map<String, UserAccessTracker>
+          // where key = username, value = { ipAccessDetails, uniqueIpSet, lockTimeout }
+          const trackerData = await response.json();
+
+          const tableBody = document.getElementById("bfa-snapshot-tbody");
+          tableBody.innerHTML = ""; // Clear any existing rows
+
+          // Iterate over each user (username -> UserAccessTracker)
+          for (const [username, userAccessTracker] of Object.entries(
+            trackerData
+          )) {
+            // ipAccessDetails is a map: { ip -> IpAttemptDetails }
+            const ipDetails = userAccessTracker.ipAccessDetails || {};
+
+            // For each IP in ipAccessDetails, create one table row
+            for (const [ip, details] of Object.entries(ipDetails)) {
+              const row = document.createElement("tr");
+
+              // Username
+              const usernameCell = document.createElement("td");
+              usernameCell.textContent = username;
+              row.appendChild(usernameCell);
+
+              // IP
+              const ipCell = document.createElement("td");
+              ipCell.textContent = ip;
+              row.appendChild(ipCell);
+
+              // Attempts (IP)
+              const attemptsCell = document.createElement("td");
+              attemptsCell.textContent = details.attempts;
+              row.appendChild(attemptsCell);
+
+              // Lock Count (IP)
+              const lockCountCell = document.createElement("td");
+              lockCountCell.textContent = details.lockCount;
+              row.appendChild(lockCountCell);
+
+              // Lock Timeout (IP)
+              const lockTimeoutIpCell = document.createElement("td");
+              lockTimeoutIpCell.textContent = details.lockTimeout;
+              row.appendChild(lockTimeoutIpCell);
+
+              // Unique IP Count
+              const uniqueIpCountCell = document.createElement("td");
+              uniqueIpCountCell.textContent = (
+                userAccessTracker.uniqueIpSet || []
+              ).length;
+              row.appendChild(uniqueIpCountCell);
+
+              // User's Lock Timeout
+              const userLockTimeoutCell = document.createElement("td");
+              userLockTimeoutCell.textContent = userAccessTracker.lockTimeout;
+              row.appendChild(userLockTimeoutCell);
+
+              tableBody.appendChild(row);
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching BFA tracker data:", error);
+          alert("Error fetching BFA tracker data.");
+        }
+      }
+
+      /**
+       * 3b) Download Brute Force Protection Tracker Snapshot (as file).
+       */
+      async function downloadBfaSnapshot() {
+        try {
+          const response = await fetchData(ENDPOINTS.BFA_SNAPSHOT_FILE);
+          const blob = await response.blob();
+
+          // Generate a timestamp-based filename
+          const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+          const fileName = `brute_force_tracker_snapshot_${timestamp}.json`;
+
+          // Create a link to download the file
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = fileName;
+          link.click();
+
+          // Cleanup
+          URL.revokeObjectURL(url);
+          alert("Snapshot downloaded successfully!");
+        } catch (error) {
+          console.error("Error downloading snapshot:", error);
+          alert("Error downloading snapshot.");
+        }
+      }
+
+      /**
+       * 4) Unlock user based on form submission.
+       */
+      async function unlockUser(event) {
+        event.preventDefault(); // Prevent default form submission
+
+        const form = document.getElementById("unlock-user-form");
+        const formData = new FormData(form); // Get form data
+
+        const username = formData.get("username").trim(); // Retrieve the username
+        const csrfToken = formData.get("_csrf"); // Retrieve the CSRF token
+
+        if (!username) {
+          alert("Please enter a username to unlock.");
+          return;
+        }
+
+        try {
+          // PUT request to unlock the user
+          await fetchData(
+            ENDPOINTS.UNLOCK_USER,
+            "PUT",
+            { username },
+            {
+              "X-CSRF-TOKEN": csrfToken,
+            }
+          );
+          alert("User unlocked successfully!");
+        } catch (error) {
+          console.error("Error unlocking user:", error);
+          alert("Error unlocking user.");
+        }
+      }
+
+      /**
+       * 5) Fetch and show server time.
+       */
+      async function showServerTime() {
+        try {
+          const response = await fetchData(ENDPOINTS.SERVER_TIME);
+          const serverTime = await response.text();
+          document.getElementById("server-time-output").textContent =
+            serverTime;
+        } catch (error) {
+          console.error("Error fetching server time:", error);
+          alert("Error fetching server time.");
+        }
+      }
+    </script>
+  </body>
+</html>

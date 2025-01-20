@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="https://www.thymeleaf.org">
+  <head>
+    <title>ClipCascade - Create Account</title>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, shrink-to-fit=no"
+    />
+    <link rel="icon" type="image/png" href="/images/logo.png" />
+    <link
+      href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M"
+      crossorigin="anonymous"
+    />
+    <style>
+      .form-signup {
+        max-width: 330px;
+        padding: 15px;
+        margin: auto;
+        margin-top: 10%;
+      }
+
+      .form-signup-heading {
+        font-size: 1.75rem;
+      }
+
+      .app-title {
+        text-align: center;
+        margin-top: 20px;
+        font-size: 34px;
+        font-weight: bold;
+      }
+
+      .captcha-container {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+      }
+
+      .captcha-image-container {
+        margin-right: 10px;
+      }
+
+      .captcha-reload-btn {
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        cursor: pointer;
+        margin-left: 10px;
+      }
+
+      #captchaInput {
+        margin-top: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="app-title">
+        <a href="/login" style="text-decoration: none; color: inherit"
+          >ClipCascade</a
+        >
+      </div>
+      <form
+        class="form-signup"
+        id="signupForm"
+        th:action="@{/signup}"
+        method="post"
+      >
+        <h2 class="form-signup-heading">Create an Account</h2>
+        <div id="errorDiv" class="alert alert-danger" style="display: none">
+          Registration error. Please try again.
+        </div>
+        <p>
+          <label for="username" class="sr-only">Username</label>
+          <input
+            type="text"
+            id="username"
+            name="username"
+            class="form-control"
+            placeholder="Username"
+            required="required"
+            autofocus="autofocus"
+            minlength="4"
+            maxlength="200"
+          />
+        </p>
+        <p>
+          <label for="password" class="sr-only">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            class="form-control"
+            placeholder="Password"
+            required="required"
+            minlength="8"
+            maxlength="200"
+            pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).*$"
+            title="Password must contain at least one lowercase letter, one uppercase letter, and one digit."
+          />
+        </p>
+        <p>
+          <label for="confirmPassword" class="sr-only">Confirm Password</label>
+          <input
+            type="password"
+            id="confirmPassword"
+            name="confirmPassword"
+            class="form-control"
+            placeholder="Confirm Password"
+            required="required"
+            minlength="8"
+            maxlength="200"
+          />
+        </p>
+        <div class="captcha-container">
+          <div class="captcha-image-container">
+            <img id="captchaImage" src="/captcha" alt="Captcha Image" />
+          </div>
+          <button
+            type="button"
+            class="captcha-reload-btn"
+            onclick="refreshCaptcha()"
+          >
+            &#x21bb;
+          </button>
+        </div>
+        <input
+          type="text"
+          id="captchaInput"
+          name="captchaInput"
+          class="form-control"
+          placeholder="Enter captcha"
+          required
+          maxlength="6"
+          autocomplete="off"
+        />
+        <br /><br />
+        <button class="btn btn-lg btn-primary btn-block" type="submit">
+          Sign Up
+        </button>
+      </form>
+    </div>
+
+    <!-- js-sha3 library (CDN) -->
+    <script src="https://cdn.jsdelivr.net/npm/js-sha3@0.8.0/build/sha3.min.js"></script>
+
+    <script>
+      // Function to refresh the captcha image
+      function refreshCaptcha() {
+        const captchaInput = document.getElementById("captchaInput");
+        const captchaImage = document.getElementById("captchaImage");
+        captchaInput.value = "";
+        captchaImage.src = "/captcha?" + new Date().getTime(); // Adding timestamp to avoid caching
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        const signupForm = document.getElementById("signupForm");
+        const passwordField = document.getElementById("password");
+        const confirmPasswordField = document.getElementById("confirmPassword");
+        const captchaInput = document.getElementById("captchaInput");
+        const captchaImage = document.getElementById("captchaImage");
+        const errorDiv = document.getElementById("errorDiv");
+
+        // Handle form submission using AJAX
+        signupForm.addEventListener("submit", function (event) {
+          event.preventDefault();
+
+          // Check if passwords match
+          if (passwordField.value !== confirmPasswordField.value) {
+            alert("Passwords do not match!");
+            return;
+          }
+
+          const formData = new FormData(signupForm);
+          formData.set("password", sha3_512(passwordField.value)); // hash the password
+          formData.delete("confirmPassword"); // Remove the confirm password field
+
+          fetch(signupForm.action, {
+            method: "POST",
+            body: formData,
+          })
+            .then((response) => {
+              if (response.ok) {
+                //success
+                window.location.href = "/login?registered";
+              } else {
+                //failure
+                response.text().then((text) => {
+                  if (text.toLowerCase().includes("captcha")) {
+                    // invalid captcha
+                    refreshCaptcha(); // Refresh the captcha
+                    alert("Captcha is invalid. Please try again.");
+                  } else {
+                    // registration error
+                    if (text.trim() !== "") {
+                      errorDiv.textContent = text;
+                    }
+                    errorDiv.style.display = "block";
+                    refreshCaptcha(); // Refresh the captcha
+                  }
+                });
+              }
+            })
+            .catch((error) => {
+              console.error("Error:", error);
+              alert(
+                "There was an error with the registration process. Please try again."
+              );
+            });
+        });
+      });
+    </script>
+  </body>
+</html>

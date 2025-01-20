@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  clipcascade:
+    image: sathvikrao/clipcascade:latest
+    container_name: clipcascade
+    ports:
+      - 8080:8080
+    restart: always
+    volumes:
+      - ./cc_users:/database
+      # - ./logs:/logs
+    depends_on:
+      - activemq
+    environment:
+      - CC_MAX_MESSAGE_SIZE_IN_MiB=1
+      # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com
+      - CC_EXTERNAL_BROKER_ENABLED=true
+      - CC_BROKER_HOST=activemq
+      - CC_BROKER_PORT=61613
+      - CC_BROKER_USERNAME=admin # Should match activemq credentials 
+      - CC_BROKER_PASSWORD=admin # Should match activemq credentials
+
+  activemq:
+    image: apache/activemq-classic:latest
+    container_name: activemq
+    ports:
+      - 8161:8161 # Web Console
+      - 61613:61613 # STOMP Protocol Port
+      # - 61616:61616 # OpenWire Protocol Port
+    restart: always
+    environment:
+      - ACTIVEMQ_ADMIN_LOGIN=admin
+      - ACTIVEMQ_ADMIN_PASSWORD=admin

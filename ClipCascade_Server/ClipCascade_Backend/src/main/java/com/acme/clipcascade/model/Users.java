@@ -6,11 +6,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.NotNull;
 
-/**
- * User entity
- * 
- * Renamed to Users to prevent conflicts with the User class in Spring Security.
- */
 @Entity
 @Table(name = "users")
 public class Users {

@@ -1,0 +1,216 @@
+version: '3.8'
+
+# # 🌐 GitHub Repository: https://github.com/Sathvik-Rao/ClipCascade
+# # 🐳 Docker Compose configuration for deploying ClipCascade Server.
+# # ⚠️ IMPORTANT: Update the default admin credentials after the first login.
+# # 🔑 Default admin credentials:
+# #       Username: admin
+# #       Password: admin123
+
+services:
+  clipcascade:
+    image: sathvikrao/clipcascade:0.6.0
+    # # 🚀 If you want to always use the latest version of ClipCascade Server, uncomment the line below and comment out the line above.
+    # # Note: If using 'latest', make sure all client devices are updated regularly to maintain compatibility.
+    # image: sathvikrao/clipcascade:latest
+
+    # # 🏷️ Assign a name to the container
+    container_name: clipcascade
+
+    # # 🌐 Map port 8080 on the host to port 8080 inside the container.
+    ports:
+      - 8080:8080
+
+    # # 🔄 Automatically restart the container if it stops unexpectedly.
+    restart: always
+
+    volumes:
+      # # 📂 Bind mount the database folder for portability
+      # # This maps the './cc_users' folder on the host machine to '/database' inside the container.
+      - ./cc_users:/database
+      # # This maps the './logs' folder on the host machine to '/logs' inside the container.
+      # - ./logs:/logs
+
+    environment:
+      # # ⚙️ Sets the maximum message size (in MiB) that the server can handle.
+      # # Examples usage:
+      # #  On Android: Larger clipboard sizes are generally supported for images and files.
+      # #               However, most Android devices can't store more than ~1 MiB of text in the clipboard.
+      # #  On Desktop: Larger clipboard sizes are generally supported for text, images, and files.
+      # # Note: Individual clients can have their own limits, configurable via the "Extra Config" on the login page.
+      # # Default: 1 (adjust as needed for your use case)
+      - CC_MAX_MESSAGE_SIZE_IN_MiB=1
+      # #
+      # # ⚙️ Sets the maximum message size (in bytes) that the server can handle.
+      # # If set and greater than zero, it overwrites the 'CC_MAX_MESSAGE_SIZE_IN_MiB' value.
+      # # Default: 0
+      # - CC_MAX_MESSAGE_SIZE_IN_BYTES=0
+
+      # # ⚙️ Enables or disables the peer-to-peer (P2P) feature.
+      # # This feature decrease the load on the server and allows unlimited data transfer.
+      # # Note: If P2P is enabled, the `CC_MAX_MESSAGE_SIZE_IN_MiB` and `CC_MAX_MESSAGE_SIZE_IN_BYTES` values are ignored.
+      # # Note: Some networks may not support Peer-to-Peer.
+      # # Default: false (Peer-to-Server(P2S) mode)
+      # - CC_P2P_ENABLED=false
+
+      # # ⚙️ Set the STUN URL for the P2P feature (required if P2P is enabled).
+      # # You can host your own STUN server or use a public STUN server. It is used for determining the public IP address.
+      # # Default: stun:stun.l.google.com:19302
+      # - CC_P2P_STUN_URL=stun:stun.l.google.com:19302
+
+      # # ⚙️ Specifies which domains are allowed to connect to the WebSocket (CORS policy).
+      # # Replace the URL with your ClipCascade server's domain.
+      # # If not set, all origins are allowed by default, which may be less secure.
+      # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com
+
+      # # ⚙️ Toggle to enable or disable the signup feature/page for public users.
+      # # Default: false
+      # - CC_SIGNUP_ENABLED=false
+
+      # # ⚙️ Sets the maximum number of user accounts that can be created on the server.
+      # # Set to -1 for unlimited accounts.
+      # # Default: -1 (unlimited)
+      # - CC_MAX_USER_ACCOUNTS = -1
+
+      # # ⚙️ Purge/Delete inactive accounts after a specified number of seconds.
+      # # Example:
+      # #   [63115200 seconds, 2 years]
+      # #   last login time or creation time: 1736287410
+      # #   purge time: 1736287410 + 63115200 = 1799402610
+      # # Default: -1 (never purge)
+      # - CC_ACCOUNT_PURGE_TIMEOUT_SECONDS:-1
+
+      # # ⚙️ Set the internal port for the server.
+      # # Default: 8080
+      # - CC_PORT=8080
+
+      # # ⚙️ Configure the server session timeout.
+      # # Note: On restart, the session will be logged out.
+      # # Default: 525960m  (1 year)
+      # - CC_SESSION_TIMEOUT=525960m
+
+      # # ------------------------------------------------- # #
+      # #    Brute Force Attack (BFA) Protection Settings   # #
+      # # ------------------------------------------------- # #
+      # # ⚙️ Sets the maximum number of attempts from different IP addresses before an account is blocked for a given timeout.
+      # # Default: 15
+      # - CC_MAX_UNIQUE_IP_ATTEMPTS=15
+
+      # # ⚙️ Sets the maximum number of attempts per IP address before blocking the IP address for a given timeout and will scale if continued.
+      # # Default: 30
+      # - CC_MAX_ATTEMPTS_PER_IP=30
+
+      # # ⚙️ Sets the lockout timeout for failed login attempts.
+      # # Default: 60
+      # - CC_LOCK_TIMEOUT_SECONDS=60
+
+      # # ⚙️ Sets the scaling factor for the lockout timeout.
+      # # Determines how the lockout duration increases with each repeated failed attempt.
+      # # Examples:
+      # # - If LOCK_TIMEOUT_SECONDS = 60 and LOCK_TIMEOUT_SCALING_FACTOR = 1:
+      # #     Lockout times: 60, 120, 180, 240, 300, 360 seconds.
+      # # - If LOCK_TIMEOUT_SECONDS = 60 and LOCK_TIMEOUT_SCALING_FACTOR = 2:
+      # #     Lockout times: 120, 240, 360, 480, 600, 720 seconds.
+      # # - If LOCK_TIMEOUT_SECONDS = 60 and LOCK_TIMEOUT_SCALING_FACTOR = 3:
+      # #     Lockout times: 180, 360, 540, 720, 900, 1080 seconds.
+      # # Default: 2
+      # - CC_LOCK_TIMEOUT_SCALING_FACTOR=2
+
+      # # ⚙️ Enables or disables caching for the BFA tracker.
+      # # If enabled, the server caches BFA tracker data in memory and disk.
+      # # Default: false
+      # - CC_BFA_CACHE_ENABLED=false
+
+      # # ⚙️ Sets the maximum number of entries in the BFA tracker cache (JVM RAM).
+      # # Works only if 'CC_BFA_CACHE_ENABLED' is enabled.
+      # # Default: 50
+      # - CC_BFA_TRACKER_CACHE_MAX_JVM_ENTRIES=50
+
+      # # ⚙️ Sets the percentage of the BFA tracker cache allocated to off-heap RAM.
+      # # Works only if 'CC_BFA_CACHE_ENABLED' is enabled.
+      # # Default: 0
+      # - CC_BFA_TRACKER_CACHE_RAM_PERCENTAGE=0
+
+      # # ⚙️ Sets the percentage of the BFA tracker cache allocated to disk space.
+      # # Works only if 'CC_BFA_CACHE_ENABLED' is enabled.
+      # # Default: 40
+      # - CC_BFA_TRACKER_CACHE_DISK_PERCENTAGE=40
+
+      # # ------------------------------------------------- # #
+      # #               Database Settings                   # #
+      # # ------------------------------------------------- # #
+      # # ⚙️ Configures the database username. Default uses H2 file mode.
+      # # Once set, you must use the same username whenever you migrate the database.
+      # # Default: clipcascade
+      # - CC_SERVER_DB_USERNAME=clipcascade
+
+      # # ⚙️ Sets a password for encrypting the user database. Default uses H2 file mode.
+      # # Replace `<file password>` and `<user password>` with secure values.
+      # # Once set, you must use the same password whenever you migrate the database.
+      # # Default password: `QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky`
+      # - CC_SERVER_DB_PASSWORD=QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky
+
+      # # ⚙️ Configures the database URL. Default uses H2 file mode.
+      # # Example for PostgreSQL: jdbc:postgresql://localhost:5432/clipcascade
+      # # Default: jdbc:h2:file:./database/clipcascade;CIPHER=AES;MODE=PostgreSQL
+      # - CC_SERVER_DB_URL=jdbc:h2:file:./database/clipcascade;CIPHER=AES;MODE=PostgreSQL
+
+      # # ⚙️ Configures the database driver. Default uses H2 file mode.
+      # # Example for PostgreSQL: org.postgresql.Driverset
+      # # Default: org.h2.Driver
+      # - CC_SERVER_DB_DRIVER=org.h2.Driver
+
+      # # ⚙️ Configures the database dialect. Default uses H2 file mode.
+      # # Example for PostgreSQL: org.hibernate.dialect.PostgreSQLDialect
+      # # Default: org.hibernate.dialect.H2Dialect
+      # - CC_SERVER_DB_HIBERNATE_DIALECT=org.hibernate.dialect.H2Dialect
+
+      # # ------------------------------------------------- # #
+      # #                   Log Settings                    # #
+      # # ------------------------------------------------- # #
+      # # ⚙️ Configures the server's logging level for diagnostics and troubleshooting.
+      # # Available levels: TRACE (most detailed), DEBUG, INFO (default)
+      # # Default: INFO
+      # - CC_SERVER_LOGGING_LEVEL=INFO
+
+      # # ⚙️ Configures the maximum number of days to retain server logs.
+      # # Default: 30
+      # - CC_SERVER_LOG_HISTORY_MAX_DAYS=30
+
+      # # ⚙️ Configures the maximum capacity of server logs.
+      # # Default: 1GB
+      # - CC_SERVER_LOG_MAX_CAPACITY=1GB
+
+      # # ⚙️ Enables or disables logging of the Brute Force Attack (BFA) tracker.
+      # # Default: false
+      # - CC_LOG_BRUTE_FORCE_TRACKER_ENABLED=false
+
+      # # ------------------------------------------------- # #
+      # #            External Broker Settings               # #
+      # # ------------------------------------------------- # #
+      # # ⚙️ Enables or disables the external STOMP broker feature for P2S mode.
+      # # Default: false
+      # - CC_EXTERNAL_BROKER_ENABLED=false
+
+      # # ⚙️ Configures the external STOMP broker host.
+      # # Default: localhost
+      # - CC_BROKER_HOST=localhost
+
+      # # ⚙️ Configures the external STOMP broker port.
+      # # Default: 61613
+      # - CC_BROKER_PORT=61613
+
+      # # ⚙️ Configures the external STOMP broker username.
+      # # Default: admin
+      # - CC_BROKER_USERNAME=admin
+
+      # # ⚙️ Configures the external STOMP broker password.
+      # # Default: admin
+      # - CC_BROKER_PASSWORD=admin
+
+      # # ------------------------------------------------- # #
+      # #                  Private Settings                 # #
+      # # ------------------------------------------------- # #
+      # # ⚙️ Enables or disables the donations feature (internal feature).
+      # # Default: false
+      # - CC_DONATIONS_ENABLED=false

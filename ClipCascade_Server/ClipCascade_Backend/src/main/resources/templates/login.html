@@ -1,11 +1,31 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="https://www.thymeleaf.org">
+<html
+  lang="en"
+  xmlns="http://www.w3.org/1999/xhtml"
+  xmlns:th="https://www.thymeleaf.org"
+>
   <head>
     <title>ClipCascade - Please Log In</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-	<link rel="icon" type="image/png" href="/images/logo.png">
-    <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M" crossorigin="anonymous">
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, shrink-to-fit=no"
+    />
+    <meta
+      name="description"
+      content="ClipCascade Login Page - Securely sign in to access your account on ClipCascade, a platform for managing and sharing your clipboard history."
+    />
+    <meta
+      name="keywords"
+      content="ClipCascade, clipboard sync, secure clipboard, multi-device clipboard, end-to-end encryption, Windows clipboard sync, Mac clipboard sync, Linux clipboard sync, Android clipboard sync, Docker clipboard app"
+    />
+    <link rel="icon" type="image/png" href="/images/logo.png" />
+    <link
+      href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-/Y6pD6FV/Vv2HJnA6t+vslU6fwYXjCFtcEpHbNJ0lyAFsXTsjBbfaDjzALeQsN6M"
+      crossorigin="anonymous"
+    />
     <style>
       .form-signin {
         max-width: 330px;
@@ -23,12 +43,68 @@
         font-size: 34px;
         font-weight: bold;
       }
+      .footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background-color: #f8f9fa;
+        text-align: center;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 20px;
+        box-shadow: 0 -1px 5px rgba(0, 0, 0, 0.1);
+      }
+      .footer-left-container,
+      .footer-right-container {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .footer-middle-container {
+        display: flex;
+        justify-content: center;
+        gap: 15px;
+        flex-grow: 1;
+      }
+      .footer-left-container a,
+      .footer-right-container a {
+        color: #007bff;
+        margin-right: 10px;
+        text-decoration: none;
+      }
+      .footer-left-container a:last-of-type,
+      .footer-right-container a:last-of-type {
+        margin-right: 0;
+      }
+      .footer-left-container a:hover,
+      .footer-right-container a:hover {
+        text-decoration: underline;
+      }
+      .footer-middle-container a img {
+        margin: 0 10px;
+        height: 24px;
+      }
+      .footer-right-container {
+        font-size: 10px;
+        color: #bbb;
+        cursor: default;
+        user-select: none;
+      }
     </style>
   </head>
   <body>
     <div class="container">
-      <div class="app-title">ClipCascade</div>
-      <form class="form-signin" id="loginForm" th:action="@{/login}" method="post">
+      <header>
+        <div class="app-title">ClipCascade</div>
+      </header>
+      <form
+        class="form-signin"
+        id="loginForm"
+        th:action="@{/login}"
+        method="post"
+      >
         <h2 class="form-signin-heading">Please sign in</h2>
         <div th:if="${param.error}" class="alert alert-danger">
           <!-- Don't change this error message -->
@@ -40,27 +116,112 @@
         <div th:if="${param.expired}" class="alert alert-warning">
           Your session has expired
         </div>
+        <div th:if="${param.registered}" class="alert alert-success">
+          You have successfully registered
+        </div>
         <p>
           <label for="username" class="sr-only">Username</label>
-          <input type="text" id="username" name="username" class="form-control" placeholder="Username" required="required" autofocus="autofocus">
+          <input
+            type="text"
+            id="username"
+            name="username"
+            class="form-control"
+            placeholder="Username"
+            required="required"
+            autofocus="autofocus"
+          />
         </p>
         <p>
           <label for="password" class="sr-only">Password</label>
-          <input type="password" id="password" name="password" class="form-control" placeholder="Password" required="required">
+          <input
+            type="password"
+            id="password"
+            name="password"
+            class="form-control"
+            placeholder="Password"
+            required="required"
+          />
         </p>
-        <button class="btn btn-lg btn-primary btn-block" type="submit">Sign in</button>
+        <button class="btn btn-lg btn-primary btn-block" type="submit">
+          Sign in
+        </button>
       </form>
+
+      <div class="text-center mt-3" th:if="${signupEnabled}">
+        <a href="/signup">Create an account</a>
+      </div>
+
+      <!-- Footer -->
+      <div class="footer">
+        <div class="footer-left-container">
+          <a href="/help" target="_blank" rel="noopener noreferrer">Help</a>
+          <a
+            th:if="${donationsEnabled}"
+            href="/donate"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Donate</a
+          >
+        </div>
+        <div class="footer-middle-container">
+          <a
+            href="https://github.com/Sathvik-Rao/ClipCascade/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <img src="/images/windows.png" alt="Download for Windows" />
+          </a>
+          <a
+            href="https://github.com/Sathvik-Rao/ClipCascade/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <img src="/images/apple.png" alt="Download for Apple" />
+          </a>
+          <a
+            href="https://github.com/Sathvik-Rao/ClipCascade/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <img src="/images/linux.png" alt="Download for Linux" />
+          </a>
+          <a
+            href="https://github.com/Sathvik-Rao/ClipCascade/releases"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <img src="/images/android.png" alt="Download for Android" />
+          </a>
+          <a
+            href="https://hub.docker.com/r/sathvikrao/clipcascade"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <img src="/images/docker.png" alt="Docker Hub" />
+          </a>
+          <a
+            href="https://github.com/Sathvik-Rao/ClipCascade"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <img src="/images/github.png" alt="GitHub Repository" />
+          </a>
+        </div>
+        <div class="footer-right-container">
+          <span>Brute-Force Protected</span>
+        </div>
+      </div>
     </div>
 
-	<!-- js-sha3 library (CDN) -->
+    <!-- js-sha3 library (CDN) -->
     <script src="https://cdn.jsdelivr.net/npm/js-sha3@0.8.0/build/sha3.min.js"></script>
 
     <script>
-      document.addEventListener("DOMContentLoaded", function() {
+      document.addEventListener("DOMContentLoaded", function () {
         const loginForm = document.getElementById("loginForm");
         const passwordField = document.getElementById("password");
 
-		loginForm.addEventListener("submit", function(event) {
+        loginForm.addEventListener("submit", function (event) {
           // 1) Get the raw password value
           const rawPassword = passwordField.value;
 
@@ -73,4 +234,4 @@
       });
     </script>
   </body>
-</html>	
+</html>

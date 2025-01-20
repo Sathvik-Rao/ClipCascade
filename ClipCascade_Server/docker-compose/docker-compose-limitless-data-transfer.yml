@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  clipcascade:
+    image: sathvikrao/clipcascade:latest
+    container_name: clipcascade
+    ports:
+      - 8080:8080
+    restart: always
+    volumes:
+      - ./cc_users:/database
+      # - ./logs:/logs
+    environment:
+      # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com
+      - CC_P2P_ENABLED=true
