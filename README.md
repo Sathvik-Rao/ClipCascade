@@ -167,6 +167,16 @@ For guidance on setting up a **reverse proxy**, refer to the [Reverse Proxy Setu
 
 ### 🐳 Self-Hosting ClipCascade Using Docker:
 
+#### Quick Installation (Single Command)
+
+For users who prefer a one-liner, you can deploy ClipCascade instantly using:
+
+```yaml
+docker run -d --name clipcascade -p 8080:8080 -e CC_MAX_MESSAGE_SIZE_IN_MiB=1 -v ./cc_users:/database sathvikrao/clipcascade
+```
+
+#### Detailed Installation Steps
+
 To host ClipCascade on your server using Docker, follow these steps:
 
 1. Create a `docker-compose.yml` File
@@ -417,26 +427,46 @@ If you encounter the `error: externally-managed-environment`, install the requir
 
 ##### Debian/Ubuntu:
 ```
-sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pystray python3-pyfiglet python3-bs4 python3-plyer
+sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pystray python3-pyfiglet python3-bs4 python3-plyer python3-aiortc
 ```
 
 ##### Fedora:
 ```
-sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodomex python3-tkinter python3-pystray python3-pyfiglet python3-beautifulsoup4 python3-plyer
+sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodomex python3-tkinter python3-pystray python3-pyfiglet python3-beautifulsoup4 python3-plyer python3-aiortc
 ```
 
 ##### Arch:
 ```
-sudo pacman -S --noconfirm python-xxhash python-pyperclip python-requests python-websocket-client python-pycryptodome tk python-pystray python-pyfiglet python-beautifulsoup4 python-plyer
+sudo pacman -S --noconfirm python-xxhash python-pyperclip python-requests python-websocket-client python-pycryptodome tk python-pystray python-pyfiglet python-beautifulsoup4 python-plyer python-aiortc
 ```
-If you encounter the `error: target not found: python-plyer`, install via `yay -S --noconfirm python-plyer`
+  - If you encounter the `error: target not found: python-plyer`, install via `yay -S --noconfirm python-plyer`
+  - If you encounter the `error: target not found: python-aiortc`, install via `yay -S --noconfirm python-aiortc`
+
+
+#### Step 4.2: Fix `Package libavformat was not found in the pkg-config search path` Error (if applicable)
+
+##### Debian/Ubuntu:
+```
+sudo apt install -y libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev libavfilter-dev libswscale-dev libswresample-dev pkg-config
+```
+
+##### Fedora:
+```
+sudo dnf install -y ffmpeg ffmpeg-devel
+```
+
+##### Arch:
+```
+sudo pacman -S --noconfirm ffmpeg
+```
 
 
 #### Step 5: Run the Application
 
 Start ClipCascade by running (use sudo if needed):
-   - When prompted, enter the server's IP address, port number, or domain name.
-   - If encryption is enabled, please ensure it is enabled on all devices.
+   - When prompted, enter your **server's IP address, port number, or domain name**.
+   - If encryption is enabled, ensure it is **enabled on all devices**.
+   - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
 ```
 python3 main.py
 ```
@@ -547,61 +577,418 @@ cd /path/to/clipcascade/src/ && sudo python3 main.py
 
 ### 🗄️ Server Configuration
 
-#### Default Admin Credentials:
-- **Username:** `admin`
-- **Password:** `admin123`
+#### Important Security Notice:
+**Change the default admin credentials immediately after logging in** to prevent unauthorized access.  
 
-#### Supported Environment Variables:
+#### Default Admin Credentials:  
+- **Username:** `admin`  
+- **Password:** `admin123`  
 
-1. **`CC_MAX_MESSAGE_SIZE_IN_MiB`**  
-   - **Purpose:** Sets the maximum message size (in MiB) that the server can handle.  
-   - **Platform-specific behavior:**
-     - **Android:** Supports larger clipboard sizes for images and files. However, text is typically limited to ~1 MiB.
-     - **Desktop:** Supports larger clipboard sizes for text, images, and files.  
-   - **Default Value:** `1 MiB`  
-   - **Usage:** Adjust this value based on your use case and platform requirements.  
-   - **Example:** `CC_MAX_MESSAGE_SIZE_IN_MiB=3`  
-
-   > **Note:** Individual clients can configure their own limits via the "Extra Config" option on the login page.
-
-2. **`CC_ALLOWED_ORIGINS`**  
-   - **Purpose:** Specifies which domains are permitted to connect to the WebSocket (CORS policy).  
-   - **Default Behavior:** If not set, all origins are allowed by default, which may pose security risks.  
-   - **Usage:** Replace the URL with your ClipCascade server's domain.  
-   - **Example:** `CC_ALLOWED_ORIGINS=https://clipcascade.example.com`  
-
-3. **`CC_SERVER_DB_PASSWORD`**  
-   - **Purpose:** Encrypts the user database with a secure password.  
-   - **Default Value:** `QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky`  
-   - **Usage:** Replace `<file password>` and `<user password>` with strong, secure values. Ensure the same password is used when migrating the database.  
-   - **Example:** `CC_SERVER_DB_PASSWORD=QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky`
-
-4. **`CC_SERVER_LOGGING_LEVEL`**  
-   - **Purpose:** Configures the server's logging level for diagnostics and troubleshooting.  
-   - **Available Levels:**  
-     - `TRACE` (most detailed)  
-     - `DEBUG`  
-     - `INFO` (default)  
-     - `WARN`  
-     - `ERROR`  
-     - `FATAL`  
-     - `OFF` (disables logging)  
-   - **Example:** `CC_SERVER_LOGGING_LEVEL=DEBUG`  
-
-#### Health Check Endpoint:
+#### Health Check Endpoint  
 - **Purpose:** Verifies if the server is running and operational.  
 - **Endpoint:** `/health`  
 - **Response:** Returns `OK` with a status code `200` when the server is up and running.
+
+#### Built-in Update Checker
+- The server features a built-in update checker, prominently displayed on the homepage, keeping you informed about the latest enhancements and security fixes. This ensures your server stays up to date.
+
+  <img src="https://github.com/user-attachments/assets/8184e4ad-d711-4fda-9382-eb3a252bc07b" alt="server_update" />
   
+
+#### Environment Variables:
+
+<table>
+<thead>
+<tr>
+<th>Environment Variable</th>
+<th>Extended Description</th>
+<th>Default Value</th>
+</tr>
+</thead>
+<tbody>
+
+<!-- 1 -->
+<tr>
+<td>CC_MAX_MESSAGE_SIZE_IN_MiB</td>
+<td>
+Defines the maximum message size (in MiB) that the server can handle.
+<br><br>
+<strong>Note:</strong><br>
+- Android typically supports larger clipboard sizes for images and files but limits text to ~1 MiB.<br>
+- Desktop supports larger clipboard sizes across text, images, and files.
+<br><br>
+<strong>Additional Notes:</strong><br>
+- Clients can set their own limits via the "Extra Config" on the login page.<br>
+- If <code>CC_P2P_ENABLED</code> is <code>true</code>, this setting is ignored.
+</td>
+<td>1</td>
+</tr>
+
+<!-- 2 -->
+<tr>
+<td>CC_MAX_MESSAGE_SIZE_IN_BYTES</td>
+<td>
+Provides finer control over message size by specifying a limit in bytes.
+<br><br>
+<strong>Note:</strong> If set above zero, it overrides <code>CC_MAX_MESSAGE_SIZE_IN_MiB</code>.<br>
+Ignored if <code>CC_P2P_ENABLED</code> is <code>true</code>.
+</td>
+<td>0</td>
+</tr>
+
+<!-- 3 -->
+<tr>
+<td>CC_P2P_ENABLED</td>
+<td>
+Toggles the Peer-to-Peer (P2P) feature, allowing direct device-to-device communication.
+<br><br>
+<strong>Advantages:</strong><br>
+- Reduces server load.<br>
+- Removes size restrictions, enabling unlimited data transfer.
+<br><br>
+<strong>Important Notes:</strong><br>
+- If enabled, <code>CC_MAX_MESSAGE_SIZE_IN_MiB</code> and <code>CC_MAX_MESSAGE_SIZE_IN_BYTES</code> are ignored.<br>
+- Some network configurations may not support P2P.
+</td>
+<td>false</td>
+</tr>
+
+<!-- 4 -->
+<tr>
+<td>CC_P2P_STUN_URL</td>
+<td>
+Defines the STUN server URL used for P2P communication, helping devices discover each other across NAT.
+<br><br>
+<strong>Note:</strong> Required when <code>CC_P2P_ENABLED</code> is <code>true</code>.<br>
+You can use a public STUN server or host your own.
+</td>
+<td>stun:stun.l.google.com:19302</td>
+</tr>
+
+<!-- 5 -->
+<tr>
+<td>CC_ALLOWED_ORIGINS</td>
+<td>
+Specifies which domain is permitted to access the WebSocket server (CORS policy).
+<br><br>
+<strong>Security Note:</strong><br>
+- Leaving this unset allows all origins (not recommended for security-sensitive deployments).<br>
+- To restrict access, specify your domain (e.g., <code>https://clipcascade.example.com</code>).
+</td>
+<td>*</td>
+</tr>
+
+<!-- 6 -->
+<tr>
+<td>CC_SIGNUP_ENABLED</td>
+<td>
+Determines whether new users can sign up.
+<br><br>
+<strong>Default:</strong> <code>false</code> (public signups are disabled).
+</td>
+<td>false</td>
+</tr>
+
+<!-- 7 -->
+<tr>
+<td>CC_MAX_USER_ACCOUNTS</td>
+<td>
+Defines the maximum number of user accounts allowed on the server.
+<br><br>
+<strong>Note:</strong> <code>-1</code> means no limit.
+</td>
+<td>-1</td>
+</tr>
+
+<!-- 8 -->
+<tr>
+<td>CC_ACCOUNT_PURGE_TIMEOUT_SECONDS</td>
+<td>
+Specifies the duration (in seconds) after which inactive accounts are deleted.
+<br><br>
+<strong>Example:</strong> <code>63115200</code> (equivalent to 2 years).<br>
+<strong>Note:</strong> <code>-1</code> disables automatic purging.
+</td>
+<td>-1</td>
+</tr>
+
+<!-- 9 -->
+<tr>
+<td>CC_PORT</td>
+<td>
+Defines the internal port where the ClipCascade server listens for connections.
+<br><br>
+<strong>Default:</strong> 8080, but can be changed if necessary.
+</td>
+<td>8080</td>
+</tr>
+
+<!-- 10 -->
+<tr>
+<td>CC_SESSION_TIMEOUT</td>
+<td>
+Specifies the duration before user sessions expire, using minute-based formatting (<code>[number]m</code>).
+<br><br>
+<strong>Default:</strong> <code>525960m</code> (~1 year).
+</td>
+<td>525960m</td>
+</tr>
+
+<!-- 11 -->
+<tr>
+<td>CC_MAX_UNIQUE_IP_ATTEMPTS</td>
+<td>
+Sets the maximum number of failed login attempts from different IP addresses before an account is blocked.
+</td>
+<td>15</td>
+</tr>
+
+<!-- 12 -->
+<tr>
+<td>CC_MAX_ATTEMPTS_PER_IP</td>
+<td>
+Limits the number of failed login attempts allowed per IP before temporarily blocking that IP.
+</td>
+<td>30</td>
+</tr>
+
+<!-- 13 -->
+<tr>
+<td>CC_LOCK_TIMEOUT_SECONDS</td>
+<td>
+Defines the initial lockout duration (in seconds) after too many failed login attempts.
+</td>
+<td>60</td>
+</tr>
+
+<!-- 14 -->
+<tr>
+<td>CC_LOCK_TIMEOUT_SCALING_FACTOR</td>
+<td>
+Determines how the lockout time increases with each consecutive failed attempt.
+<br><br>
+<strong>Examples:</strong><br>
+- Factor 1: 60, 120, 180…<br>
+- Factor 2: 120, 240, 360…<br>
+- Factor 3: 180, 360, 540…
+</td>
+<td>2</td>
+</tr>
+
+<!-- 15 -->
+<tr>
+<td>CC_BFA_CACHE_ENABLED</td>
+<td>
+Controls whether brute force attack (BFA) data is cached in memory and disk.
+</td>
+<td>false</td>
+</tr>
+
+<!-- 16 -->
+<tr>
+<td>CC_BFA_TRACKER_CACHE_MAX_JVM_ENTRIES</td>
+<td>
+Specifies the maximum number of entries in the BFA tracker cache, stored in JVM memory.
+<br><br>
+<strong>Note:</strong> Only used if <code>CC_BFA_CACHE_ENABLED</code> is <code>true</code>.
+</td>
+<td>50</td>
+</tr>
+
+<!-- 17 -->
+<tr>
+<td>CC_BFA_TRACKER_CACHE_RAM_PERCENTAGE</td>
+<td>
+Defines the percentage of the BFA tracker cache allocated to off-heap RAM.
+<br><br>
+<strong>Note:</strong> Only used if <code>CC_BFA_CACHE_ENABLED</code> is <code>true</code>.
+</td>
+<td>0</td>
+</tr>
+
+<!-- 18 -->
+<tr>
+<td>CC_BFA_TRACKER_CACHE_DISK_PERCENTAGE</td>
+<td>
+Defines the percentage of the BFA tracker cache allocated to disk.
+<br><br>
+<strong>Note:</strong> Only used if <code>CC_BFA_CACHE_ENABLED</code> is <code>true</code>.
+</td>
+<td>40</td>
+</tr>
+
+<!-- 19 -->
+<tr>
+<td>CC_SERVER_DB_USERNAME</td>
+<td>
+Specifies the username for the database connection.
+</td>
+<td>clipcascade</td>
+</tr>
+
+<!-- 20 -->
+<tr>
+<td>CC_SERVER_DB_PASSWORD</td>
+<td>
+Defines the password used for encrypting the user database.
+<br><br>
+<strong>Note:</strong><br>
+- (H2) Replace <code>&lt;file password&gt; &lt;user password&gt;</code> with secure values.<br>
+- Once set, you must use the same password whenever you migrate the database.
+</td>
+<td>QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky</td>
+</tr>
+
+<!-- 21 -->
+<tr>
+<td>CC_SERVER_DB_URL</td>
+<td>
+Defines the JDBC URL used to connect to the database.
+<br><br>
+<strong>Examples:</strong><br>
+- PostgreSQL: <code>jdbc:postgresql://localhost:5432/clipcascade</code>
+</td>
+<td>jdbc:h2:file:./database/clipcascade;CIPHER=AES;MODE=PostgreSQL</td>
+</tr>
+
+<!-- 22 -->
+<tr>
+<td>CC_SERVER_DB_DRIVER</td>
+<td>
+Specifies the JDBC driver class used by the database connection.
+<br><br>
+<strong>Example:</strong> <code>org.postgresql.Driver</code> for PostgreSQL.
+</td>
+<td>org.h2.Driver</td>
+</tr>
+
+<!-- 23 -->
+<tr>
+<td>CC_SERVER_DB_HIBERNATE_DIALECT</td>
+<td>
+Sets the Hibernate dialect for the chosen database.
+<br><br>
+<strong>Example:</strong> <code>org.hibernate.dialect.PostgreSQLDialect</code> for PostgreSQL.
+</td>
+<td>org.hibernate.dialect.H2Dialect</td>
+</tr>
+
+<!-- 24 -->
+<tr>
+<td>CC_SERVER_LOGGING_LEVEL</td>
+<td>
+Sets the logging verbosity level (TRACE, DEBUG, INFO).
+</td>
+<td>INFO</td>
+</tr>
+
+<!-- 25 -->
+<tr>
+<td>CC_SERVER_LOG_HISTORY_MAX_DAYS</td>
+<td>
+Specifies how many days of logs to retain before they are rotated or removed.
+</td>
+<td>30</td>
+</tr>
+
+<!-- 26 -->
+<tr>
+<td>CC_SERVER_LOG_MAX_CAPACITY</td>
+<td>
+Defines the maximum total size of logs to keep before older files are purged.
+</td>
+<td>1GB</td>
+</tr>
+
+<!-- 27 -->
+<tr>
+<td>CC_LOG_BRUTE_FORCE_TRACKER_ENABLED</td>
+<td>
+Enables detailed logging of each login attempt in the Brute Force Attack (BFA) tracker.
+<br>Useful for diagnosing repeated login failures.
+</td>
+<td>false</td>
+</tr>
+
+<!-- 28 -->
+<tr>
+<td>CC_EXTERNAL_BROKER_ENABLED</td>
+<td>
+Determines whether an external STOMP broker is used for message handling.
+</td>
+<td>false</td>
+</tr>
+
+<!-- 29 -->
+<tr>
+<td>CC_BROKER_HOST</td>
+<td>
+Specifies the STOMP broker host for external message handling.
+<br><br>
+<strong>Note:</strong> Only used if <code>CC_EXTERNAL_BROKER_ENABLED</code> is <code>true</code>.
+</td>
+<td>localhost</td>
+</tr>
+
+<!-- 30 -->
+<tr>
+<td>CC_BROKER_PORT</td>
+<td>
+Specifies the STOMP broker port for external message handling.
+<br><br>
+<strong>Note:</strong> Only used if <code>CC_EXTERNAL_BROKER_ENABLED</code> is <code>true</code>.
+</td>
+<td>61613</td>
+</tr>
+
+<!-- 31 -->
+<tr>
+<td>CC_BROKER_USERNAME</td>
+<td>
+Defines the STOMP broker username for external message handling.
+<br><br>
+<strong>Note:</strong> Only used if <code>CC_EXTERNAL_BROKER_ENABLED</code> is <code>true</code>.
+</td>
+<td>admin</td>
+</tr>
+
+<!-- 32 -->
+<tr>
+<td>CC_BROKER_PASSWORD</td>
+<td>
+Defines the STOMP broker password for external message handling.
+<br><br>
+<strong>Note:</strong> Only used if <code>CC_EXTERNAL_BROKER_ENABLED</code> is <code>true</code>.
+</td>
+<td>admin</td>
+</tr>
+
+</tbody>
+</table>
+
+* * * * * * *
+
 ### 🖥️📱 Client Apps
 - Logs (`clipcascade_log.log`) are stored in the installation directory on Windows and Linux, and in `<current user>/Library/Application Support/ClipCascade/` on macOS. These logs allow you to review application activity and are automatically reset each time the application is reopened, preventing indefinite growth.
 - The `DATA` file stores settings and user details, enabling the app to retain this information across both restarts and updates.
 - On Linux and macOS, a `ClipCascade.lock` file is created while the program is running. This file ensures that only a single instance of ClipCascade can be opened at a time.
+- All apps include a built-in update check feature, conveniently displayed on the homepage or taskbar. This ensures you can quickly check for updates within the app, keeping you up to date with the latest enhancements and security fixes.
 
+   <table>
+    <tr>
+        <td align="center"><strong>Desktop</strong></td>
+        <td align="center"><strong>Mobile</strong></td>
+    </tr>
+    <tr>
+        <td><img src="https://github.com/user-attachments/assets/92583d05-769e-4883-b427-7b4a41815610" alt="desktop_update" /></td>
+        <td><img src="https://github.com/user-attachments/assets/4b5b1d34-4f0f-4770-805c-b212d85aaa2b" alt="android_update" /></td>
+    </tr>
+   </table>
+  
 #### Extra Config/Advanced Settings (Desktop/Mobile):
 - **Maximum Clipboard Size Local Limit (in bytes)**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. You can set a local size limit by specifying a value in bytes (e.g., 512 KiB = 524288 bytes) to test different thresholds suitable for your device. This local limit works alongside the server-specified limit to ensure smoother operation without crashes. For example, on Android (particularly on the Pixel 6a as of 2024), the platform limit(for text) is typically less than 1 MiB. Since the server limit cannot go below 1 MiB, setting the local limit to around 900,000 bytes on the Pixel 6a can help prevent crashes.
 - **Store Password Locally (not recommended)**: Enable this option if you frequently encounter session logouts. While the app stores session cookies for an extended period, a server restart may prompt a re-login. If re-entering the password becomes tedious, you can use this option to store your password locally for convenience.
-   > Note: This option will only work if encryption is disabled, as encryption requires the raw password to generate a password hash, not the stored hashed password.
+   > Note: This option will only work if encryption is disabled, as encryption requires the raw password to generate a password hash.
 - **Enable Image Sharing and Enable File Sharing**: Enabling these options allows the app to send images or files. However, the app will continue to receive images and files even if these options are disabled.
 - **Enable Notification**: Turn on this option to receive notifications about WebSocket disconnections and reconnections.
 - **Enable Encryption (recommended)**: Enabling this option activates end-to-end encryption for clipboard data. This ensures that all clipboard content is encrypted before leaving your device. Refer to the section below on E2E encryption for detailed instructions on how it works and how to configure the `salt` and `hash rounds`.
@@ -611,10 +998,15 @@ cd /path/to/clipcascade/src/ && sudo python3 main.py
   
   #### Android (Specific):
   - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
+  - **Enable WebSocket Status Notification**: Receive alerts when the WebSocket connection is lost or restored, ensuring you're informed about any connection disruptions.
+    
+    <img src="https://github.com/user-attachments/assets/6a8b903c-ee52-444c-a14e-bed70e31dcee" alt="periodic_check_notification" width="250" />
+
   - **Enable Periodic Checks**: Enabling this option performs periodic checks to ensure clipboard monitoring and the foreground service are running. It verifies the service status when monitoring starts and then checks every 15 minutes in the background. If the service is not running, a notification is displayed. Clicking the notification will restart the service.
     
     <img src="https://github.com/user-attachments/assets/7341b960-5e60-4af6-b627-2183088de262" alt="periodic_check_notification" width="250" />
 
+* * * * * * *
 
 ### 🔒 End-to-End Encryption Configuration for Clipboard Data
 
@@ -630,8 +1022,11 @@ It is crucial to ensure the same **salt** and **hash rounds** are used across al
 
 You can adjust these settings in the **Extra Config** section on the login page for users who require enhanced encryption options.
 
-<img src="https://github.com/user-attachments/assets/59252f1c-c149-43c2-b0a2-c09ca075a5c1" alt="e2e" />
+<img src="https://github.com/user-attachments/assets/59252f1c-c149-43c2-b0a2-c09ca075a5c1" alt="e2e_p2s" />
 
+> Note: In a peer-to-peer architecture, clipboard data is broadcasted to all connected devices directly without the need for a server. The encryption mechanism remains unchanged, ensuring the same level of security across all devices.
+
+* * * * * * *
 
 ### 📋 Clipboard Functioning
 - **Text and Images**: These are directly copied to the clipboard, enabling seamless sharing across devices.  
@@ -744,7 +1139,7 @@ http://clipcascade.sample.com {
 ```
 
 ### Note:
-Additionally, it might be helpful to mention that the server uses WebSockets (ws/wss) for live clipboard broadcasting. In most cases, no extra configuration is needed for WebSockets since they typically rely on an HTTP switching protocol. Most providers will support WebSocket connections out of the box, without requiring additional setup. Example: `ws://localhost:8080/clipsocket`.
+Additionally, it might be helpful to mention that the server uses WebSockets (ws/wss) for live clipboard broadcasting. In most cases, no extra configuration is needed for WebSockets since they typically rely on an HTTP switching protocol. Most providers will support WebSocket connections out of the box, without requiring additional setup. Example: `ws://localhost:8080/clipsocket`, `ws://localhost:8080/p2psignaling`.
 
 
 ## 🔧 Usage
