@@ -17,11 +17,15 @@ import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.PingMessage;
+import org.springframework.web.socket.PongMessage;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.AbstractWebSocketHandler;
 
+import com.acme.clipcascade.constants.ServerConstants;
 import com.acme.clipcascade.utils.MapUtility;
+import com.acme.clipcascade.utils.TimeUtility;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -38,6 +42,8 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
     private final Map<String, Map<String, WebSocketSession>> sessions = new ConcurrentHashMap<>();
     private final Map<String, Map<String, String>> sessionsUUID = new ConcurrentHashMap<>();
     private final Map<String, ReentrantLock> userLocks = new ConcurrentHashMap<>();
+    private final Map<String, Long> lastHeartbeat = new ConcurrentHashMap<>();
+    private final Map<String, ReentrantLock> sessionLocks = new ConcurrentHashMap<>();
 
     private final AtomicLong activeConnections = new AtomicLong();
     private final AtomicLong totalConnections = new AtomicLong();
@@ -67,6 +73,7 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
         ReentrantLock lock = getUserLock(username);
         lock.lock(); // acquire the lock for specific username
         try {
+            lastHeartbeat.put(session.getId(), TimeUtility.getCurrentTimeInMilliseconds());
 
             sessions
                     .computeIfAbsent(username, k -> new ConcurrentHashMap<>())
@@ -75,6 +82,8 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
             sessionsUUID
                     .computeIfAbsent(username, k -> new ConcurrentHashMap<>())
                     .put(session.getId(), peerId);
+
+            getSessionLock(session.getId());
 
             // Notify *this* client of its assigned peerId
             Map<String, Object> yourIdMsg = new HashMap<>();
@@ -122,10 +131,57 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
                 }
             }
 
+            lastHeartbeat.remove(session.getId());
+            sessionLocks.remove(session.getId());
+
             // Notify everyone else in that user's room
             broadcastPeerList(username);
         } finally {
             lock.unlock(); // release the lock
+        }
+    }
+
+    public void sendAndCheckHeartbeats() {
+        long now = TimeUtility.getCurrentTimeInMilliseconds();
+
+        for (Map<String, WebSocketSession> userSessionMap : sessions.values()) {
+            for (WebSocketSession session : userSessionMap.values()) {
+                if (session == null || !session.isOpen()) {
+                    continue;
+                }
+                String sessionId = session.getId();
+                ReentrantLock sessionLock = getSessionLock(sessionId);
+
+                // Attempt to lock without blocking
+                if (sessionLock.tryLock()) {
+                    try {
+                        // Send ping frame
+                        session.sendMessage(new PingMessage());
+                        incrementCounter(totalOutboundMessages);
+                    } catch (Exception e) {
+                        logger.debug("Failed to send ping to session {}: {}", sessionId, e.getMessage());
+                    } finally {
+                        sessionLock.unlock();
+                    }
+                } else {
+                    logger.debug("Skipping heartbeat for session {} because the lock was not free", sessionId);
+                }
+
+                // Check if we've received a recent "\n" back
+                Long lastHbTime = lastHeartbeat.get(sessionId);
+                if (lastHbTime == null) {
+                    lastHbTime = 0L;
+                }
+
+                if ((now - lastHbTime) > ServerConstants.HEARTBEAT_RECEIVE_INTERVAL_P2P) {
+                    logger.debug("Closing session {} due to missed heartbeat.", sessionId);
+                    try {
+                        session.close(CloseStatus.GOING_AWAY);
+                    } catch (Exception e) {
+                        logger.debug("Failed to close session {}: {}", sessionId, e.getMessage());
+                    }
+                }
+            }
         }
     }
 
@@ -193,6 +249,11 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
         handleTextMessage(session, new TextMessage(new String(message.getPayload().array(), StandardCharsets.UTF_8)));
     }
 
+    @Override
+    protected void handlePongMessage(@NonNull WebSocketSession session, @NonNull PongMessage message) throws Exception {
+        lastHeartbeat.put(session.getId(), TimeUtility.getCurrentTimeInMilliseconds());
+    }
+
     @PreDestroy
     public void shutdown() {
         for (Map<String, WebSocketSession> userSessions : sessions.values()) {
@@ -208,16 +269,20 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
         }
     }
 
-    private void sendMessage(WebSocketSession session, TextMessage message) throws Exception {
+    private void sendMessage(WebSocketSession session, TextMessage message) {
         if (session == null || !session.isOpen()) {
             return;
         }
 
+        ReentrantLock sessionLock = getSessionLock(session.getId());
+        sessionLock.lock(); // acquire the lock for specific session
         try {
             session.sendMessage(message);
             incrementCounter(totalOutboundMessages);
         } catch (Exception e) {
             logger.debug("Failed to send WebSocket message(P2P): ", e);
+        } finally {
+            sessionLock.unlock(); // release the lock
         }
     }
 
@@ -256,6 +321,10 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
      */
     private ReentrantLock getUserLock(String username) {
         return userLocks.computeIfAbsent(username, u -> new ReentrantLock());
+    }
+
+    private ReentrantLock getSessionLock(String sessionId) {
+        return sessionLocks.computeIfAbsent(sessionId, sid -> new ReentrantLock());
     }
 
     public Long getActiveConnections() {

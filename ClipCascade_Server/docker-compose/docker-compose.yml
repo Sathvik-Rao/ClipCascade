@@ -6,6 +6,7 @@ version: '3.8'
 # # 🔑 Default admin credentials:
 # #       Username: admin
 # #       Password: admin123
+# # Health check endpoint is available at http://localhost:8080/health
 
 services:
   clipcascade:

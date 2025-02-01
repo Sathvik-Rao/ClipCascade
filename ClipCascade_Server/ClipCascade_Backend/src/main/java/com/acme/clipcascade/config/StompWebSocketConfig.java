@@ -13,6 +13,8 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
 
+import com.acme.clipcascade.constants.ServerConstants;
+
 @Configuration
 @EnableWebSocketMessageBroker
 @ConditionalOnProperty(prefix = "app.p2p", name = "enabled", havingValue = "false", matchIfMissing = false)
@@ -42,7 +44,10 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
              * "/user/{sessionId}/queue/.." for user-specific destinations.
              */
             config.enableSimpleBroker("/queue") // <- destination
-                    .setHeartbeatValue(new long[] { 20000, 0 }) // Heartbeat intervals in milliseconds { send, receive }
+                    .setHeartbeatValue(new long[] {
+                            ServerConstants.HEARTBEAT_SEND_INTERVAL_P2S,
+                            ServerConstants.HEARTBEAT_RECEIVE_INTERVAL_P2S }) // Heartbeat intervals in milliseconds {
+                                                                              // send, receive }
                     .setTaskScheduler(heartbeatTaskScheduler()); // Scheduler for heartbeats
         } else {
             /**

@@ -179,11 +179,12 @@ public class ClipCascadeController {
         UserPrincipal userPrincipal = (UserPrincipal) ((UsernamePasswordAuthenticationToken) principal)
                 .getPrincipal();
 
-        // Prepare a message object with the received payload and type
+        // Prepare a message object with the received payload, type and metadata
         // Default type is "text" if none is specified
         ClipboardData messageToSend = new ClipboardData(
                 clipboardData.getPayload(),
-                (clipboardData.getType() == null) ? "text" : clipboardData.getType());
+                (clipboardData.getType() == null) ? "text" : clipboardData.getType(),
+                clipboardData.getMetadata());
 
         /**
          * Send the message to the user's specific queue:
@@ -347,7 +348,8 @@ public class ClipCascadeController {
 
         return ResponseEntityUtil.conditionalExecuteOrError(
                 userPrincipal.isAdmin(),
-                () -> ResponseEntityUtil.executeWithResponse(() -> webSocketStatsService.getWebSocketStats()),
+                () -> ResponseEntityUtil
+                        .executeWithResponse(() -> webSocketStatsService.getWebSocketStats()),
                 "Forbidden");
     }
 

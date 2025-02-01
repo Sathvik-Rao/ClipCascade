@@ -25,6 +25,14 @@ public class ServerConstants {
     // BFA Tracker Cache Path
     public static final String BFA_TRACKER_CACHE_PATH = "database/bfa_tracker_cache";
 
+    // Heartbeat Interval in milliseconds (P2S mode)
+    public static final int HEARTBEAT_SEND_INTERVAL_P2S = 20000; // 20 seconds
+    public static final int HEARTBEAT_RECEIVE_INTERVAL_P2S = 0; // 0 seconds (disabled)
+
+    // Heartbeat Interval in milliseconds (P2P mode)
+    public static final int HEARTBEAT_SEND_INTERVAL_P2P = 40000; // 40 seconds
+    public static final int HEARTBEAT_RECEIVE_INTERVAL_P2P = 120000; // 120 seconds (x3)
+
     private ServerConstants() {
         // private constructor to prevent instantiation
     }

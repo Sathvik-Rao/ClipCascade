@@ -11,6 +11,11 @@ public class TimeUtility {
         return Instant.now().getEpochSecond();
     }
 
+    // Returns the current time in milliseconds since the Unix epoch
+    public static long getCurrentTimeInMilliseconds() {
+        return System.currentTimeMillis();
+    }
+
     // Resets time to the Unix epoch (1970-01-01T00:00:00Z)
     public static long resetTime() {
         return Instant.EPOCH.getEpochSecond();

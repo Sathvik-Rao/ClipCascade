@@ -90,8 +90,8 @@ let MAX_MESSAGE_SIZE = null; // in MiB
 let CSRF_HEADER_NAME = "X-CSRF-TOKEN";
 
 /* -----------------------------------------
-       ============  ON DOCUMENT READY  =========
-       ----------------------------------------- */
+         ============  ON DOCUMENT READY  =========
+         ----------------------------------------- */
 $(function () {
   // Prevent form submissions from reloading the page
   $("form").on("submit", (e) => e.preventDefault());
@@ -155,8 +155,8 @@ $(function () {
 });
 
 /* -----------------------------------------
-       ============  INIT EVENT HANDLERS  ========
-       ----------------------------------------- */
+         ============  INIT EVENT HANDLERS  ========
+         ----------------------------------------- */
 function initEventHandlers() {
   // HOME (User) Section event bindings
   $(SELECTORS.connectBtn).click(onConnectClick);
@@ -183,8 +183,8 @@ function initEventHandlers() {
 }
 
 /* -----------------------------------------
-              ==========  MODE DECISION  =========
-              ----------------------------------------- */
+                ==========  MODE DECISION  =========
+                ----------------------------------------- */
 function onConnectClick() {
   $(SELECTORS.statusMessage).hide();
   if (CURRENT_MODE === "P2S") {
@@ -206,7 +206,7 @@ function onSendClick() {
   }
 
   // Log *locally* in the monitoring
-  displayIncomingMessage({ payload: textVal, type: "text (outgoing)" });
+  displayIncomingMessage({ payload: textVal, type: "text" });
 }
 
 function onDisconnectClick() {
@@ -218,8 +218,8 @@ function onDisconnectClick() {
 }
 
 /* -----------------------------------------
-                  ==========  UTILITY  ==========
-                  ----------------------------------------- */
+                    ==========  UTILITY  ==========
+                    ----------------------------------------- */
 function showSection(selector) {
   $(selector).css("display", "block");
 }
@@ -311,8 +311,8 @@ function validateUsername(username) {
 }
 
 /* -----------------------------------------
-       ============  FETCH FUNCTIONS  ===========
-       ----------------------------------------- */
+         ============  FETCH FUNCTIONS  ===========
+         ----------------------------------------- */
 function fetchCurrentUser() {
   return new Promise((resolve, reject) => {
     $.ajax({
@@ -466,8 +466,8 @@ function fetchDonationStatus() {
 }
 
 /* -----------------------------------------
-             ==========  STOMP (P2S)  ==========
-             ----------------------------------------- */
+               ==========  STOMP (P2S)  ==========
+               ----------------------------------------- */
 function connectStomp() {
   const brokerURL = $(SELECTORS.brokerUrlInput).val();
   stompClient = new StompJs.Client({
@@ -528,8 +528,8 @@ function setStompConnected(connected) {
 }
 
 /* -----------------------------------------
-             ==========  P2P WEBRTC  ==========
-             ----------------------------------------- */
+               ==========  P2P WEBRTC  ==========
+               ----------------------------------------- */
 function connectP2P() {
   const signalingUrl = $(SELECTORS.brokerUrlInput).val();
   if (!signalingUrl) {
@@ -546,14 +546,16 @@ function connectP2P() {
       setP2PConnected(true);
       showStatusMessage("Connected to Signaling server (P2P).", "success");
       // Start heartbeat(stay alive) every 20 seconds
-      heartbeatIntervalId = setInterval(() => {
-        if (
-          p2pSignalingWebSocket &&
-          p2pSignalingWebSocket.readyState === WebSocket.OPEN
-        ) {
-          p2pSignalingWebSocket.send("");
-        }
-      }, 20000);
+      /*
+       * heartbeatIntervalId = setInterval(() => {
+       * if (
+       * p2pSignalingWebSocket &&
+       * p2pSignalingWebSocket.readyState === WebSocket.OPEN
+       * ) {
+       * p2pSignalingWebSocket.send("\n");
+       * }
+       * }, 20000);
+       */
     };
 
     p2pSignalingWebSocket.onmessage = (evt) => {
@@ -563,7 +565,6 @@ function connectP2P() {
 
     p2pSignalingWebSocket.onclose = () => {
       console.log("Signaling WebSocket closed (P2P).");
-      setP2PConnected(false);
       showStatusMessage("Disconnected from Signaling server (P2P).", "warning");
     };
 
@@ -590,6 +591,7 @@ function disconnectP2P() {
   dataChannels = {};
   myPeerId = null;
 
+  // Only on explicit user disconnect do we hide/clear the conversation:
   setP2PConnected(false);
   showStatusMessage("Disconnected from P2P mesh.", "warning");
 }
@@ -784,8 +786,8 @@ function sendTextToPeers(textVal) {
 }
 
 /* -----------------------------------------
-           ========== COMMON MONITORING =========
-       ----------------------------------------- */
+             ========== COMMON MONITORING =========
+         ----------------------------------------- */
 function displayIncomingMessage(message) {
   const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
   const filename = `${timestamp}.txt`;
@@ -796,25 +798,31 @@ function displayIncomingMessage(message) {
   const escapedPayload = escapeHtml(payload);
   const escapedType = escapeHtml(type);
 
+  let metadataHtml = "";
+  if (message.metadata) {
+    const metadataStr = JSON.stringify(message.metadata);
+    metadataHtml = `, metadata:${escapeHtml(metadataStr)}`;
+  }
+
   const row = $(`
-        <tr>
-          <td>{payload:${escapedPayload}, type:${escapedType}}</td>
-          <td>
-            <div class="button-container">
-              <button class="btn btn-primary download-btn"
-                      onclick="downloadFile('${filename}', '${encodedText}')">Download</button>
-              <button class="btn btn-default copy-btn"
-                      onclick="copyToClipboard('${escapedPayload}')">Copy</button>
-            </div>
-          </td>
-        </tr>
-      `);
+          <tr>
+            <td>{payload:${escapedPayload}, type:${escapedType}${metadataHtml}}</td>
+            <td>
+              <div class="button-container">
+                <button class="btn btn-primary download-btn"
+                        onclick="downloadFile('${filename}', '${encodedText}')">Download</button>
+                <button class="btn btn-default copy-btn"
+                        onclick="copyToClipboard('${escapedPayload}')">Copy</button>
+              </div>
+            </td>
+          </tr>
+        `);
   $(SELECTORS.conversationBody).append(row);
 }
 
 /* -----------------------------------------
-          ===========  HEADER LINK HANDLERS  =====
-          ----------------------------------------- */
+            ===========  HEADER LINK HANDLERS  =====
+            ----------------------------------------- */
 function onChangeUsernameClick() {
   const oldUsername = $(SELECTORS.user).text();
   const newUsername = prompt("Enter your new username:");
@@ -891,8 +899,8 @@ function logoutAllDevices(successCallback) {
 }
 
 /* -----------------------------------------
-             ============  ADMIN LOGIC  =========
-             ----------------------------------------- */
+               ============  ADMIN LOGIC  =========
+               ----------------------------------------- */
 function loadAllUsers() {
   $.ajax({
     url: ENDPOINTS.adminUsers,
