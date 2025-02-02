@@ -249,6 +249,13 @@ To install the ClipCascade Windows desktop application, follow these steps:
     - When prompted, enter your **server's IP address, port number, or domain name**.
     - If encryption is enabled, ensure it is **enabled on all devices**.
     - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+4. **Network Access Prompt (P2P Mode)**
+    - If the server is running in **P2P mode**, you will see a Windows security prompt asking, **"Do you want to allow public and private networks to access this app?"**
+
+      <img src="https://github.com/user-attachments/assets/d5ededb1-0d21-4686-91bd-e0a22cdb54e5" alt="win_network_prompt" width="150"  />
+
+    - This is because each client device acts as a **peer** in the network, requiring direct communication.
+    - Click **Allow** to enable clipboard data syncing across your devices without the help of a server. The server is needed only for signaling and authentication.
 
 **Important Note:** Since the application is not published or registered with Microsoft, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning or temporarily disable your antivirus during installation. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Microsoft requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
 
@@ -299,10 +306,18 @@ To install the ClipCascade macOS desktop application, follow these steps:
     - If encryption is enabled, ensure it is **enabled on all devices**.
     - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
 
-7. **Access the App from the Menu Bar**
+7. **Network Access Prompt (P2P Mode)**
+    - If the server is running in **P2P mode**, you will see a macOS security prompt asking, **"Allow "ClipCascade" to find devices on local networks?"**
+
+      <img src="https://github.com/user-attachments/assets/91aae27e-f950-45a4-a4a1-09893e0573d3" alt="mac_network_prompt" width="150" />
+
+    - This is because each client device acts as a **peer** in the network, requiring direct communication.
+    - Click **Allow** to enable clipboard data syncing across your devices without the help of a server. The server is needed only for signaling and authentication.
+      
+8. **Access the App from the Menu Bar**
     - Once logged in, the application will run in the **menu bar** with a clipboard icon at the top of your screen.
 
-8. **Enable Auto-Startup**:
+9. **Enable Auto-Startup**:
      - Right-click the **ClipCascade** icon in the dock (bottom of the screen).
      - Select **Options** and then check **Open at Login**.
 
