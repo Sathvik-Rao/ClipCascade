@@ -79,6 +79,55 @@ class RequestManager:
             )
         return MAX_SIZE
 
+    def get_server_mode(self) -> str:
+        try:
+            response = RequestManager.get(
+                url=self.config.data["server_url"] + SERVER_MODE_URL,
+                headers={
+                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
+                },
+            )
+            if response.status_code == 200:
+                # server mode request successful
+                server_mode = response.json().get("mode")
+                logging.info(f"Server mode: {server_mode}")
+                return server_mode
+        except Exception as e:
+            logging.error(f"Error fetching server mode: {e}")
+            raise
+
+    def get_stun_url(self) -> str:
+        try:
+            response = RequestManager.get(
+                url=self.config.data["server_url"] + STUN_URL,
+                headers={
+                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
+                },
+            )
+            if response.status_code == 200:
+                # stun url request successful
+                stun_url = response.json().get("url")
+                logging.info(f"STUN URL: {stun_url}")
+                return stun_url
+        except Exception as e:
+            logging.error(f"Error fetching STUN URL: {e}")
+            raise
+
+    def get_metadata(self) -> dict:
+        try:
+            response = RequestManager.get(
+                url=METADATA_URL,
+                headers={
+                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
+                },
+            )
+            if response.status_code == 200:
+                # metadata request successful
+                return response.json()
+        except Exception as e:
+            logging.error(f"Error fetching metadata: {e}")
+            raise
+
     def logout(self):
         try:
             response = RequestManager.post(

@@ -37,7 +37,7 @@ class Frame:
         i = 1
         while lines[i] != "":
             # get key, value from raw header
-            (key, value) = lines[i].split(":")
+            (key, value) = lines[i].split(":", 1)
             headers[key] = value
             i += 1
 

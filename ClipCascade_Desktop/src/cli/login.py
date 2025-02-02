@@ -61,10 +61,6 @@ class LoginForm:
             server_url.strip()
         )
 
-        self.config.data["websocket_url"] = Config.convert_to_websocket_url(
-            self.config.data["server_url"]
-        )
-
         self.config.data["cipher_enabled"] = LoginForm.str_to_bool(
             input(
                 f"enabled encryption(recommended) [{LoginForm.bool_to_str(self.config.data['cipher_enabled'])}]: "

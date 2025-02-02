@@ -26,6 +26,8 @@ class Config:
             "enable_image_sharing": True,
             "enable_file_sharing": True,
             "default_file_download_location": "",
+            "server_mode": "P2S",
+            "stun_url": "",
         }
 
     def save(self):
@@ -66,7 +68,7 @@ class Config:
         return False
 
     @staticmethod
-    def convert_to_websocket_url(input_url):
+    def convert_to_websocket_url(input_url: str, endpoint: str = None) -> str:
         if not input_url or not isinstance(input_url, str):
             raise ValueError("Invalid URL provided")
 
@@ -81,8 +83,9 @@ class Config:
         else:
             raise ValueError(f"Unsupported protocol in URL: {input_url}")
 
-        # Append the WebSocket endpoint and remove any trailing slash
-        ws_url += WEBSOCKET_ENDPOINT
-        ws_url = re.sub(r"/+$", "", ws_url)
+        if endpoint is not None:
+            # Append the WebSocket endpoint and remove any trailing slash
+            ws_url += endpoint
+            ws_url = re.sub(r"/+$", "", ws_url)
 
         return ws_url

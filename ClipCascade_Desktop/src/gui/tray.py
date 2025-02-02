@@ -24,7 +24,8 @@ class TaskbarPanel:
         on_logoff_callback: callable = None,
         new_version_available: list = None,
         github_url: str = GITHUB_URL,
-        stomp_manager=None,
+        donation_url: str = None,
+        ws_interface=None,  # type= interfaces.ws_interface.WSInterface
         config: Config = None,
     ):
         self.on_connect_callback = on_connect_callback
@@ -32,8 +33,16 @@ class TaskbarPanel:
         self.on_logoff_callback = on_logoff_callback
         self.new_version_available = new_version_available
         self.github_url = github_url
-        self.stomp_manager = stomp_manager
+        self.donation_url = donation_url
+        self.ws_interface = ws_interface
         self.config = config
+
+        self.is_disconnecting = False
+        self.disconnecting_items = None
+        self.is_file_download_enabled = False
+        self.file_download_items = None
+        self.previous_stats: str = ""
+        self.previous_stats_items = None
 
         self.root = tk.Tk()
         self.root.withdraw()  # Hide the root window
@@ -47,6 +56,8 @@ class TaskbarPanel:
         )
 
         self.icon.title = "ClipCascade"
+
+        self.update_stats()  # Start the stats update thread
 
     def run(self):
         self.icon.run()
@@ -130,22 +141,28 @@ class TaskbarPanel:
             item("🗒️ Open Logs", self._open_logs),
             item("📂 Program Files", self._open_program_location),
             Menu.SEPARATOR,
+            item("🏠 Homepage", self._open_homepage),
+            item("❓ Help", self._open_help),
+            item("💟 Donate", self._open_donate),
             item("🌐 GitHub", self._open_github),
             Menu.SEPARATOR,
             item("🔒 Logoff and Quit", self._on_logoff),
             item("❌ Quit", self._on_quit),
         ]
 
-        # Add connect/disconnect option
+        # Add connect/disconnect option (top of the menu - 0 index)
         if not self.is_connected:
             menu_items.insert(0, item("🔗 Connect", self._on_connect, default=True))
         else:
-            if item_ is not None and "disconnecting" in item_[0].lower():
-                menu_items.insert(item_[1], item(item_[0], item_[2]))
+            if self.is_disconnecting and self.disconnecting_items is not None:
+                menu_items.insert(
+                    self.disconnecting_items[1],
+                    item(self.disconnecting_items[0], self.disconnecting_items[2]),
+                )
             else:
                 menu_items.insert(0, item("⛓️‍💥 Disconnect", self._on_disconnect))
 
-        # Add update option
+        # Add update option (before the last 3 items)
         if self.new_version_available is not None and self.new_version_available[0]:
             menu_items.insert(
                 len(menu_items) - 3,
@@ -155,14 +172,44 @@ class TaskbarPanel:
                 ),
             )
 
-        # Add files download option
-        if item_ is not None and "file" in item_[0].lower():
-            menu_items.insert(item_[1], item(item_[0], item_[2], default=True))
+        # Add files download option (top of the menu - 0 index)
+        if self.is_file_download_enabled and self.file_download_items is not None:
+            menu_items.insert(
+                self.file_download_items[1],
+                item(
+                    self.file_download_items[0],
+                    self.file_download_items[2],
+                    default=True,
+                ),
+            )
+
+        # Add stats option (top of the menu - 0 index)
+        if self.previous_stats_items is not None:
+            menu_items.insert(
+                self.previous_stats_items[1],
+                item(
+                    self.previous_stats_items[0],
+                    self.previous_stats_items[2],
+                    enabled=self.previous_stats_items[2] is not None,
+                ),
+            )
 
         return Menu(*menu_items)
 
     def update_menu(self, item_: tuple = None):
         self.icon.menu = self.create_menu(item_=item_)
+
+    def update_stats(self):
+        threading.Thread(target=self._update_stats_thread, daemon=True).start()
+
+    def _update_stats_thread(self):
+        while True:
+            current_stats = self.ws_interface.get_stats()
+            if current_stats is not None and self.previous_stats != current_stats:
+                self.previous_stats = current_stats
+                self.previous_stats_items = (current_stats, 0, None)
+                self.update_menu()
+            time.sleep(1)  # Sleep for 1 second
 
     @staticmethod
     def open_webbrowser(url):
@@ -189,7 +236,7 @@ class TaskbarPanel:
     def _on_disconnect(self, icon, item):
         if self.on_disconnect_callback:
             self.on_disconnect_callback()
-            if self.stomp_manager.is_auto_reconnecting:
+            if self.ws_interface is not None and self.ws_interface.is_auto_reconnecting:
                 threading.Thread(
                     target=self._wait_to_disconnect, args=(icon, item), daemon=True
                 ).start()
@@ -201,23 +248,38 @@ class TaskbarPanel:
         """
         Wait for the auto-reconnect timer to expire before disconnecting.
         """
-        timeout = math.ceil(self.stomp_manager.get_total_timeout() / 1000)
+        if self.ws_interface is None:
+            return
+
+        timeout = math.ceil(self.ws_interface.get_total_timeout() / 1000)
         while timeout > 0:
-            self.update_menu(
-                item_=(
-                    f"⏳ Disconnecting... ({timeout} sec)",
-                    0,
-                    None,
-                )  # text, location, callback
-            )
+            self.is_disconnecting = True
+            self.disconnecting_items = (
+                f"⏳ Disconnecting... ({timeout} sec)",
+                0,
+                None,
+            )  # text, location, callback
+            self.update_menu()
             time.sleep(1)  # seconds
             timeout -= 1
-        self.stomp_manager.is_auto_reconnecting = False
+        self.is_disconnecting = False
+        self.disconnecting_items = None
+        self.ws_interface.is_auto_reconnecting = False
         self.is_connected = False
         self.update_menu()
 
+    def _open_homepage(self, icon, item):
+        TaskbarPanel.open_webbrowser(self.config.data["server_url"])
+
     def _open_github(self, icon, item):
         TaskbarPanel.open_webbrowser(self.github_url)
+
+    def _open_help(self, icon, item):
+        TaskbarPanel.open_webbrowser(HELP_URL)
+
+    def _open_donate(self, icon, item):
+        if self.donation_url is not None:
+            TaskbarPanel.open_webbrowser(self.donation_url)
 
     def open_location(self, path):
         if PLATFORM == WINDOWS:
@@ -253,16 +315,18 @@ class TaskbarPanel:
             ).mainloop()
 
     def enable_files_download(self, files):
+        self.is_file_download_enabled = True
         self.icon.icon = self.create_clipboard_icon_with_dot()
-        self.update_menu(
-            item_=(
-                "📥 Download File(s)",
-                0,
-                lambda icon, item: self._on_download(icon, item, files),
-            )
+        self.file_download_items = (
+            "📥 Download File(s)",
+            0,
+            lambda icon, item: self._on_download(icon, item, files),
         )
+        self.update_menu()
 
     def disable_files_download(self):
+        self.is_file_download_enabled = False
+        self.file_download_items = None
         self.icon.icon = self.create_clipboard_icon()
         self.update_menu()
 
