@@ -3,6 +3,7 @@ import logging
 import time
 
 
+from interfaces.ws_interface import WSInterface
 from stomp_ws.client import Client
 from core.config import Config
 from utils.cipher_manager import CipherManager
@@ -17,19 +18,19 @@ else:
     from gui.tray import TaskbarPanel
 
 
-class STOMPManager:
+class STOMPManager(WSInterface):
     def __init__(self, config: Config, is_login_phase=True):
         self.config = config
         self.clipboard_manager = ClipboardManager(self.config)
         self.cipher_manager = CipherManager(self.config)
         self.notification_manager = NotificationManager(self.config)
+        self.sys_tray: TaskbarPanel = None
         self.first_conn_lost = True
         self.is_login_phase = is_login_phase
         self.client = None
         self.is_connected = False
         self.disconnected = False
         self.is_auto_reconnecting = False
-        self.sys_tray: TaskbarPanel = None
 
     def set_tray_ref(self, sys_tray: TaskbarPanel):
         """
@@ -41,7 +42,10 @@ class STOMPManager:
     def get_total_timeout(self):
         """
         Returns the total timeout value in milliseconds."""
-        return (RECONNECT_STOMP_TIMER * 1000) + WEBSOCKET_TIMEOUT
+        return (RECONNECT_WS_TIMER * 1000) + WEBSOCKET_TIMEOUT
+
+    def get_stats(self):
+        return None
 
     def connect(self) -> tuple[bool, str]:
         try:
@@ -55,7 +59,13 @@ class STOMPManager:
                     },
                     on_close_callback=self._on_close,
                 )
-                self.client.connect(timeout=WEBSOCKET_TIMEOUT)
+                self.client.connect(
+                    timeout=WEBSOCKET_TIMEOUT,
+                    connectCallback=lambda _: self.client.subscribe(  # receive event
+                        destination=SUBSCRIPTION_DESTINATION,
+                        callback=self._receive,
+                    ),
+                )
                 if self.disconnected:
                     self.disconnect()
                     return False, "Websocket disconnected"
@@ -69,11 +79,7 @@ class STOMPManager:
                         title=f"{APP_NAME}: WebSocket Connection Restored 🔗",
                         message="Connection re-established",
                     )
-                # receive event
-                self.client.subscribe(
-                    destination=SUBSCRIPTION_DESTINATION,
-                    callback=self._receive,
-                )
+
                 # send event
                 self.clipboard_manager.on_copy(self.send)
                 return True, "Websocket connected"
@@ -93,7 +99,7 @@ class STOMPManager:
                     message="Check your internet connection. Retrying...",
                 )
                 self.first_conn_lost = False
-            time.sleep(RECONNECT_STOMP_TIMER)  # seconds
+            time.sleep(RECONNECT_WS_TIMER)  # seconds
             self.connect()
 
     def send(self, payload: str, payload_type: str = "text"):

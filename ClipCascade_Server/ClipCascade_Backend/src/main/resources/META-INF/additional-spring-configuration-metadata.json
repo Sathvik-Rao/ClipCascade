@@ -1,0 +1,12 @@
+{"properties": [
+  {
+    "name": "app.p2p.enabled",
+    "type": "java.lang.Boolean",
+    "description": "Enables P2P functionality"
+  },
+  {
+    "name": "app.bfa.cache.enabled",
+    "type": "java.lang.Boolean",
+    "description": "Enables the Brute Force Protection Tracker cache"
+  }
+]}

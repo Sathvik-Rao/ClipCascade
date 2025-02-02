@@ -15,12 +15,13 @@ package com.acme.clipcascade;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
+@EnableScheduling
 public class ClipCascadeApplication {
 
 	public static void main(String[] args) {
 		SpringApplication.run(ClipCascadeApplication.class, args);
 	}
-
 }

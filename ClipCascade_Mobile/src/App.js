@@ -57,25 +57,36 @@ import StartForegroundService from './StartForegroundService'; // foreground ser
  */
 
 // App version
-const APP_VERSION = '2.0.1';
+const APP_VERSION = '3.0.0';
 
 // Main App
 export default function App() {
   const {NativeBridgeModule} = NativeModules;
 
   const [newVersionAvailable, setNewVersionAvailable] = useState([false, '']);
-
-  // Retry login attempts
-  const MAX_LOGIN_AUTO_RETRY = 3;
-
-  const FETCH_TIMEOUT = 5000; // 5 seconds
+  const [donateUrl, setDonateUrl] = useState(null);
 
   // Constants
+  const MAX_LOGIN_AUTO_RETRY = 3; // Retry login attempts
+  const FETCH_TIMEOUT = 5000; // 5 seconds
   const LOGIN_URL = '/login';
   const LOGOUT_URL = '/logout';
   const MAXSIZE_URL = '/max-size';
   const CSRF_URL = '/csrf-token';
+  const SERVER_MODE_URL = '/server-mode';
   const WEBSOCKET_ENDPOINT = '/clipsocket';
+  const VALIDATE_URL = '/validate-session';
+  const WEBSOCKET_ENDPOINT_P2P = '/p2psignaling';
+  const STUN_URL = '/stun-url';
+  const VERSION_URL =
+    'https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json';
+  const GITHUB_URL = 'https://github.com/Sathvik-Rao/ClipCascade';
+  const RELEASE_URL =
+    'https://github.com/Sathvik-Rao/ClipCascade/releases/latest';
+  const APP_NAME = 'ClipCascade';
+  const HELP_URL = `${GITHUB_URL}/blob/main/README.md`;
+  const METADATA_URL =
+    'https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/metadata.json';
 
   // Request permissions for notifications
   PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
@@ -104,16 +115,19 @@ export default function App() {
     save_password: 'false',
     max_clipboard_size_local_limit_bytes: '',
     relaunch_on_boot: 'false',
+    enable_websocket_status_notification: 'false',
     enable_periodic_checks: 'true',
     enable_image_sharing: 'true',
     enable_file_sharing: 'true',
+    server_mode: 'P2S',
+    stun_url: '',
   });
 
   /*
    * Virtual/Helper Async Storage Fields:
    *
-   * downloadFiles, filesAvailableToDownload, dirPath, wsStatusMessage, echo, wsIsRunning,
-   * enableWSButton, foreground_service_stopped_running, password
+   * downloadFiles, filesAvailableToDownload, dirPath, wsStatusMessage, p2pStatusMessage, echo, wsIsRunning,
+   * enableWSButton, foreground_service_stopped_running, password, wsForegroundServiceTerminated
    */
 
   // get data from async storage
@@ -239,6 +253,7 @@ export default function App() {
           setEnableLoadingPage(false);
           setEnableWSPage(true);
         } else {
+          await setDataInAsyncStorage('p2pStatusMessage', '');
           //validate session
           setLoadingPageMessage('Verifying Session...');
           validResult = await validateSession(data_s);
@@ -275,15 +290,26 @@ export default function App() {
 
         // check for new version
         try {
-          const response = await fetchTimeout(
-            'https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json',
-          );
+          const response = await fetchTimeout(VERSION_URL);
           if (!response.ok) {
             throw new Error('Network response was not ok');
           }
           const data = await response.json();
           if (data && data.android !== APP_VERSION) {
             setNewVersionAvailable([true, data.android]);
+          }
+        } catch (e) {
+          // Silent catch
+        }
+
+        try {
+          const response = await fetchTimeout(METADATA_URL);
+          if (!response.ok) {
+            throw new Error('Network response was not ok');
+          }
+          const data = await response.json();
+          if (data) {
+            setDonateUrl(data.funding);
           }
         } catch (e) {
           // Silent catch
@@ -310,6 +336,7 @@ export default function App() {
           const wsIsRunning_s = await getDataFromAsyncStorage('wsIsRunning');
           if (wsIsRunning_s !== null && wsIsRunning_s === 'false') {
             await setDataInAsyncStorage('wsStatusMessage', '');
+            await setDataInAsyncStorage('p2pStatusMessage', '');
           }
         } catch (error) {
           // Silent catch
@@ -320,7 +347,7 @@ export default function App() {
   }, []);
 
   // Function to convert a server URL to a WebSocket URL
-  const convertToWebSocketUrl = async inputUrl => {
+  const convertToWebSocketUrl = async (inputUrl, endpoint) => {
     if (!inputUrl || typeof inputUrl !== 'string') {
       throw new Error('Invalid URL provided');
     }
@@ -337,9 +364,10 @@ export default function App() {
       throw new Error(`Unsupported protocol in URL: ${inputUrl}`);
     }
 
-    wsUrl += WEBSOCKET_ENDPOINT;
-
-    wsUrl = wsUrl.replace(/\/+$/, '');
+    if (endpoint != null) {
+      wsUrl += endpoint;
+      wsUrl = wsUrl.replace(/\/+$/, '');
+    }
 
     return wsUrl;
   };
@@ -380,11 +408,11 @@ export default function App() {
   // Function to validate session
   const validateSession = async data_s => {
     try {
-      const response = await fetchTimeout(data_s.server_url + MAXSIZE_URL, {
-        method: 'HEAD',
+      const response = await fetchTimeout(data_s.server_url + VALIDATE_URL, {
+        method: 'GET',
       });
 
-      if (response.ok) {
+      if (response.ok && (await response.text()) === 'OK') {
         return [true, 'Cookie authentication is valid.'];
       } else {
         return [false, 'Cookie authentication is not valid.'];
@@ -466,26 +494,80 @@ export default function App() {
         loginResponse.ok &&
         !loginResponseText.toLowerCase().includes('bad credentials')
       ) {
-        //get CSRF token
+        // get CSRF token
         data_s.csrf_token = await getCSRFToken(data_s);
 
-        // Save max_size in async storage
-        const maxSizeResponse = await fetchTimeout(
-          data_s.server_url + MAXSIZE_URL,
+        // get server mode
+        const serverModeResponse = await fetchTimeout(
+          data_s.server_url + SERVER_MODE_URL,
           {
             method: 'GET',
           },
         );
-        if (!maxSizeResponse.ok) {
+        if (!serverModeResponse.ok) {
           return [
             false,
-            'Login Successful but unable to get max size \n Status: ' +
-              maxSizeResponse.status,
+            'Login Successful but unable to get server mode \n Status: ' +
+              serverModeResponse.status,
             data_s,
           ];
         }
-        maxSizeResponseText = await maxSizeResponse.text();
-        data_s.maxsize = String(JSON.parse(maxSizeResponseText).maxsize);
+        const serverModeResponseText = await serverModeResponse.text();
+        data_s.server_mode = String(JSON.parse(serverModeResponseText).mode);
+
+        if (data_s.server_mode === 'P2P') {
+          data_s.maxsize = '-1';
+
+          // get stun url
+          const stunUrlResponse = await fetchTimeout(
+            data_s.server_url + STUN_URL,
+            {
+              method: 'GET',
+            },
+          );
+          if (!stunUrlResponse.ok) {
+            return [
+              false,
+              'Login Successful but unable to get stun url \n Status: ' +
+                stunUrlResponse.status,
+              data_s,
+            ];
+          }
+          const stunUrlResponseText = await stunUrlResponse.text();
+          data_s.stun_url = String(JSON.parse(stunUrlResponseText).url);
+
+          // convert server_url to websocket url
+          data_s.websocket_url = await convertToWebSocketUrl(
+            data_s.server_url,
+            WEBSOCKET_ENDPOINT_P2P,
+          );
+        } else if (data_s.server_mode === 'P2S') {
+          data_s.stun_url = '';
+
+          // get max size
+          const maxSizeResponse = await fetchTimeout(
+            data_s.server_url + MAXSIZE_URL,
+            {
+              method: 'GET',
+            },
+          );
+          if (!maxSizeResponse.ok) {
+            return [
+              false,
+              'Login Successful but unable to get max size \n Status: ' +
+                maxSizeResponse.status,
+              data_s,
+            ];
+          }
+          const maxSizeResponseText = await maxSizeResponse.text();
+          data_s.maxsize = String(JSON.parse(maxSizeResponseText).maxsize);
+
+          // convert server_url to websocket url
+          data_s.websocket_url = await convertToWebSocketUrl(
+            data_s.server_url,
+            WEBSOCKET_ENDPOINT,
+          );
+        }
 
         // Hash the password for encryption
         if (data_s.cipher_enabled === 'true') {
@@ -572,14 +654,21 @@ export default function App() {
     }
   };
 
-  const startInterval = () => {
+  const startInterval = async () => {
     try {
       return setInterval(async () => {
         if ((await getDataFromAsyncStorage('wsIsRunning')) === 'true') {
           // Websocket status message
-          const msg = await getDataFromAsyncStorage('wsStatusMessage');
-          if (msg !== null && msg !== '') {
-            setWsPageMessage(msg);
+          const msg1 = await getDataFromAsyncStorage('wsStatusMessage');
+          if (msg1 !== null && msg1 !== '') {
+            setWsPageMessage(msg1);
+          }
+
+          if ((await getDataFromAsyncStorage('server_mode')) === 'P2P') {
+            const msg2 = await getDataFromAsyncStorage('p2pStatusMessage');
+            if (msg2 !== null) {
+              setWsPageP2PMessage(msg2);
+            }
           }
 
           // Files available to download
@@ -604,19 +693,29 @@ export default function App() {
       if ((await getDataFromAsyncStorage('enableWSButton')) === 'true') {
         await setDataInAsyncStorage('enableWSButton', 'false');
         setWsPageMessage('');
+        setWsPageP2PMessage('');
         await clearFiles();
         wsIsRunning_s = wsIsRunning === 'true' ? 'false' : 'true'; // toggle
+        await setDataInAsyncStorage('wsForegroundServiceTerminated', 'false');
         await setDataInAsyncStorage('wsIsRunning', wsIsRunning_s);
         if (wsIsRunning_s === 'true') {
           //start foreground service
           await setDataInAsyncStorage('wsStatusMessage', '');
+          await setDataInAsyncStorage('p2pStatusMessage', '');
           setWsPageMessage('🚀 Starting foreground service...');
           await onDisplayNotification();
         } else {
           // wait for 1 sec so that foreground service can be terminated
           setWsPageMessage('⌛ Stopping foreground service...');
-          await new Promise(resolve => setTimeout(resolve, 1500));
+          while (
+            (await getDataFromAsyncStorage('wsForegroundServiceTerminated')) ===
+            'false'
+          ) {
+            await new Promise(resolve => setTimeout(resolve, 100)); //100 ms
+          }
+          await notifee.cancelAllNotifications();
           setWsPageMessage('');
+          setWsPageP2PMessage('');
         }
         await NativeBridgeModule.clearImageCache();
 
@@ -648,9 +747,6 @@ export default function App() {
 
   // password
   const [password, setPassword] = useState('');
-
-  // github image loading error handler
-  const [imageGitHubError, setImageGitHubError] = useState(false);
 
   // Function to handle input changes in the login form
   const handleInputChange = (field, value) => {
@@ -691,9 +787,6 @@ export default function App() {
       // remove trailing slashes in server_url
       data_s.server_url = data_s.server_url.replace(/\/+$/, '');
 
-      // convert server_url to websocket url
-      data_s.websocket_url = await convertToWebSocketUrl(data_s.server_url);
-
       let iteration = 0;
       let loginResult;
       do {
@@ -731,6 +824,7 @@ export default function App() {
         setEnableLoginPage(false);
         setEnableWSPage(true);
         setWsPageMessage('');
+        setWsPageP2PMessage('');
       }
     } catch (e) {
       setLoginStatusMessage('❌ Error: ' + e);
@@ -746,6 +840,9 @@ export default function App() {
 
   // State to manage websocket page message
   const [wsPageMessage, setWsPageMessage] = useState('');
+
+  // State to manage websocket page p2p message
+  const [wsPageP2PMessage, setWsPageP2PMessage] = useState('');
 
   // files download button
   const [enableFilesDownloadButton, setEnableFilesDownloadButton] =
@@ -775,7 +872,7 @@ export default function App() {
     return (
       <>
         <View style={styles.loadingContainer}>
-          <Text style={styles.appTitle}>ClipCascade</Text>
+          <Text style={styles.appTitle}>{APP_NAME}</Text>
           <View style={styles.loadingBottomContainer}>
             <Text style={styles.loadingText}>Init Error: {initError[1]}</Text>
           </View>
@@ -788,7 +885,7 @@ export default function App() {
       {/* Loading Page */}
       {enableLoadingPage && (
         <View style={styles.loadingContainer}>
-          <Text style={styles.appTitle}>ClipCascade</Text>
+          <Text style={styles.appTitle}>{APP_NAME}</Text>
           <View style={styles.loadingBottomContainer}>
             <Text style={styles.loadingText}>{loadingPageMessage}</Text>
             <ActivityIndicator size="large" />
@@ -798,7 +895,7 @@ export default function App() {
       {/* Login Page */}
       {enableLoginPage && (
         <ScrollView contentContainerStyle={styles.container}>
-          <Text style={styles.appTitle}>ClipCascade</Text>
+          <Text style={styles.appTitle}>{APP_NAME}</Text>
           <View style={styles.row}>
             <Text style={styles.label}>Username:</Text>
             <TextInput
@@ -928,6 +1025,24 @@ export default function App() {
                 />
               </View>
               <View style={styles.row}>
+                <Text style={styles.label}>
+                  Enable WebSocket Status Notification:
+                </Text>
+                <CheckBox
+                  value={
+                    data.enable_websocket_status_notification === 'true'
+                      ? true
+                      : false
+                  }
+                  onValueChange={newValue =>
+                    handleInputChange(
+                      'enable_websocket_status_notification',
+                      String(newValue),
+                    )
+                  }
+                />
+              </View>
+              <View style={styles.row}>
                 <Text style={styles.label}>Enable Periodic Checks:</Text>
                 <CheckBox
                   value={data.enable_periodic_checks === 'true' ? true : false}
@@ -959,32 +1074,33 @@ export default function App() {
               </View>
             </>
           )}
-          {/* GitHub Icon */}
-          <TouchableOpacity
-            style={styles.githubIconContainer}
-            onPress={() =>
-              Linking.openURL('https://github.com/Sathvik-Rao/ClipCascade')
-            }>
-            {!imageGitHubError ? (
-              <Image
-                source={{
-                  uri: 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png',
-                }}
-                style={styles.githubIcon}
-                onError={() => setImageGitHubError(true)}
-                accessibilityLabel="GitHub"
-              />
-            ) : (
-              <Text style={styles.githubText}>GitHub</Text>
+          {/* Footer */}
+          <View style={styles.footerContainer}>
+            <TouchableOpacity
+              style={styles.spacing}
+              onPress={() => Linking.openURL(GITHUB_URL)}>
+              <Text style={styles.footerText}>GITHUB</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.spacing}
+              onPress={() => Linking.openURL(HELP_URL)}>
+              <Text style={styles.footerText}>HELP</Text>
+            </TouchableOpacity>
+            {donateUrl && (
+              <TouchableOpacity
+                style={styles.spacing}
+                onPress={() => Linking.openURL(donateUrl)}>
+                <Text style={styles.footerText}>DONATE</Text>
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+          </View>
         </ScrollView>
       )}
 
       {/* websocket page */}
       {enableWSPage && (
         <ScrollView contentContainerStyle={styles.container}>
-          <Text style={styles.appTitle}>ClipCascade</Text>
+          <Text style={styles.appTitle}>{APP_NAME}</Text>
           <View style={styles.container}>
             <TouchableOpacity
               style={[
@@ -1001,9 +1117,13 @@ export default function App() {
               onPress={logout}>
               <Text style={styles.loginButtonText}>Logout</Text>
             </TouchableOpacity>
-            {/* Display status message */}
+            {/* Display websocket status message */}
             {wsPageMessage !== '' && (
               <Text style={styles.message}>{wsPageMessage}</Text>
+            )}
+            {/* Display p2p status message */}
+            {wsPageP2PMessage !== '' && (
+              <Text style={styles.message}>{wsPageP2PMessage}</Text>
             )}
             {/* File download button */}
             {enableFilesDownloadButton &&
@@ -1019,11 +1139,7 @@ export default function App() {
             {/* new version display message */}
             {newVersionAvailable[0] && (
               <TouchableOpacity
-                onPress={() =>
-                  Linking.openURL(
-                    'https://github.com/Sathvik-Rao/ClipCascade/releases/latest',
-                  )
-                }
+                onPress={() => Linking.openURL(RELEASE_URL)}
                 style={{marginTop: 10}}>
                 <Text
                   style={[
@@ -1168,25 +1284,31 @@ export default function App() {
               </View>
             </View>
           </View>
-          {/* GitHub Icon */}
-          <TouchableOpacity
-            style={styles.githubIconContainer}
-            onPress={() =>
-              Linking.openURL('https://github.com/Sathvik-Rao/ClipCascade')
-            }>
-            {!imageGitHubError ? (
-              <Image
-                source={{
-                  uri: 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png',
-                }}
-                style={styles.githubIcon}
-                onError={() => setImageGitHubError(true)}
-                accessibilityLabel="GitHub"
-              />
-            ) : (
-              <Text style={styles.githubText}>GitHub</Text>
+          {/* Footer */}
+          <View style={styles.footerContainer}>
+            <TouchableOpacity
+              style={styles.spacing}
+              onPress={() => Linking.openURL(GITHUB_URL)}>
+              <Text style={styles.footerText}>GITHUB</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.spacing}
+              onPress={() => Linking.openURL(HELP_URL)}>
+              <Text style={styles.footerText}>HELP</Text>
+            </TouchableOpacity>
+            {donateUrl && (
+              <TouchableOpacity
+                style={styles.spacing}
+                onPress={() => Linking.openURL(donateUrl)}>
+                <Text style={styles.footerText}>DONATE</Text>
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.spacing}
+              onPress={() => Linking.openURL(data.server_url)}>
+              <Text style={styles.footerText}>HOMEPAGE</Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       )}
     </>
@@ -1291,18 +1413,20 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginLeft: 15,
   },
-  githubIconContainer: {
+  footerContainer: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 20,
+    justifyContent: 'center',
+    marginTop: 50,
+    marginBottom: 10,
+    flexWrap: 'wrap',
   },
-  githubIcon: {
-    width: 30,
-    height: 30,
-  },
-  githubText: {
+  footerText: {
     fontSize: 16,
-    color: '#333',
+    color: '#5081ab',
     marginTop: 5,
-    textDecorationLine: 'underline',
+  },
+  spacing: {
+    marginHorizontal: 12,
   },
 });

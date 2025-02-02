@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  clipcascade:
+    image: sathvikrao/clipcascade:latest
+    container_name: clipcascade
+    depends_on:
+      - postgresdb
+    ports:
+      - 8080:8080
+    restart: always
+    volumes:
+      - ./logs:/logs
+    networks:
+      - internal_network
+    environment:
+      # CC_ALLOWED_ORIGINS: https://clipcascade.example.com
+      CC_P2P_ENABLED: true
+      CC_P2P_STUN_URL: stun:stun.l.google.com:19302
+      CC_SIGNUP_ENABLED: true
+      CC_MAX_USER_ACCOUNTS: -1
+      CC_ACCOUNT_PURGE_TIMEOUT_SECONDS: 63115200
+      CC_SESSION_TIMEOUT: 525960m
+      CC_PORT: 8080
+      CC_SERVER_LOGGING_LEVEL: INFO
+      CC_MAX_UNIQUE_IP_ATTEMPTS: 15
+      CC_MAX_ATTEMPTS_PER_IP: 30
+      CC_LOCK_TIMEOUT_SECONDS: 120
+      CC_LOCK_TIMEOUT_SCALING_FACTOR: 2
+      CC_BFA_CACHE_ENABLED: true # Disabling if running on low RAM
+      CC_BFA_TRACKER_CACHE_MAX_JVM_ENTRIES: 50
+      CC_BFA_TRACKER_CACHE_RAM_PERCENTAGE: 10
+      CC_BFA_TRACKER_CACHE_DISK_PERCENTAGE: 40
+      CC_SERVER_DB_URL: jdbc:postgresql://postgresdb:5432/clipcascade
+      CC_SERVER_DB_USERNAME: clipcascade # Should match PostgreSQL credentials 
+      CC_SERVER_DB_PASSWORD: NcKME70uZ4EDOOm # Should match PostgreSQL credentials 
+      CC_SERVER_DB_DRIVER: org.postgresql.Driver
+      CC_SERVER_DB_HIBERNATE_DIALECT: org.hibernate.dialect.PostgreSQLDialect
+      CC_SERVER_LOG_HISTORY_MAX_DAYS: 30
+      CC_SERVER_LOG_MAX_CAPACITY: 3GB
+      CC_LOG_BRUTE_FORCE_TRACKER_ENABLED: true
+
+  postgresdb:
+    image: postgres:latest
+    container_name: postgresdb
+    restart: always
+    environment:
+      POSTGRES_USER: clipcascade
+      POSTGRES_PASSWORD: NcKME70uZ4EDOOm
+      POSTGRES_DB: clipcascade
+    networks:
+      - internal_network
+    volumes:
+      - cc_users:/var/lib/postgresql/data
+
+volumes:
+  cc_users:
+
+
+networks:
+  internal_network:
+    driver: bridge

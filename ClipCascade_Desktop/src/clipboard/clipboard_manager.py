@@ -79,7 +79,11 @@ class ClipboardManager:
 
         # Check if the content size exceeds the server limit
         max_allowed_size = self.config.data["maxsize"]
-        if content_size_in_bytes > max_allowed_size:
+        if (
+            max_allowed_size is not None
+            and max_allowed_size >= 0
+            and content_size_in_bytes > max_allowed_size
+        ):
             logging.warning(
                 "Clipboard content size exceeds the maximum allowed limit. "
                 f"Allowed: {max_allowed_size} bytes, Found: {content_size_in_bytes} bytes."
@@ -90,7 +94,7 @@ class ClipboardManager:
         local_clipboard_size_limit = self.config.data[
             "max_clipboard_size_local_limit_bytes"
         ]
-        if local_clipboard_size_limit is not None:
+        if local_clipboard_size_limit is not None and local_clipboard_size_limit >= 0:
             if content_size_in_bytes > local_clipboard_size_limit:
                 logging.warning(
                     "Clipboard content size exceeds the local allowed limit. "

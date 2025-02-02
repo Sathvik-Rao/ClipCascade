@@ -13,21 +13,28 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
-import org.springframework.security.web.session.SessionInformationExpiredStrategy;
-
-import static org.springframework.security.config.Customizer.withDefaults;
+import com.acme.clipcascade.service.BruteForceProtectionService;
+import com.acme.clipcascade.service.FacadeUserService;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfiguration {
 
-	private final UserDetailsService userDetailsService;
-
+	private final UserDetailsService userDetailsService; // <- Spring Security UserDetailsService
 	private final BCryptPasswordEncoder bCryptPasswordEncoder;
+	private final BruteForceProtectionService bruteForceProtectionService;
+	private final FacadeUserService facadeUserService;
 
-	SecurityConfiguration(UserDetailsService userDetailsService, BCryptPasswordEncoder bCryptPasswordEncoder) {
+	SecurityConfiguration(
+			UserDetailsService userDetailsService,
+			BCryptPasswordEncoder bCryptPasswordEncoder,
+			BruteForceProtectionService bruteForceProtectionService,
+			FacadeUserService facadeUserService) {
+
 		this.userDetailsService = userDetailsService;
 		this.bCryptPasswordEncoder = bCryptPasswordEncoder;
+		this.bruteForceProtectionService = bruteForceProtectionService;
+		this.facadeUserService = facadeUserService;
 	}
 
 	// SessionRegistry bean to store session information
@@ -42,35 +49,36 @@ public class SecurityConfiguration {
 		return new HttpSessionEventPublisher();
 	}
 
-	// Custom expired session strategy
-	@Bean
-	public SessionInformationExpiredStrategy customExpiredSession() {
-		return new CustomExpiredSession();
-	}
-
 	@Bean
 	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
 		return http
 				.authorizeHttpRequests((authorize) -> authorize
-						.requestMatchers("/login").permitAll() // Allow login without authentication
-						.requestMatchers("/health").permitAll() // Allow health check without authentication
+						.requestMatchers(
+								"/login",
+								"/logout",
+								"/signup",
+								"/captcha",
+								"/help",
+								"/donate",
+								"/health",
+								"/images/**")
+						.permitAll() // <- Allow access to these URLs without authentication
 						.anyRequest().authenticated()) // All other requests require authentication
-				.httpBasic(withDefaults()) // RESTful API Basic Authentication
 				.formLogin(form -> form
 						.loginPage("/login") // <- custom login URL
-						.defaultSuccessUrl("/", true) // <- Where to go upon successful login
 						.failureUrl("/login?error") // <- Where to go if login fails
-						.permitAll() // <- Permit everyone to see the login page
-				)
+						.successHandler(
+								new CustomAuthenticationSuccessHandler(
+										bruteForceProtectionService,
+										facadeUserService))) // <- Custom authentication success handler
 				.logout(logout -> logout
 						.logoutUrl("/logout") // The URL to submit a logout request
-						.logoutSuccessUrl("/login?logout") // Where to go after successful logout
-						.permitAll()) // <- Permit everyone to see the logout page
+						.logoutSuccessUrl("/login?logout")) // Where to go after successful logout
 				.sessionManagement(session -> session
 						.sessionCreationPolicy(SessionCreationPolicy.ALWAYS) // Always create a new session
 						.maximumSessions(-1) // Allow unlimited sessions
 						.sessionRegistry(sessionRegistry()) // Use the session registry
-						.expiredSessionStrategy(customExpiredSession())) // Custom expired session strategy
+						.expiredSessionStrategy(new CustomExpiredSession())) // Custom expired session strategy
 				.build();
 	}
 

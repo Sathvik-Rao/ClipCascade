@@ -8,19 +8,32 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import com.acme.clipcascade.constants.RoleConstants;
+import com.acme.clipcascade.service.BruteForceProtectionService;
 
 public class UserPrincipal implements UserDetails {
 
     private Users user;
 
-    public UserPrincipal(Users user) {
+    private final BruteForceProtectionService bruteForceProtectionService;
+
+    public UserPrincipal(
+            Users user,
+            BruteForceProtectionService bruteForceProtectionService) {
+
         this.user = user;
+        this.bruteForceProtectionService = bruteForceProtectionService;
     }
 
     @Override
-    public Collection<? extends GrantedAuthority> getAuthorities() {
-        // Return a collection of roles
-        return Collections.singleton(new SimpleGrantedAuthority(user.getRole()));
+    public boolean isAccountNonLocked() {
+
+        // validate attempt using brute force protection
+        return bruteForceProtectionService.recordAndValidateAttempt(user.getUsername());
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return user.getEnabled();
     }
 
     @Override
@@ -34,8 +47,9 @@ public class UserPrincipal implements UserDetails {
     }
 
     @Override
-    public boolean isEnabled() {
-        return user.getEnabled();
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        // Return a collection of roles
+        return Collections.singleton(new SimpleGrantedAuthority(user.getRole()));
     }
 
     public boolean isAdmin() {

@@ -8,6 +8,7 @@ from core.config import Config
 from utils.request_manager import RequestManager
 from utils.cipher_manager import CipherManager
 from stomp_ws.stomp_manager import STOMPManager
+from p2p.p2p_manager import P2PManager
 
 if PLATFORM == WINDOWS:
     import ctypes
@@ -57,6 +58,7 @@ class Application:
 
             self.request_manager = RequestManager(self.config)
             self.stomp_manager = STOMPManager(self.config)
+            self.p2p_manager = P2PManager(self.config)
             self.cipher_manager = CipherManager(self.config)
         except Exception as e:
             CustomDialog(
@@ -121,9 +123,9 @@ class Application:
     def authenticate_and_connect(self):
         # Attempt to connect with existing cookie
         if self.config.data.get("cookie"):
-            stomp_conn_successful, msg_stomp = self.stomp_manager.connect()
-            if stomp_conn_successful:
-                self.stomp_manager.is_login_phase = False
+            ws_conn_successful, msg = self._get_ws_manager().connect()
+            if ws_conn_successful:
+                self._get_ws_manager().is_login_phase = False
                 return
 
         # enable login form
@@ -164,10 +166,22 @@ class Application:
             )
             if login_successful:
                 self.config.data["csrf_token"] = self.request_manager.get_csrf_token()
-                self.config.data["maxsize"] = self.request_manager.maxsize()
-                stomp_conn_successful, msg_stomp = self.stomp_manager.connect()
-                if stomp_conn_successful:
-                    self.stomp_manager.is_login_phase = False
+                self.config.data["server_mode"] = self.request_manager.get_server_mode()
+                if self.config.data["server_mode"] == "P2P":
+                    self.config.data["stun_url"] = self.request_manager.get_stun_url()
+                    self.config.data["maxsize"] = -1
+                    self.config.data["websocket_url"] = Config.convert_to_websocket_url(
+                        self.config.data["server_url"], WEBSOCKET_ENDPOINT_P2P
+                    )
+                else:
+                    self.config.data["stun_url"] = ""
+                    self.config.data["maxsize"] = self.request_manager.maxsize()
+                    self.config.data["websocket_url"] = Config.convert_to_websocket_url(
+                        self.config.data["server_url"], WEBSOCKET_ENDPOINT
+                    )
+                ws_conn_successful, msg = self._get_ws_manager().connect()
+                if ws_conn_successful:
+                    self._get_ws_manager().is_login_phase = False
                     if self.config.data["cipher_enabled"]:
                         self.config.data["hashed_password"] = (
                             self.cipher_manager.hash_password(raw_password)
@@ -184,7 +198,7 @@ class Application:
                 else:
                     CustomDialog(
                         "Login successful but websocket connection failed. \nPlease check websocket-url\n"
-                        + msg_stomp,
+                        + msg,
                         msg_type="error",
                     ).mainloop()
             else:
@@ -193,6 +207,12 @@ class Application:
             raw_password = None  # Clear the raw password
             if PLATFORM.startswith(LINUX) and not XMODE:
                 Echo("-" * 53)
+
+    def _get_ws_manager(self):
+        if self.config.data["server_mode"] == "P2P":
+            return self.p2p_manager
+        else:
+            return self.stomp_manager
 
     def get_version_update_status(self) -> list:
         """
@@ -221,9 +241,18 @@ class Application:
             logging.error(f"Error checking for new version: {e}")
         return [False, "", APP_VERSION, RELEASE_URL]
 
+    def get_donation_url(self) -> str:
+        try:
+            metadata = self.request_manager.get_metadata()
+            if metadata is not None:
+                return metadata.get("funding", None)
+        except Exception as e:
+            logging.error(f"Error fetching metadata: {e}")
+        return None
+
     def logoff_and_exit(self):
         try:
-            self.stomp_manager.disconnect()
+            self._get_ws_manager().disconnect()
             self.request_manager.logout()
             self.config.data["hashed_password"] = None
             self.config.data["cookie"] = None
@@ -251,17 +280,19 @@ class Application:
             self.authenticate_and_connect()
             self.config.save()
             update_available = self.get_version_update_status()
+            donation_url = self.get_donation_url()
 
             sys_tray = TaskbarPanel(
-                on_connect_callback=self.stomp_manager.manual_reconnect,
-                on_disconnect_callback=self.stomp_manager.disconnect,
+                on_connect_callback=self._get_ws_manager().manual_reconnect,
+                on_disconnect_callback=self._get_ws_manager().disconnect,
                 on_logoff_callback=self.logoff_and_exit,
                 new_version_available=update_available,
                 github_url=GITHUB_URL,
-                stomp_manager=self.stomp_manager,
+                donation_url=donation_url,
+                ws_interface=self._get_ws_manager(),
                 config=self.config,
             )
-            self.stomp_manager.set_tray_ref(sys_tray)
+            self._get_ws_manager().set_tray_ref(sys_tray)
             sys_tray.run()
         except Exception as e:
             msg = f"An unexpected error has occurred: {e}"
@@ -270,7 +301,7 @@ class Application:
                 msg + "\nCheck logs in project directory", msg_type="error"
             ).mainloop()
         finally:
-            self.stomp_manager.disconnect()
+            self._get_ws_manager().disconnect()
             if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
                 if self.lock_file is not None:
                     fcntl.flock(self.lock_file, fcntl.LOCK_UN)

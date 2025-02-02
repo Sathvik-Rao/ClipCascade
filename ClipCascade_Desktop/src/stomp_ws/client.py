@@ -141,7 +141,7 @@ class Client:
         headers = headers if headers is not None else {}
         headers["host"] = self.url
         headers["accept-version"] = VERSIONS
-        headers["heart-beat"] = "10000,10000"
+        headers["heart-beat"] = "0,20000"
 
         if login is not None:
             headers["login"] = login
@@ -157,7 +157,7 @@ class Client:
         if headers is None:
             headers = {}
 
-        self._transmit("DISCONNECT", headers)
+        # self._transmit("DISCONNECT", headers) # comment this
         self.ws.on_close = None
         self.ws.close()
         self._clean_up()

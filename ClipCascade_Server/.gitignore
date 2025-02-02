@@ -1,3 +1,5 @@
 .vscode/
 private/
 ClipCascade_Backend/database/
+ClipCascade_Backend/logs/
+*.jar

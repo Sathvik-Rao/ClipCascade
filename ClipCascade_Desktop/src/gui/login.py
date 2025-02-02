@@ -297,6 +297,9 @@ class LoginForm(tk.Tk):
         # Center the window on the screen
         self._center_window()
 
+        # on press enter key
+        self.bind("<Return>", lambda event: self.on_login())
+
         self.deiconify()  # Show the root window
 
     def _center_window(self):
@@ -397,9 +400,6 @@ class LoginForm(tk.Tk):
         self.config.data["password"] = self.password_entry.get()
         self.config.data["server_url"] = LoginForm.remove_trailing_slash(
             self.server_url_entry.get().strip()
-        )
-        self.config.data["websocket_url"] = Config.convert_to_websocket_url(
-            self.config.data["server_url"]
         )
         self.config.data["cipher_enabled"] = self.cipher_var.get()
         self.config.data["notification"] = self.notification_var.get()
