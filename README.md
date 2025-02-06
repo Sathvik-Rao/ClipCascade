@@ -2,6 +2,8 @@
 
 **ClipCascade** is a lightweight, open-source utility that automatically syncs your clipboard across multiple devices—no manual input required. It ensures seamless sharing with robust end-to-end encryption, providing a secure and reliable clipboard experience across workstations.
 
+🚀 **No Server? No Problem!** Instantly sync your clipboard using the **Live Community Server** at **[clipcascade.sathvik.dev](http://clipcascade.sathvik.dev/)**—**no setup needed**. Just create an account and start sharing your clipboard across devices in seconds!
+
 <div align="center">
 
 <table>
