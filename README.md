@@ -1189,7 +1189,7 @@ http://clipcascade.sample.com {
 Additionally, it might be helpful to mention that the server uses WebSockets (ws/wss) for live clipboard broadcasting. In most cases, no extra configuration is needed for WebSockets since they typically rely on an HTTP switching protocol. Most providers will support WebSocket connections out of the box, without requiring additional setup. Example: `ws://localhost:8080/clipsocket`, `ws://localhost:8080/p2psignaling`.
 
 
-##  SSO Proxy Bypass Rules
+## 🔓 SSO Proxy Bypass Rules
 
 When fronting ClipCascade with an SSO proxy (Auth0, Keycloak, etc.), you’ll need to exempt both the unauthenticated HTTP URLs _and_ the raw-WebSocket handshake endpoints. Add these rules to your proxy’s “bypass” or “whitelist” list:
 
