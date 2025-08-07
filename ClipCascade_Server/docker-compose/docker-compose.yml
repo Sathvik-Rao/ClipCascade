@@ -10,7 +10,7 @@ version: '3.8'
 
 services:
   clipcascade:
-    image: sathvikrao/clipcascade:0.6.0
+    image: sathvikrao/clipcascade:0.7.0
     # # 🚀 If you want to always use the latest version of ClipCascade Server, uncomment the line below and comment out the line above.
     # # Note: If using 'latest', make sure all client devices are updated regularly to maintain compatibility.
     # image: sathvikrao/clipcascade:latest
