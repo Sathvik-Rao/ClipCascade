@@ -1,8 +1,8 @@
 {
-  "android": "3.0.0",
+  "android": "3.1.0",
   "windows": "3.0.0",
   "linux_gui": "3.0.0",
   "linux_non_gui": "3.0.0",
   "macos": "3.0.0",
-  "server": "3.0.0"
+  "server": "3.1.0"
 }
