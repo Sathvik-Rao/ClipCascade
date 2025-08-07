@@ -61,7 +61,8 @@ public class SecurityConfiguration {
 								"/help",
 								"/donate",
 								"/health",
-								"/images/**")
+								"/ping",
+								"/assets/**")
 						.permitAll() // <- Allow access to these URLs without authentication
 						.anyRequest().authenticated()) // All other requests require authentication
 				.formLogin(form -> form

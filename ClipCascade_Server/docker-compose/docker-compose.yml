@@ -90,6 +90,16 @@ services:
       # # Default: 525960m  (1 year)
       # - CC_SESSION_TIMEOUT=525960m
 
+      # # ⚙️ Maximum number of global WebSocket connections allowed (default: -1 for unlimited).
+      # # Supported only in P2P mode.
+      # # Note: This value represents the total maximum connections across all users.
+      # - CC_MAX_WS_GLOBAL_CONNECTIONS=-1
+
+      # # ⚙️ Maximum number of WebSocket connections allowed per user (default: -1 for unlimited).
+      # # Supported only in P2P mode.
+      # # Note: This value represents the maximum connections allowed per individual user.
+      # - CC_MAX_WS_CONNECTIONS_PER_USER=-1
+
       # # ------------------------------------------------- # #
       # #    Brute Force Attack (BFA) Protection Settings   # #
       # # ------------------------------------------------- # #

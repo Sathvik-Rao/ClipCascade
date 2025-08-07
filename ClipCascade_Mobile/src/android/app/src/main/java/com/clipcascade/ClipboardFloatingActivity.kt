@@ -1,3 +1,4 @@
+// android\app\src\main\java\com\clipcascade\ClipboardFloatingActivity.kt
 package com.clipcascade
 
 import android.content.ClipboardManager
@@ -6,23 +7,15 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.ReactInstanceManager
 import com.facebook.react.bridge.ReactContext
-import android.view.ViewTreeObserver
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 
-/*
- * # Enable the READ_LOGS permission. 
- * adb -d shell pm grant com.clipcascade android.permission.READ_LOGS;
- * # Allow "Drawing over other apps", also accessible from Settings on the phone.
- * adb -d shell appops set com.clipcascade SYSTEM_ALERT_WINDOW allow;
- * # Kill the app, new permissions take effect on restart.
- * adb -d shell am force-stop com.clipcascade;
- */
 class ClipboardFloatingActivity : AppCompatActivity() {
 
     private lateinit var windowManager: WindowManager
@@ -30,6 +23,7 @@ class ClipboardFloatingActivity : AppCompatActivity() {
     private lateinit var clipboardManager: ClipboardManager
     private var reactContext: ReactContext? = null
     private var isViewAttached = false
+    private lateinit var globalLayoutListener: ViewTreeObserver.OnGlobalLayoutListener
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,8 +35,7 @@ class ClipboardFloatingActivity : AppCompatActivity() {
         createFloatingView()
         makeFloatingViewInFocus()
 
-        // Use ViewTreeObserver to listen for layout change
-        floatingView.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+        globalLayoutListener = object : ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
                 try {
                     floatingView.viewTreeObserver.removeOnGlobalLayoutListener(this)
@@ -54,13 +47,14 @@ class ClipboardFloatingActivity : AppCompatActivity() {
                     removeFloatingView()
                 }
             }
-        })
+        }
+
+        floatingView.viewTreeObserver.addOnGlobalLayoutListener(globalLayoutListener)
     }
 
     private fun createFloatingView() {
         val inflater = getSystemService(Context.LAYOUT_INFLATER_SERVICE) as LayoutInflater
         floatingView = inflater.inflate(R.layout.floating_view_layout, null)
-
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -71,7 +65,6 @@ class ClipboardFloatingActivity : AppCompatActivity() {
             x = 0
             y = 0
         }
-
         windowManager.addView(floatingView, params)
         isViewAttached = true
     }
@@ -140,7 +133,11 @@ class ClipboardFloatingActivity : AppCompatActivity() {
 
     private fun removeFloatingView() {
         if (isViewAttached) {
-            windowManager.removeView(floatingView)
+            try {
+                floatingView.viewTreeObserver.removeOnGlobalLayoutListener(globalLayoutListener)
+            } catch (_: Exception) {}
+
+            windowManager.removeViewImmediate(floatingView)
             isViewAttached = false
         }
         finish()
@@ -154,7 +151,9 @@ class ClipboardFloatingActivity : AppCompatActivity() {
     companion object {
         fun getIntent(context: Context): Intent {
             return Intent(context.applicationContext, ClipboardFloatingActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                        Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
             }
         }
     }

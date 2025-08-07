@@ -11,25 +11,28 @@ import {
   ActivityIndicator,
   NativeModules,
   Alert,
+  SafeAreaView,
+  StatusBar,
 } from 'react-native';
 
-import { useEffect, useState } from 'react'; // hooks
+import { useEffect, useState, useRef } from 'react';
 
-import CheckBox from '@react-native-community/checkbox'; // checkbox
+import CheckBox from '@react-native-community/checkbox';
 
-import notifee from '@notifee/react-native'; // notification, foreground service
-import { pbkdf2 } from '@react-native-module/pbkdf2'; // hashing
-import { Buffer } from 'buffer'; // handling streams of binary data
-import DocumentPicker from '@react-native-documents/picker'; // file picker
+import notifee from '@notifee/react-native';
+import { pbkdf2 } from '@react-native-module/pbkdf2';
+import { Buffer } from 'buffer';
+import { pickDirectory, isCancel } from '@react-native-documents/picker';
 import { sha3_512 } from 'js-sha3';
 import { DOMParser } from 'react-native-html-parser';
 
 import {
   setDataInAsyncStorage,
   getDataFromAsyncStorage,
+  getMultipleDataFromAsyncStorage,
   clearAsyncStorage,
-} from './AsyncStorageManagement'; // persistent storage
-import StartForegroundService from './StartForegroundService'; // foreground service
+} from './AsyncStorageManagement';
+import StartForegroundService from './StartForegroundService';
 
 /*
  * These files are part of the ClipCascade project.
@@ -62,6 +65,8 @@ const APP_VERSION = '3.1.0';
 // Main App
 export default function App() {
   const { NativeBridgeModule } = NativeModules;
+
+  const isMountedRef = useRef(true);
 
   const [newVersionAvailable, setNewVersionAvailable] = useState([false, '']);
   const [donateUrl, setDonateUrl] = useState(null);
@@ -196,16 +201,15 @@ export default function App() {
 
   const [initError, setInItError] = useState([false, '']);
   useEffect(() => {
-    let intervalId = null;
-
     // initialize
     const init = async () => {
       try {
         // enable websocket button
         await setDataInAsyncStorage('enableWSButton', 'true');
 
-        // start interval
-        intervalId = startInterval();
+        // start polling UI flags
+        isMountedRef.current = true;
+        pollUIFlags();
 
         // get data from async storage and initialize data hook
         let data_s = await getAsyncStorage();
@@ -328,9 +332,7 @@ export default function App() {
 
     // cleanup
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
+      isMountedRef.current = false;
       const clearWSStatusMessage = async () => {
         try {
           const wsIsRunning_s = await getDataFromAsyncStorage('wsIsRunning');
@@ -654,38 +656,47 @@ export default function App() {
     }
   };
 
-  const startInterval = async () => {
-    try {
-      return setInterval(async () => {
-        if ((await getDataFromAsyncStorage('wsIsRunning')) === 'true') {
-          // Websocket status message
-          const msg1 = await getDataFromAsyncStorage('wsStatusMessage');
-          if (msg1 !== null && msg1 !== '') {
-            setWsPageMessage(msg1);
-          }
+  function sleep(ms) {
+    return new Promise(res => setTimeout(res, ms));
+  }
 
-          if ((await getDataFromAsyncStorage('server_mode')) === 'P2P') {
-            const msg2 = await getDataFromAsyncStorage('p2pStatusMessage');
-            if (msg2 !== null) {
-              setWsPageP2PMessage(msg2);
-            }
-          }
+  async function pollUIFlags() {
+    const POLL_KEYS = [
+      'wsIsRunning',
+      'wsStatusMessage',
+      'server_mode',
+      'p2pStatusMessage',
+      'filesAvailableToDownload',
+    ];
 
-          // Files available to download
-          if (
-            (await getDataFromAsyncStorage('filesAvailableToDownload')) ===
-            'true'
-          ) {
-            setEnableFilesDownloadButton(true);
-          } else {
-            setEnableFilesDownloadButton(false);
+    while (isMountedRef.current) {
+      const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
+      const latest = JSON.parse(json);
+
+      if (latest.wsIsRunning === 'true') {
+        // Websocket status message
+        const msg1 = latest.wsStatusMessage;
+        if (msg1 !== null && msg1 !== '') {
+          setWsPageMessage(msg1);
+        }
+
+        if (latest.server_mode === 'P2P') {
+          const msg2 = latest.p2pStatusMessage;
+          if (msg2 !== null) {
+            setWsPageP2PMessage(msg2);
           }
         }
-      }, 300);
-    } catch (e) {
-      throw e;
+
+        // Files available to download
+        if (latest.filesAvailableToDownload === 'true') {
+          setEnableFilesDownloadButton(true);
+        } else {
+          setEnableFilesDownloadButton(false);
+        }
+      }
+      await sleep(300);
     }
-  };
+  }
 
   // Foreground service handler
   const foregroundService = async () => {
@@ -854,14 +865,14 @@ export default function App() {
       if (
         (await getDataFromAsyncStorage('filesAvailableToDownload')) === 'true'
       ) {
-        const res = await DocumentPicker.pickDirectory();
+        const res = await pickDirectory();
         await setDataInAsyncStorage('dirPath', res.uri);
         await setDataInAsyncStorage('downloadFiles', 'true');
       } else {
         setEnableFilesDownloadButton(false);
       }
     } catch (e) {
-      if (!DocumentPicker.isCancel(e)) {
+      if (!isCancel(e)) {
         Alert.alert('Error', 'Unknown error: ' + JSON.stringify(e));
       }
     }
@@ -870,18 +881,30 @@ export default function App() {
   // view
   if (initError[0]) {
     return (
-      <>
+      <SafeAreaView
+        style={{
+          flex: 1,
+          paddingTop: StatusBar.currentHeight,
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
         <View style={styles.loadingContainer}>
           <Text style={styles.appTitle}>{APP_NAME}</Text>
           <View style={styles.loadingBottomContainer}>
             <Text style={styles.loadingText}>Init Error: {initError[1]}</Text>
           </View>
         </View>
-      </>
+      </SafeAreaView>
     );
   }
   return (
-    <>
+    <SafeAreaView
+      style={{
+        flex: 1,
+        paddingTop: StatusBar.currentHeight,
+      }}
+    >
       {/* Loading Page */}
       {enableLoadingPage && (
         <View style={styles.loadingContainer}>
@@ -1350,7 +1373,7 @@ export default function App() {
           </View>
         </ScrollView>
       )}
-    </>
+    </SafeAreaView>
   );
 }
 

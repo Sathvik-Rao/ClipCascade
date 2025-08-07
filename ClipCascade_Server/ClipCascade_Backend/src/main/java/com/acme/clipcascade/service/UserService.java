@@ -57,7 +57,7 @@ public class UserService {
     }
 
     public List<Users> getUsers(String role) {
-        List<Users> users = userRepo.findByRole(role);
+        List<Users> users = userRepo.findByRoleOrderByUsernameAsc(role);
         users.forEach(user -> {
             user.setPassword(null);
         }); // Set password to null

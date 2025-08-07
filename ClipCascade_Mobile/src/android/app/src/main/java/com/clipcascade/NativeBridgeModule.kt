@@ -1,8 +1,10 @@
+// android\app\src\main\java\com\clipcascade\NativeBridgeModule.kt
 package com.clipcascade
 
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.Promise
 import androidx.work.WorkManager
 import android.webkit.CookieManager
@@ -25,6 +27,8 @@ import java.io.IOException
 
 
 class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+
+    private val asyncBridge = AsyncStorageBridge(reactContext)
 
     override fun getName(): String {
         return "NativeBridgeModule"
@@ -253,5 +257,25 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         }
 
         return candidate
+    }
+
+
+    /**
+     * JS calls this synchronously, passing a JS array of keys:
+     *    NativeBridgeModule.getFlagsSync(["foo","bar"])
+     * returns a JSON string: {"foo":"…","bar":null}
+     */
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun getFlagsSync(keys: ReadableArray): String {
+        val list = mutableListOf<String>()
+        for (i in 0 until keys.size()) {
+            keys.getString(i)?.let { list.add(it) }
+        }
+        return asyncBridge.getValuesForKeys(list)
+    }
+
+
+    override fun onCatalystInstanceDestroy() {
+        asyncBridge.disconnect()
     }
 }

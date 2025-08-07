@@ -38,6 +38,8 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
 
     private final ObjectMapper objectMapper;
     private final Logger logger;
+    private final long MAX_GLOBAL_CONNECTIONS;
+    private final long MAX_CONNECTIONS_PER_USER;
 
     private final Map<String, Map<String, WebSocketSession>> sessions = new ConcurrentHashMap<>();
     private final Map<String, Map<String, String>> sessionsUUID = new ConcurrentHashMap<>();
@@ -50,8 +52,10 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
     private final AtomicLong totalInboundMessages = new AtomicLong();
     private final AtomicLong totalOutboundMessages = new AtomicLong();
 
-    public P2PWebSocketHandler(ObjectMapper objectMapper) {
+    public P2PWebSocketHandler(ObjectMapper objectMapper, ClipCascadeProperties clipCascadeProperties) {
         this.objectMapper = objectMapper;
+        this.MAX_GLOBAL_CONNECTIONS = clipCascadeProperties.getMaxWsGlobalConnections();
+        this.MAX_CONNECTIONS_PER_USER = clipCascadeProperties.getMaxWsConnectionsPerUser();
         this.logger = (Logger) LoggerFactory.getLogger(P2PWebSocketHandler.class);
     }
 
@@ -60,9 +64,18 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
         incrementCounter(activeConnections);
         incrementCounter(totalConnections);
 
+        // Global connections check
+        if (MAX_GLOBAL_CONNECTIONS != -1 && getActiveConnections() > MAX_GLOBAL_CONNECTIONS) {
+            logger.warn("Global max WebSocket connections ({}) exceeded. Closing new session...",
+                    MAX_GLOBAL_CONNECTIONS);
+            session.close(CloseStatus.POLICY_VIOLATION);
+            return;
+        }
+
         Principal principal = session.getPrincipal();
         if (principal == null) {
-            session.close();
+            logger.warn("Principal is null. Closing new session...");
+            session.close(CloseStatus.POLICY_VIOLATION);
             return;
         }
 
@@ -73,6 +86,17 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
         ReentrantLock lock = getUserLock(username);
         lock.lock(); // acquire the lock for specific username
         try {
+            // Per-user connections check
+            Map<String, WebSocketSession> existingSessions = sessions.get(username);
+            if (MAX_CONNECTIONS_PER_USER != -1
+                    && existingSessions != null
+                    && existingSessions.size() >= MAX_CONNECTIONS_PER_USER) {
+                logger.warn("User {} exceeded max allowed connections ({}). Closing session...",
+                        username, MAX_CONNECTIONS_PER_USER);
+                session.close(CloseStatus.POLICY_VIOLATION);
+                return;
+            }
+
             lastHeartbeat.put(session.getId(), TimeUtility.getCurrentTimeInMilliseconds());
 
             sessions
@@ -314,6 +338,14 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
 
     }
 
+    public int getConnectionsForUser(String username) {
+        Map<String, WebSocketSession> userSessions = sessions.get(username);
+        if (userSessions == null) {
+            return 0;
+        }
+        return userSessions.size();
+    }
+
     /**
      * Acquire a ReentrantLock for a given username from the userLocks map.
      * If it doesn't exist, create it. This ensures the same username uses the same
@@ -353,12 +385,12 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
 
     @Override
     public String toString() {
-        return "WebSocketStats {" +
+        return "WebSocketStats {\n" +
                 " Active Connections=" + getActiveConnections() +
-                ", Total Connections=" + getTotalConnections() +
-                ", Total Inbound Messages=" + getTotalInboundMessages() +
-                ", Total Outbound Messages=" + getTotalOutboundMessages() +
-                " }";
+                ",\n Total Connections=" + getTotalConnections() +
+                ",\n Total Inbound Messages=" + getTotalInboundMessages() +
+                ",\n Total Outbound Messages=" + getTotalOutboundMessages() +
+                "\n }\n";
     }
 
 }

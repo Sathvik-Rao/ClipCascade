@@ -1,3 +1,4 @@
+// android\app\src\main\java\com\clipcascade\NativeBridgePackage.kt
 package com.clipcascade
 
 import com.facebook.react.ReactPackage

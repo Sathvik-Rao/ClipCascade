@@ -4,15 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ClipCascade - Advance</title>
-    <link rel="icon" type="image/png" href="/images/logo.png" />
+    <link rel="icon" type="image/png" href="/assets/images/logo.png" />
 
     <!-- Bootstrap CSS -->
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-      integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM"
-      crossorigin="anonymous"
-    />
+    <link rel="stylesheet" href="/assets/css/bootstrap@5.3.0.min.css" />
 
     <style>
       body {
@@ -69,21 +64,21 @@
           <table class="table table-bordered table-striped">
             <thead>
               <tr>
-                <th>username</th>
-                <th>markedForDeletion</th>
-                <th>firstSignup</th>
-                <th>lastLogin</th>
-                <th>firstSignupIp</th>
-                <th>lastLoginIp</th>
-                <th>failedLoginAttempts</th>
-                <th>lockoutTime</th>
-                <th>passwordChangedAt</th>
-                <th>email</th>
-                <th>otp</th>
-                <th>phone</th>
-                <th>firstName</th>
-                <th>lastName</th>
-                <th>notes</th>
+                <th>Username</th>
+                <th>Marked for Deletion</th>
+                <th style="min-width: 140px">First Signup</th>
+                <th style="min-width: 140px">Last Login ↓</th>
+                <th>Signup IP</th>
+                <th>Last Login IP</th>
+                <th>Failed Login Attempts</th>
+                <th>Lockout Time</th>
+                <th style="min-width: 140px">Password Changed At</th>
+                <th>Email</th>
+                <th>OTP</th>
+                <th>Phone</th>
+                <th>First Name</th>
+                <th>Last Name</th>
+                <th>Notes</th>
               </tr>
             </thead>
             <tbody id="user-details-tbody">
@@ -118,12 +113,12 @@
             <thead>
               <tr>
                 <th>Username</th>
-                <th>IP</th>
-                <th>Attempts (IP)</th>
-                <th>Lock Count (IP)</th>
-                <th>Lock Timeout (IP)</th>
-                <th>Unique IPs</th>
-                <th>User Lock Timeout</th>
+                <th>Source IP</th>
+                <th>Attempts from IP</th>
+                <th>IP Lock Count</th>
+                <th>IP Lock Expires</th>
+                <th>Unique IP Addresses</th>
+                <th>User Lock Expires</th>
               </tr>
             </thead>
             <tbody id="bfa-snapshot-tbody">
@@ -173,17 +168,13 @@
       <div class="section-container">
         <h2>Environment Variables</h2>
         <div>
-          <p th:text="${envVariables}"></p>
+          <p th:text="${envVariables}" style="white-space: pre-wrap"></p>
         </div>
       </div>
     </div>
 
     <!-- Bootstrap JS Bundle -->
-    <script
-      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
-      integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz"
-      crossorigin="anonymous"
-    ></script>
+    <script src="/assets/js/bootstrap.bundle.min.js"></script>
 
     <script>
       /**
@@ -225,29 +216,60 @@
       }
 
       /**
+       * Format an epoch time in seconds to a human-readable, locale-specific
+       * string in the format "YYYY MMM DD HH:MM:SS AM/PM TZ".
+       *
+       * @param {number} epoch - The epoch time in seconds.
+       * @returns {string} - The formatted string, empty if the input is null or 0.
+       */
+      function formatEpochToLocal(epoch) {
+        if (epoch == null || epoch === 0) return "";
+        const date = new Date(epoch * 1000);
+        const year = date.getFullYear();
+        const month = date.toLocaleString(undefined, { month: "short" });
+        const day = String(date.getDate()).padStart(2, "0");
+        let hours = date.getHours();
+        const minutes = String(date.getMinutes()).padStart(2, "0");
+        const seconds = String(date.getSeconds()).padStart(2, "0");
+        const ampm = hours >= 12 ? "PM" : "AM";
+        hours = hours % 12 || 12;
+        const hour12 = String(hours).padStart(2, "0");
+        const tzMatch = date.toTimeString().match(/\(([A-Za-z\s]+)\)$/);
+        const tz = tzMatch
+          ? tzMatch[1]
+              .split(" ")
+              .map((w) => w[0])
+              .join("")
+          : "";
+        return `${year} ${month} ${day} ${hour12}:${minutes}:${seconds} ${ampm} ${tz}`;
+      }
+
+      /**
        * 1) Fetch and display user details.
        */
       async function getUserDetails() {
         try {
           const response = await fetchData(ENDPOINTS.USER_DETAILS);
           const data = await response.json();
+          const tbody = document.getElementById("user-details-tbody");
+          tbody.innerHTML = "";
 
-          const userDetailsTableBody =
-            document.getElementById("user-details-tbody");
-          userDetailsTableBody.innerHTML = "";
-
+          const dateKeys = ["firstSignup", "lastLogin", "passwordChangedAt"];
           data.forEach((user) => {
             const row = document.createElement("tr");
-            // For each of the known keys, create a table cell
             Object.keys(user).forEach((key) => {
               const cell = document.createElement("td");
-              cell.textContent = user[key];
+              let text = user[key];
+              if (dateKeys.includes(key)) {
+                text = formatEpochToLocal(user[key]);
+              }
+              cell.textContent = text ?? "";
               row.appendChild(cell);
             });
-            userDetailsTableBody.appendChild(row);
+            tbody.appendChild(row);
           });
-        } catch (error) {
-          console.error("Error fetching user details:", error);
+        } catch (err) {
+          console.error(err);
           alert("Error fetching user details.");
         }
       }
@@ -273,66 +295,58 @@
       async function getBfaTracker() {
         try {
           const response = await fetchData(ENDPOINTS.BFA_SNAPSHOT);
-          // trackerData is a Map<String, UserAccessTracker>
-          // where key = username, value = { ipAccessDetails, uniqueIpSet, lockTimeout }
           const trackerData = await response.json();
+          const tbody = document.getElementById("bfa-snapshot-tbody");
+          tbody.innerHTML = "";
 
-          const tableBody = document.getElementById("bfa-snapshot-tbody");
-          tableBody.innerHTML = ""; // Clear any existing rows
-
-          // Iterate over each user (username -> UserAccessTracker)
-          for (const [username, userAccessTracker] of Object.entries(
-            trackerData
-          )) {
-            // ipAccessDetails is a map: { ip -> IpAttemptDetails }
-            const ipDetails = userAccessTracker.ipAccessDetails || {};
-
-            // For each IP in ipAccessDetails, create one table row
-            for (const [ip, details] of Object.entries(ipDetails)) {
+          for (const [username, tracker] of Object.entries(trackerData)) {
+            for (const [ip, details] of Object.entries(
+              tracker.ipAccessDetails || {}
+            )) {
               const row = document.createElement("tr");
 
               // Username
-              const usernameCell = document.createElement("td");
-              usernameCell.textContent = username;
-              row.appendChild(usernameCell);
-
+              row.appendChild(
+                Object.assign(document.createElement("td"), {
+                  textContent: username,
+                })
+              );
               // IP
-              const ipCell = document.createElement("td");
-              ipCell.textContent = ip;
-              row.appendChild(ipCell);
+              row.appendChild(
+                Object.assign(document.createElement("td"), { textContent: ip })
+              );
+              // Attempts & lock count
+              row.appendChild(
+                Object.assign(document.createElement("td"), {
+                  textContent: details.attempts,
+                })
+              );
+              row.appendChild(
+                Object.assign(document.createElement("td"), {
+                  textContent: details.lockCount,
+                })
+              );
 
-              // Attempts (IP)
-              const attemptsCell = document.createElement("td");
-              attemptsCell.textContent = details.attempts;
-              row.appendChild(attemptsCell);
+              // Lock timeout (epoch → formatted)
+              const lockTd = document.createElement("td");
+              lockTd.textContent = formatEpochToLocal(details.lockTimeout);
+              row.appendChild(lockTd);
 
-              // Lock Count (IP)
-              const lockCountCell = document.createElement("td");
-              lockCountCell.textContent = details.lockCount;
-              row.appendChild(lockCountCell);
+              // Unique IPs & user lock timeout
+              row.appendChild(
+                Object.assign(document.createElement("td"), {
+                  textContent: (tracker.uniqueIpSet || []).length,
+                })
+              );
+              const userLockTd = document.createElement("td");
+              userLockTd.textContent = formatEpochToLocal(tracker.lockTimeout);
+              row.appendChild(userLockTd);
 
-              // Lock Timeout (IP)
-              const lockTimeoutIpCell = document.createElement("td");
-              lockTimeoutIpCell.textContent = details.lockTimeout;
-              row.appendChild(lockTimeoutIpCell);
-
-              // Unique IP Count
-              const uniqueIpCountCell = document.createElement("td");
-              uniqueIpCountCell.textContent = (
-                userAccessTracker.uniqueIpSet || []
-              ).length;
-              row.appendChild(uniqueIpCountCell);
-
-              // User's Lock Timeout
-              const userLockTimeoutCell = document.createElement("td");
-              userLockTimeoutCell.textContent = userAccessTracker.lockTimeout;
-              row.appendChild(userLockTimeoutCell);
-
-              tableBody.appendChild(row);
+              tbody.appendChild(row);
             }
           }
-        } catch (error) {
-          console.error("Error fetching BFA tracker data:", error);
+        } catch (err) {
+          console.error(err);
           alert("Error fetching BFA tracker data.");
         }
       }
@@ -413,6 +427,15 @@
           alert("Error fetching server time.");
         }
       }
+    </script>
+    <script>
+      // Once the DOM is ready, fetch all the admin data
+      document.addEventListener("DOMContentLoaded", () => {
+        getUserDetails();
+        getWebsocketStats();
+        getBfaTracker();
+        showServerTime();
+      });
     </script>
   </body>
 </html>

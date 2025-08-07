@@ -231,6 +231,11 @@ public class ClipCascadeController {
         return ResponseEntityUtil.executeWithResponse(() -> "OK");
     }
 
+    @GetMapping("/ping")
+    public ResponseEntity<?> ping() {
+        return ResponseEntityUtil.executeWithResponse(() -> "pong");
+    }
+
     @GetMapping("/donation-status")
     public ResponseEntity<?> getDonationStatus() {
         return ResponseEntityUtil.executeWithResponse(() -> {

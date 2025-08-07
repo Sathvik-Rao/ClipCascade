@@ -1,3 +1,4 @@
+// android\app\src\main\java\com\clipcascade\MainApplication.kt
 package com.clipcascade
 
 import android.app.Application

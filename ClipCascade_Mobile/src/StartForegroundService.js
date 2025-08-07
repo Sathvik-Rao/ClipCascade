@@ -5,32 +5,32 @@ import {
   Alert,
 } from 'react-native';
 
-import notifee, {AndroidImportance} from '@notifee/react-native'; // notification, foreground service
-import {Client} from '@stomp/stompjs'; // stomp over websocket
+import notifee, { AndroidImportance } from '@notifee/react-native';
+import { Client } from '@stomp/stompjs';
 import * as encoding from 'text-encoding'; //do not remove this (polyfills for TextEncoder/TextDecoder stompjs)
-import {xxHash32} from 'js-xxhash'; // hashing
-import AesGcmCrypto from 'react-native-aes-gcm-crypto'; // encryption/decryption
-import {Buffer} from 'buffer'; // handling streams of binary data
+import { xxHash32 } from 'js-xxhash';
+import AesGcmCrypto from 'react-native-aes-gcm-crypto';
+import { Buffer } from 'buffer';
 import {
   RTCPeerConnection,
   RTCIceCandidate,
   RTCSessionDescription,
-} from 'react-native-webrtc'; // webrtc
-
-/*
- * Replace 'react-native' with '@react-native-clipboard/clipboard' when using react 19 or
- * when react-native-clipboard is supporting higher verions.
- * https://reactnative.dev/docs/clipboard
- * https://github.com/react-native-clipboard/clipboard
- */
-import {Clipboard} from 'react-native'; // clipboard
+} from 'react-native-webrtc';
+import Clipboard from '@react-native-clipboard/clipboard';
 
 import {
   setDataInAsyncStorage,
   getDataFromAsyncStorage,
+  getMultipleDataFromAsyncStorage,
   clearAsyncStorage,
-} from './AsyncStorageManagement'; // persistent storage
-import {time} from 'console';
+} from './AsyncStorageManagement';
+
+function cleanupClipboardListeners() {
+  DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
+  DeviceEventEmitter.removeAllListeners('SHARED_IMAGE');
+  DeviceEventEmitter.removeAllListeners('SHARED_FILES');
+  DeviceEventEmitter.removeAllListeners('onClipboardChange');
+}
 
 module.exports = async (inputData = null) => {
   // Constants
@@ -44,7 +44,9 @@ module.exports = async (inputData = null) => {
   notifee.registerForegroundService(notification => {
     return new Promise(async () => {
       try {
-        const {NativeBridgeModule} = NativeModules;
+        const { NativeBridgeModule } = NativeModules;
+        const textEncoder = new TextEncoder();
+        const textDecoder = new TextDecoder();
 
         let previous_clipboard_content_hash = '';
         let toggle = false; // p2s toggle
@@ -63,22 +65,30 @@ module.exports = async (inputData = null) => {
         let isP2PStatusMsgChanged = false;
 
         // get data from async storage
-        const websocket_url = await getDataFromAsyncStorage('websocket_url');
-        const cipher_enabled = await getDataFromAsyncStorage('cipher_enabled');
-        const maxsize = Number(await getDataFromAsyncStorage('maxsize'));
-        const server_mode = await getDataFromAsyncStorage('server_mode');
-        const stun_url = await getDataFromAsyncStorage('stun_url');
-        const enable_image_sharing = await getDataFromAsyncStorage(
+        const {
+          websocket_url,
+          cipher_enabled,
+          maxsize: maxsizeStr,
+          server_mode,
+          stun_url,
+          enable_image_sharing,
+          enable_file_sharing,
+          enable_websocket_status_notification,
+          max_clipboard_size_local_limit_bytes: maxClipboardLimitStr,
+        } = await getMultipleDataFromAsyncStorage([
+          'websocket_url',
+          'cipher_enabled',
+          'maxsize',
+          'server_mode',
+          'stun_url',
           'enable_image_sharing',
-        );
-        const enable_file_sharing = await getDataFromAsyncStorage(
           'enable_file_sharing',
-        );
-        const enable_websocket_status_notification =
-          await getDataFromAsyncStorage('enable_websocket_status_notification');
-        let max_clipboard_size_local_limit_bytes = Number(
-          await getDataFromAsyncStorage('max_clipboard_size_local_limit_bytes'),
-        );
+          'enable_websocket_status_notification',
+          'max_clipboard_size_local_limit_bytes',
+        ]);
+
+        const maxsize = Number(maxsizeStr);
+        let max_clipboard_size_local_limit_bytes = Number(maxClipboardLimitStr);
         if (max_clipboard_size_local_limit_bytes === 0) {
           max_clipboard_size_local_limit_bytes = maxsize;
         }
@@ -136,11 +146,11 @@ module.exports = async (inputData = null) => {
 
         // fragment string into chunks
         const fragmentString = async (str, fragmentSize) => {
-          const bytes = new TextEncoder().encode(str); // convert to UTF-8 bytes
+          const bytes = textEncoder.encode(str); // convert to UTF-8 bytes
           const fragments = [];
           for (let i = 0; i < bytes.length; i += fragmentSize) {
             const chunk = bytes.slice(i, i + fragmentSize);
-            fragments.push(new TextDecoder().decode(chunk));
+            fragments.push(textDecoder.decode(chunk));
           }
           return fragments;
         };
@@ -294,7 +304,7 @@ module.exports = async (inputData = null) => {
         });
 
         //clipboard monitor
-        const {ClipboardListener} = NativeModules;
+        const { ClipboardListener } = NativeModules;
         const clipboardListener = new NativeEventEmitter(ClipboardListener);
         // start clipboard listening
         ClipboardListener.startListening();
@@ -473,9 +483,10 @@ module.exports = async (inputData = null) => {
             },
             onWebSocketClose: async event => {
               block_image_once = false;
+              const reason = evt?.reason || 'closed by client';
               await setDataInAsyncStorage(
                 'wsStatusMessage',
-                '⚠️ WebSocket Close: ' + event.reason,
+                `⚠️ WebSocket Close: ${reason}`,
               );
               if (
                 enable_websocket_status_notification === 'true' &&
@@ -585,7 +596,7 @@ module.exports = async (inputData = null) => {
               stompClient.onDisconnect = null;
               stompClient.onStompError = null;
               stompClient.onWebSocketError = null;
-              stompClient.onWebSocketClose = null;
+              stompClient.onWebSocketClose = () => {};
 
               // Deactivate the stomp connection
               try {
@@ -597,6 +608,7 @@ module.exports = async (inputData = null) => {
             stompClient = null;
 
             await setDataInAsyncStorage('wsStatusMessage', '✅ Disconnected');
+            cleanupClipboardListeners();
             await notifee.stopForegroundService();
           };
         } else if (server_mode === 'P2P') {
@@ -789,9 +801,8 @@ module.exports = async (inputData = null) => {
                     await resetSendingFragmentId();
                     await resetReceivingFragments();
 
-                    const rawPayloadSizeInBytes = new TextEncoder().encode(
-                      clipContent,
-                    ).length;
+                    const rawPayloadSizeInBytes =
+                      textEncoder.encode(clipContent).length;
 
                     if (cipher_enabled === 'true') {
                       //ecrypt
@@ -892,6 +903,7 @@ module.exports = async (inputData = null) => {
             // 4) Finally, stop the foreground service
             await setDataInAsyncStorage('wsStatusMessage', '✅ Disconnected');
             await setDataInAsyncStorage('p2pStatusMessage', '');
+            cleanupClipboardListeners();
             await notifee.stopForegroundService();
           };
 
@@ -1266,79 +1278,94 @@ module.exports = async (inputData = null) => {
             await stopServicesP2P();
           }
 
-          DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
-          DeviceEventEmitter.removeAllListeners('SHARED_IMAGE');
-          DeviceEventEmitter.removeAllListeners('SHARED_FILES');
+          cleanupClipboardListeners();
         };
 
-        const intervalId = setInterval(async () => {
-          // check if wsIsRunning is true or else terminate the service
-          if ((await getDataFromAsyncStorage('wsIsRunning')) !== 'true') {
-            await stopServices();
-            clearInterval(intervalId);
-            await setDataInAsyncStorage(
-              'wsForegroundServiceTerminated',
-              'true',
-            );
-            return;
-          }
+        function sleep(ms) {
+          return new Promise(res => setTimeout(res, ms));
+        }
 
-          if (isP2PStatusMsgChanged) {
-            isP2PStatusMsgChanged = false;
-            await setDataInAsyncStorage(
-              'p2pStatusMessage',
-              await getP2PStatusMessage(),
-            );
-          }
+        async function pollFlagsLoop() {
+          const POLL_KEYS = [
+            'wsIsRunning',
+            'echo',
+            'downloadFiles',
+            'filesAvailableToDownload',
+          ];
 
-          // check if ping initiated
-          const echo = await getDataFromAsyncStorage('echo');
-          if (echo && echo === 'ping') {
-            await setDataInAsyncStorage('echo', 'pong');
-          }
+          while (true) {
+            const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
+            const latest = JSON.parse(json);
 
-          // check if user wants to download files
-          if (
-            ((await getDataFromAsyncStorage('downloadFiles')) === 'true' &&
-              (await getDataFromAsyncStorage('filesAvailableToDownload'))) ===
-            'true'
-          ) {
-            try {
-              await setDataInAsyncStorage('downloadFiles', 'false');
-              const dirPath = await getDataFromAsyncStorage('dirPath');
+            // check if wsIsRunning is true or else terminate the service
+            if (latest.wsIsRunning !== 'true') {
+              await stopServices();
+              await setDataInAsyncStorage(
+                'wsForegroundServiceTerminated',
+                'true',
+              );
+              break;
+            }
 
-              // display progress notification
-              await notifee.displayNotification({
-                id: 'ClipCascade_Download_Files_Progress_Notification_Id',
-                title: 'Downloading File(s)...',
-                android: {
-                  channelId: 'ClipCascade_Progress',
-                  smallIcon: 'ic_small_icon',
-                  progress: {
-                    indeterminate: true,
-                  },
-                },
-              });
-
-              if (files_in_memory != null) {
-                // save files
-                await NativeBridgeModule.saveBase64Files(
-                  dirPath,
-                  files_in_memory,
-                );
-              }
-            } catch (e) {
-              // Alert is displayed only when the app is open because this is called from foreground service
-              Alert.alert('Error', 'Failed to download files: ' + e);
-            } finally {
-              await notifee.cancelNotification(
-                'ClipCascade_Download_Files_Progress_Notification_Id',
+            if (isP2PStatusMsgChanged) {
+              isP2PStatusMsgChanged = false;
+              await setDataInAsyncStorage(
+                'p2pStatusMessage',
+                await getP2PStatusMessage(),
               );
             }
+
+            // check if ping initiated
+            if (latest.echo === 'ping') {
+              await setDataInAsyncStorage('echo', 'pong');
+            }
+
+            // check if user wants to download files
+            if (
+              latest.downloadFiles === 'true' &&
+              latest.filesAvailableToDownload === 'true'
+            ) {
+              try {
+                await setDataInAsyncStorage('downloadFiles', 'false');
+                const dirPath = await getDataFromAsyncStorage('dirPath');
+
+                // display progress notification
+                await notifee.displayNotification({
+                  id: 'ClipCascade_Download_Files_Progress_Notification_Id',
+                  title: 'Downloading File(s)...',
+                  android: {
+                    channelId: 'ClipCascade_Progress',
+                    smallIcon: 'ic_small_icon',
+                    progress: {
+                      indeterminate: true,
+                    },
+                  },
+                });
+
+                if (files_in_memory != null) {
+                  // save files
+                  await NativeBridgeModule.saveBase64Files(
+                    dirPath,
+                    files_in_memory,
+                  );
+                }
+              } catch (e) {
+                // Alert is displayed only when the app is open because this is called from foreground service
+                Alert.alert('Error', 'Failed to download files: ' + e);
+              } finally {
+                await notifee.cancelNotification(
+                  'ClipCascade_Download_Files_Progress_Notification_Id',
+                );
+              }
+            }
+            await sleep(1000);
           }
-        }, 1000);
+        }
+
+        pollFlagsLoop();
       } catch (error) {
         await setDataInAsyncStorage('wsStatusMessage', '❌ Error:' + error);
+        cleanupClipboardListeners();
         await notifee.stopForegroundService();
       }
     });

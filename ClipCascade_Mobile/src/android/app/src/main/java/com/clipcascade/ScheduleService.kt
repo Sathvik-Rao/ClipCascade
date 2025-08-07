@@ -1,3 +1,4 @@
+// android\app\src\main\java\com\clipcascade\ScheduleService.kt
 package com.clipcascade
 
 import android.content.Context
@@ -43,10 +44,9 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
     override suspend fun doWork(): Result {
 
         // show notification if foreground service is not running
-        var bridgeData : AsyncStorageBridge? = null
         try {
             if(hasNotificationPermission(applicationContext)) {
-                bridgeData = AsyncStorageBridge(applicationContext)
+                val bridgeData = AsyncStorageBridge(applicationContext)
                 if(enableForegroundService(bridgeData)) {
                     if(!foregroundServiceIsActive(bridgeData)) {
                         showNotificationIfNotPresent()
@@ -60,8 +60,6 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
         } catch (e: Exception) {
             Log.e(TAG, "Error running worker", e)
             return Result.failure()
-        } finally {
-            bridgeData?.disconnect()
         }
     }
 
@@ -73,7 +71,7 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
     
     suspend fun foregroundServiceIsActive(bridgeData: AsyncStorageBridge) : Boolean {
         // check if foreground service is running
-        bridgeData.setValue("echo", "ping");
+        bridgeData.setValue("echo", "ping")
         repeat(35) { // 3500 ms
             delay(100) // Wait for 100 ms
             if (bridgeData.getValue("echo") == "pong") {

@@ -12,5 +12,7 @@ public interface UserRepo extends JpaRepository<Users, String> {
 
     List<Users> findByRole(String role);
 
+    List<Users> findByRoleOrderByUsernameAsc(String role);
+
     long countByRole(String role);
 }
