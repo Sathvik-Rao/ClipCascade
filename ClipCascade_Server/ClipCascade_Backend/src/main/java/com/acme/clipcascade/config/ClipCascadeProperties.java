@@ -253,6 +253,25 @@ public class ClipCascadeProperties {
     private String p2pStunUrl;
 
     /*
+     * Maximum number of global WebSocket connections allowed (default: -1 for
+     * unlimited).
+     * Supported only in P2P mode.
+     * Note: This value represents the total maximum connections across all users.
+     */
+    @Value("${CC_MAX_WS_GLOBAL_CONNECTIONS:-1}")
+    private long maxWsGlobalConnections;
+
+    /*
+     * Maximum number of WebSocket connections allowed per user (default: -1 for
+     * unlimited).
+     * Supported only in P2P mode.
+     * Note: This value represents the maximum connections allowed per individual
+     * user.
+     */
+    @Value("${CC_MAX_WS_CONNECTIONS_PER_USER:-1}")
+    private long maxWsConnectionsPerUser;
+
+    /*
      * Donations enabled (default: false)
      */
     @Value("${CC_DONATIONS_ENABLED:false}")
@@ -424,6 +443,14 @@ public class ClipCascadeProperties {
         return p2pStunUrl;
     }
 
+    public long getMaxWsGlobalConnections() {
+        return maxWsGlobalConnections;
+    }
+
+    public long getMaxWsConnectionsPerUser() {
+        return maxWsConnectionsPerUser;
+    }
+
     public boolean isDonationsEnabled() {
         return donationsEnabled;
     }
@@ -434,36 +461,38 @@ public class ClipCascadeProperties {
 
     @Override
     public String toString() {
-        return "{" +
+        return "{\n" +
                 " maxMessageSizeInMiB='" + getMaxMessageSizeInMiB() + "'" +
-                ", maxMessageSizeInBytes='" + getMaxMessageSizeInBytes() + "'" +
-                ", allowedOrigins='" + getAllowedOrigins() + "'" +
-                ", signupEnabled='" + isSignupEnabled() + "'" +
-                ", maxUniqueIpAttempts='" + getMaxUniqueIpAttempts() + "'" +
-                ", maxAttemptsPerIp='" + getMaxAttemptsPerIp() + "'" +
-                ", lockTimeoutSeconds='" + getLockTimeoutSeconds() + "'" +
-                ", lockTimeoutScalingFactor='" + getLockTimeoutScalingFactor() + "'" +
-                ", accountPurgeTimeoutSeconds='" + getAccountPurgeTimeoutSeconds() + "'" +
-                ", maxUserAccounts='" + getMaxUserAccounts() + "'" +
-                ", logBruteForceTrackerEnabled='" + isLogBruteForceTrackerEnabled() + "'" +
-                ", externalBrokerEnabled='" + isExternalBrokerEnabled() + "'" +
-                ", brokerHost='" + getBrokerHost() + "'" +
-                ", brokerPort='" + getBrokerPort() + "'" +
-                ", bfaCacheEnabled='" + isBfaCacheEnabled() + "'" +
-                ", bfaTrackerCacheMaxJvmEntries='" + getBfaTrackerCacheMaxJvmEntries() + "'" +
-                ", bfaTrackerCacheRamPercentage='" + getBfaTrackerCacheRamPercentage() + "'" +
-                ", bfaTrackerCacheDiskPercentage='" + getBfaTrackerCacheDiskPercentage() + "'" +
-                ", serverLoggingLevel='" + getServerLoggingLevel() + "'" +
-                ", serverLogHistoryMaxDays='" + getServerLogHistoryMaxDays() + "'" +
-                ", serverLogMaxCapacity='" + getServerLogMaxCapacity() + "'" +
-                ", serverDbUrl='" + getServerDbUrl() + "'" +
-                ", serverDbDriver='" + getServerDbDriver() + "'" +
-                ", serverDbHibernateDialect='" + getServerDbHibernateDialect() + "'" +
-                ", port='" + getPort() + "'" +
-                ", sessionTimeout='" + getSessionTimeout() + "'" +
-                ", p2pEnabled='" + isP2pEnabled() + "'" +
-                ", p2pStunUrl='" + getP2pStunUrl() + "'" +
-                "}";
+                ",\n maxMessageSizeInBytes='" + getMaxMessageSizeInBytes() + "'" +
+                ",\n allowedOrigins='" + getAllowedOrigins() + "'" +
+                ",\n signupEnabled='" + isSignupEnabled() + "'" +
+                ",\n maxUniqueIpAttempts='" + getMaxUniqueIpAttempts() + "'" +
+                ",\n maxAttemptsPerIp='" + getMaxAttemptsPerIp() + "'" +
+                ",\n lockTimeoutSeconds='" + getLockTimeoutSeconds() + "'" +
+                ",\n lockTimeoutScalingFactor='" + getLockTimeoutScalingFactor() + "'" +
+                ",\n accountPurgeTimeoutSeconds='" + getAccountPurgeTimeoutSeconds() + "'" +
+                ",\n maxUserAccounts='" + getMaxUserAccounts() + "'" +
+                ",\n logBruteForceTrackerEnabled='" + isLogBruteForceTrackerEnabled() + "'" +
+                ",\n externalBrokerEnabled='" + isExternalBrokerEnabled() + "'" +
+                ",\n brokerHost='" + getBrokerHost() + "'" +
+                ",\n brokerPort='" + getBrokerPort() + "'" +
+                ",\n bfaCacheEnabled='" + isBfaCacheEnabled() + "'" +
+                ",\n bfaTrackerCacheMaxJvmEntries='" + getBfaTrackerCacheMaxJvmEntries() + "'" +
+                ",\n bfaTrackerCacheRamPercentage='" + getBfaTrackerCacheRamPercentage() + "'" +
+                ",\n bfaTrackerCacheDiskPercentage='" + getBfaTrackerCacheDiskPercentage() + "'" +
+                ",\n serverLoggingLevel='" + getServerLoggingLevel() + "'" +
+                ",\n serverLogHistoryMaxDays='" + getServerLogHistoryMaxDays() + "'" +
+                ",\n serverLogMaxCapacity='" + getServerLogMaxCapacity() + "'" +
+                ",\n serverDbUrl='" + getServerDbUrl() + "'" +
+                ",\n serverDbDriver='" + getServerDbDriver() + "'" +
+                ",\n serverDbHibernateDialect='" + getServerDbHibernateDialect() + "'" +
+                ",\n port='" + getPort() + "'" +
+                ",\n sessionTimeout='" + getSessionTimeout() + "'" +
+                ",\n p2pEnabled='" + isP2pEnabled() + "'" +
+                ",\n p2pStunUrl='" + getP2pStunUrl() + "'" +
+                ",\n maxWsGlobalConnections='" + getMaxWsGlobalConnections() + "'" +
+                ",\n maxWsConnectionsPerUser='" + getMaxWsConnectionsPerUser() + "'" +
+                "\n}";
     }
 
 }

@@ -2,7 +2,7 @@ package com.acme.clipcascade.constants;
 
 public class ServerConstants {
     // App version
-    public static final String APP_VERSION = "3.0.0";
+    public static final String APP_VERSION = "3.1.0";
 
     // Version URL
     public static final String VERSION_URL = "https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json";

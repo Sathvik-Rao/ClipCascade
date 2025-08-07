@@ -1,23 +1,23 @@
+// android\app\src\main\java\com\clipcascade\ClipboardListenerModule.kt
 package com.clipcascade
 
 import android.content.ClipboardManager
 import android.content.Context
-import com.facebook.react.bridge.ReactApplicationContext
-import com.facebook.react.bridge.ReactContextBaseJavaModule
-import com.facebook.react.bridge.ReactMethod
-import com.facebook.react.modules.core.DeviceEventManagerModule
-import com.facebook.react.bridge.Arguments
-import com.facebook.react.bridge.WritableMap
-
 import android.os.Build
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.Arguments
+import com.facebook.react.bridge.WritableMap
+import com.facebook.react.modules.core.DeviceEventManagerModule
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.io.BufferedReader
-import java.io.InputStreamReader
 
 
 class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
@@ -30,7 +30,10 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
     private val debounceTime: Long = 0 // milliseconds (increase to debounce clipboard listener)
     private val activityDebounceTime: Long = 1000 // milliseconds (increase to debounce log cat monitoring)
 
-    private var stopLogcat = false // Control flag to stop the logcat thread
+    // logcat‐reader control
+    private var stopLogcat = false
+    private var logcatThread: Thread? = null
+    private var logcatProcess: Process? = null
     
 
     override fun getName(): String {
@@ -43,6 +46,7 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
             return
         }
 
+        // 1) Clipboard listener
         listener = ClipboardManager.OnPrimaryClipChangedListener {
             val clip = clipboardManager.primaryClip
             if (clip != null && clip.itemCount > 0) {
@@ -80,51 +84,71 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
         clipboardManager.addPrimaryClipChangedListener(listener)
         isListening = true
 
-        // logcat monitoring
+        // 2) Logcat monitoring
         if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P &&
-            ContextCompat.checkSelfPermission(reactApplicationContext, Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED) {
-            
-            // thread is running already
-            if(stopLogcat) {
-                stopLogcat = false
-                return
-            }
+            ContextCompat.checkSelfPermission(reactApplicationContext, Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
+        ) {
+            // If already stopping, reset flag
+            stopLogcat = false
 
-            Thread {
+            // Start a single dedicated thread
+            logcatThread = Thread {
                 try {
-                    val timeStamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date())
-                    val process = Runtime.getRuntime().exec(arrayOf("logcat", "-T", timeStamp, "ClipboardService:E", "*:S"))
-                    val bufferedReader = BufferedReader(InputStreamReader(process.inputStream))
+                    val timeStamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
+                        .format(Date())
+                    logcatProcess = Runtime.getRuntime().exec(
+                        arrayOf("logcat", "-T", timeStamp, "ClipboardService:E", "*:S")
+                    )
+                    val reader = BufferedReader(InputStreamReader(logcatProcess!!.inputStream))
                     var line: String? = null
-                    while (!stopLogcat && bufferedReader.readLine().also { line = it } != null && !stopLogcat) {
-                        if (line!!.contains(BuildConfig.APPLICATION_ID)) {
-                            val currentTime = System.currentTimeMillis()
-                            if (currentTime - lastActivityStartTime > activityDebounceTime) {
-                                lastActivityStartTime = currentTime 
-                                // start ClipboardFloatingActivity
-                                reactApplicationContext.startActivity(ClipboardFloatingActivity.getIntent(reactApplicationContext)) 
+                    reader.use { br ->
+                        while (!stopLogcat && br.readLine().also { line = it } != null) {
+                            if (line!!.contains(BuildConfig.APPLICATION_ID)) {
+                                val currentTime = System.currentTimeMillis()
+                                if (currentTime - lastActivityStartTime > activityDebounceTime) {
+                                    lastActivityStartTime = currentTime
+                                    // launch the floating activity
+                                    reactApplicationContext.startActivity(
+                                        ClipboardFloatingActivity.getIntent(reactApplicationContext)
+                                    )
+                                }
                             }
                         }
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 } finally {
+                    try {
+                        logcatProcess?.destroy()
+                    } catch (_: Exception) {}
                     stopLogcat = false
                 }
-            }.start()
+            }.apply {
+                isDaemon = true
+                start()
+            }
         }
     }
 
     @ReactMethod
     fun stopListening() {
+        // 1) Remove clipboard listener
         listener?.let {
             clipboardManager.removePrimaryClipChangedListener(it)
             listener = null
             isListening = false
-
-            // signal to stop logcat monitoring
-            stopLogcat = true
         }
+
+        // 2) Tear down logcat‐reader thread & process
+        stopLogcat = true
+        try {
+            logcatThread?.interrupt()
+        } catch (_: Exception) {}
+        try {
+            logcatProcess?.destroy()
+        } catch (_: Exception) {}
+        logcatThread = null
+        logcatProcess = null
     }
 
 

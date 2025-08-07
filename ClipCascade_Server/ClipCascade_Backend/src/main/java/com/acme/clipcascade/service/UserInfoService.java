@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
 
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import com.acme.clipcascade.model.UserInfo;
@@ -72,7 +73,7 @@ public class UserInfoService {
     }
 
     public List<UserInfo> getAllUserDetails() {
-        return userInfoRepo.findAll();
+        return userInfoRepo.findAll(Sort.by(Sort.Direction.DESC, "lastLogin"));
     }
 
     public UserInfo setLoginDetails(

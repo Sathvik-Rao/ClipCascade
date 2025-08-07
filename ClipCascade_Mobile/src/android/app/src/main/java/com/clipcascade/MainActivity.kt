@@ -1,3 +1,4 @@
+// android\app\src\main\java\com\clipcascade\MainActivity.kt
 package com.clipcascade
 
 import android.content.Intent
@@ -5,6 +6,8 @@ import android.os.Bundle
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.bridge.ReactContext
+import com.facebook.react.ReactInstanceManager
+import com.facebook.react.devsupport.interfaces.DevSupportManager
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.defaults.DefaultReactActivityDelegate
@@ -41,9 +44,8 @@ class MainActivity : ReactActivity() {
         super.onCreate(savedInstanceState)
         intent?.let { handleIntent(it) }
 
-        var bridgeData : AsyncStorageBridge? = null
         try{
-            bridgeData = AsyncStorageBridge(applicationContext)
+            val bridgeData = AsyncStorageBridge(applicationContext)
             val enablePeriodicChecks = bridgeData.getValue("enable_periodic_checks")?.toBoolean() ?: true
             if(enablePeriodicChecks) { 
                 scheduleJob()
@@ -55,8 +57,6 @@ class MainActivity : ReactActivity() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error scheduling job", e)
-        } finally {
-            bridgeData?.disconnect()
         }
     }
 
@@ -77,6 +77,15 @@ class MainActivity : ReactActivity() {
                     ExistingPeriodicWorkPolicy.REPLACE, 
                     periodicWorkRequest
                 )
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        val rm: ReactInstanceManager = reactNativeHost.reactInstanceManager
+        val dsm: DevSupportManager = rm.devSupportManager
+        if (dsm.devSupportEnabled) {
+          dsm.hideRedboxDialog()
         }
     }
 
@@ -132,15 +141,12 @@ class MainActivity : ReactActivity() {
         if ("com.clipcascade.NOTIFICATION_ACTION" == intent.action) {
             val action = intent.getStringExtra("action")
             if (action == "foreground_service_stopped_running") {
-                var bridgeData : AsyncStorageBridge? = null
                 try {
-                    bridgeData = AsyncStorageBridge(applicationContext)
-                    bridgeData.setValue("foreground_service_stopped_running", "true");
+                    AsyncStorageBridge(applicationContext)
+                        .setValue("foreground_service_stopped_running", "true")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error connecting/initializing values to AsyncStorageBridge", e)
-                } finally {
-                    bridgeData?.disconnect()
-                } 
+                }
             }
         }
     }

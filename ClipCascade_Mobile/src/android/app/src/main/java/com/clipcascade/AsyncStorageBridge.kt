@@ -1,3 +1,4 @@
+// android\app\src\main\java\com\clipcascade\AsyncStorageBridge.kt
 package com.clipcascade
 
 import android.content.Context
@@ -5,6 +6,8 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
+import org.json.JSONObject
+
 
 /* 
  * depends on: @react-native-async-storage/async-storage
@@ -12,12 +15,11 @@ import android.util.Log
  */ 
 import com.reactnativecommunity.asyncstorage.ReactDatabaseSupplier
 
-
 class AsyncStorageBridge(private val context: Context) {
     companion object {
-        private const val TABLE_CATALYST = "catalystLocalStorage";
-        private const val KEY_COLUMN = "key";
-        private const val VALUE_COLUMN = "value";
+        private const val TABLE_CATALYST = "catalystLocalStorage"
+        private const val KEY_COLUMN = "key"
+        private const val VALUE_COLUMN = "value"
         private const val TAG = "AsyncStorageBridge"
     }
 
@@ -34,6 +36,12 @@ class AsyncStorageBridge(private val context: Context) {
             db = ReactDatabaseSupplier.getInstance(context).get()
         } catch (e: Exception) {
             Log.e(TAG, "Error connecting to database", e)
+        }
+    }
+
+    private fun ensureConnection() {
+        if (db == null || !db!!.isOpen) {
+            connect()
         }
     }
 
@@ -57,6 +65,8 @@ class AsyncStorageBridge(private val context: Context) {
 
     // Method to get a value by key
     fun getValue(key: String): String? {
+        ensureConnection()
+
         var cursor: Cursor? = null
         try {
             cursor = db?.query(
@@ -83,9 +93,20 @@ class AsyncStorageBridge(private val context: Context) {
         }
     }
 
+    // Method to get values for multiple keys as a JSON object
+    fun getValuesForKeys(keys: List<String>): String {
+        ensureConnection()
+
+        val map: Map<String, String?> = keys.associateWith { getValue(it) }
+        return JSONObject(map).toString()
+    }
+
+
     // Method to set a key-value pair
     @Synchronized
     fun setValue(key: String, value: String): Boolean {
+        ensureConnection()
+
         try {
             val values = ContentValues().apply {
                 put(KEY_COLUMN, key)

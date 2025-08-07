@@ -39,6 +39,8 @@ services:
       CC_SERVER_LOG_HISTORY_MAX_DAYS: 30
       CC_SERVER_LOG_MAX_CAPACITY: 3GB
       CC_LOG_BRUTE_FORCE_TRACKER_ENABLED: true
+      CC_MAX_WS_CONNECTIONS_PER_USER: 10
+      CC_MAX_WS_GLOBAL_CONNECTIONS: -1
 
   postgresdb:
     image: postgres:latest

@@ -11,25 +11,28 @@ import {
   ActivityIndicator,
   NativeModules,
   Alert,
+  SafeAreaView,
+  StatusBar,
 } from 'react-native';
 
-import {useEffect, useState} from 'react'; // hooks
+import { useEffect, useState, useRef } from 'react';
 
-import CheckBox from '@react-native-community/checkbox'; // checkbox
+import CheckBox from '@react-native-community/checkbox';
 
-import notifee from '@notifee/react-native'; // notification, foreground service
-import {pbkdf2} from '@react-native-module/pbkdf2'; // hashing
-import {Buffer} from 'buffer'; // handling streams of binary data
-import DocumentPicker from 'react-native-document-picker'; // file picker
-import {sha3_512} from 'js-sha3';
-import {DOMParser} from 'react-native-html-parser';
+import notifee from '@notifee/react-native';
+import { pbkdf2 } from '@react-native-module/pbkdf2';
+import { Buffer } from 'buffer';
+import { pickDirectory, isCancel } from '@react-native-documents/picker';
+import { sha3_512 } from 'js-sha3';
+import { DOMParser } from 'react-native-html-parser';
 
 import {
   setDataInAsyncStorage,
   getDataFromAsyncStorage,
+  getMultipleDataFromAsyncStorage,
   clearAsyncStorage,
-} from './AsyncStorageManagement'; // persistent storage
-import StartForegroundService from './StartForegroundService'; // foreground service
+} from './AsyncStorageManagement';
+import StartForegroundService from './StartForegroundService';
 
 /*
  * These files are part of the ClipCascade project.
@@ -57,11 +60,13 @@ import StartForegroundService from './StartForegroundService'; // foreground ser
  */
 
 // App version
-const APP_VERSION = '3.0.0';
+const APP_VERSION = '3.1.0';
 
 // Main App
 export default function App() {
-  const {NativeBridgeModule} = NativeModules;
+  const { NativeBridgeModule } = NativeModules;
+
+  const isMountedRef = useRef(true);
 
   const [newVersionAvailable, setNewVersionAvailable] = useState([false, '']);
   const [donateUrl, setDonateUrl] = useState(null);
@@ -95,7 +100,7 @@ export default function App() {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout_ms);
-      return await fetch(input, {...init, signal: controller.signal});
+      return await fetch(input, { ...init, signal: controller.signal });
     } catch (e) {
       throw e;
     }
@@ -133,7 +138,7 @@ export default function App() {
   // get data from async storage
   const getAsyncStorage = async () => {
     try {
-      let data_s = {...data};
+      let data_s = { ...data };
       for (const key in data_s) {
         const value = await getDataFromAsyncStorage(key);
         //value === null means there is no key/data in async storage
@@ -196,16 +201,15 @@ export default function App() {
 
   const [initError, setInItError] = useState([false, '']);
   useEffect(() => {
-    let intervalId = null;
-
     // initialize
     const init = async () => {
       try {
         // enable websocket button
         await setDataInAsyncStorage('enableWSButton', 'true');
 
-        // start interval
-        intervalId = startInterval();
+        // start polling UI flags
+        isMountedRef.current = true;
+        pollUIFlags();
 
         // get data from async storage and initialize data hook
         let data_s = await getAsyncStorage();
@@ -328,9 +332,7 @@ export default function App() {
 
     // cleanup
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
+      isMountedRef.current = false;
       const clearWSStatusMessage = async () => {
         try {
           const wsIsRunning_s = await getDataFromAsyncStorage('wsIsRunning');
@@ -654,38 +656,47 @@ export default function App() {
     }
   };
 
-  const startInterval = async () => {
-    try {
-      return setInterval(async () => {
-        if ((await getDataFromAsyncStorage('wsIsRunning')) === 'true') {
-          // Websocket status message
-          const msg1 = await getDataFromAsyncStorage('wsStatusMessage');
-          if (msg1 !== null && msg1 !== '') {
-            setWsPageMessage(msg1);
-          }
+  function sleep(ms) {
+    return new Promise(res => setTimeout(res, ms));
+  }
 
-          if ((await getDataFromAsyncStorage('server_mode')) === 'P2P') {
-            const msg2 = await getDataFromAsyncStorage('p2pStatusMessage');
-            if (msg2 !== null) {
-              setWsPageP2PMessage(msg2);
-            }
-          }
+  async function pollUIFlags() {
+    const POLL_KEYS = [
+      'wsIsRunning',
+      'wsStatusMessage',
+      'server_mode',
+      'p2pStatusMessage',
+      'filesAvailableToDownload',
+    ];
 
-          // Files available to download
-          if (
-            (await getDataFromAsyncStorage('filesAvailableToDownload')) ===
-            'true'
-          ) {
-            setEnableFilesDownloadButton(true);
-          } else {
-            setEnableFilesDownloadButton(false);
+    while (isMountedRef.current) {
+      const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
+      const latest = JSON.parse(json);
+
+      if (latest.wsIsRunning === 'true') {
+        // Websocket status message
+        const msg1 = latest.wsStatusMessage;
+        if (msg1 !== null && msg1 !== '') {
+          setWsPageMessage(msg1);
+        }
+
+        if (latest.server_mode === 'P2P') {
+          const msg2 = latest.p2pStatusMessage;
+          if (msg2 !== null) {
+            setWsPageP2PMessage(msg2);
           }
         }
-      }, 300);
-    } catch (e) {
-      throw e;
+
+        // Files available to download
+        if (latest.filesAvailableToDownload === 'true') {
+          setEnableFilesDownloadButton(true);
+        } else {
+          setEnableFilesDownloadButton(false);
+        }
+      }
+      await sleep(300);
     }
-  };
+  }
 
   // Foreground service handler
   const foregroundService = async () => {
@@ -781,7 +792,7 @@ export default function App() {
       if (data_s_c !== null) {
         data_s = data_s_c;
       } else {
-        data_s = {...data};
+        data_s = { ...data };
       }
 
       // remove trailing slashes in server_url
@@ -854,14 +865,14 @@ export default function App() {
       if (
         (await getDataFromAsyncStorage('filesAvailableToDownload')) === 'true'
       ) {
-        const res = await DocumentPicker.pickDirectory();
+        const res = await pickDirectory();
         await setDataInAsyncStorage('dirPath', res.uri);
         await setDataInAsyncStorage('downloadFiles', 'true');
       } else {
         setEnableFilesDownloadButton(false);
       }
     } catch (e) {
-      if (!DocumentPicker.isCancel(e)) {
+      if (!isCancel(e)) {
         Alert.alert('Error', 'Unknown error: ' + JSON.stringify(e));
       }
     }
@@ -870,18 +881,30 @@ export default function App() {
   // view
   if (initError[0]) {
     return (
-      <>
+      <SafeAreaView
+        style={{
+          flex: 1,
+          paddingTop: StatusBar.currentHeight,
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
         <View style={styles.loadingContainer}>
           <Text style={styles.appTitle}>{APP_NAME}</Text>
           <View style={styles.loadingBottomContainer}>
             <Text style={styles.loadingText}>Init Error: {initError[1]}</Text>
           </View>
         </View>
-      </>
+      </SafeAreaView>
     );
   }
   return (
-    <>
+    <SafeAreaView
+      style={{
+        flex: 1,
+        paddingTop: StatusBar.currentHeight,
+      }}
+    >
       {/* Loading Page */}
       {enableLoadingPage && (
         <View style={styles.loadingContainer}>
@@ -946,13 +969,15 @@ export default function App() {
             style={styles.loginButton}
             onPress={() => {
               handleLogin(null, null);
-            }}>
+            }}
+          >
             <Text style={styles.loginButtonText}>Login</Text>
           </TouchableOpacity>
 
           {/* Toggle Extra Config as Text */}
           <TouchableOpacity
-            onPress={() => setShowExtraConfig(!showExtraConfig)}>
+            onPress={() => setShowExtraConfig(!showExtraConfig)}
+          >
             <Text style={styles.linkText}>
               {showExtraConfig ? 'Hide Extra Config' : 'Enable Extra Config'}
             </Text>
@@ -1078,18 +1103,21 @@ export default function App() {
           <View style={styles.footerContainer}>
             <TouchableOpacity
               style={styles.spacing}
-              onPress={() => Linking.openURL(GITHUB_URL)}>
+              onPress={() => Linking.openURL(GITHUB_URL)}
+            >
               <Text style={styles.footerText}>GITHUB</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.spacing}
-              onPress={() => Linking.openURL(HELP_URL)}>
+              onPress={() => Linking.openURL(HELP_URL)}
+            >
               <Text style={styles.footerText}>HELP</Text>
             </TouchableOpacity>
             {donateUrl && (
               <TouchableOpacity
                 style={styles.spacing}
-                onPress={() => Linking.openURL(donateUrl)}>
+                onPress={() => Linking.openURL(donateUrl)}
+              >
                 <Text style={styles.footerText}>DONATE</Text>
               </TouchableOpacity>
             )}
@@ -1105,16 +1133,20 @@ export default function App() {
             <TouchableOpacity
               style={[
                 styles.loginButton,
-                {backgroundColor: wsIsRunning === 'true' ? '#800020' : 'green'},
+                {
+                  backgroundColor: wsIsRunning === 'true' ? '#800020' : 'green',
+                },
               ]}
-              onPress={foregroundService}>
+              onPress={foregroundService}
+            >
               <Text style={styles.loginButtonText}>
                 {wsIsRunning === 'true' ? 'Stop' : 'Start'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.loginButton, {backgroundColor: '#800020'}]}
-              onPress={logout}>
+              style={[styles.loginButton, { backgroundColor: '#800020' }]}
+              onPress={logout}
+            >
               <Text style={styles.loginButtonText}>Logout</Text>
             </TouchableOpacity>
             {/* Display websocket status message */}
@@ -1129,8 +1161,9 @@ export default function App() {
             {enableFilesDownloadButton &&
               enableFilesDownloadButton === true && (
                 <TouchableOpacity
-                  style={[styles.loginButton, {backgroundColor: '#4bab4e'}]}
-                  onPress={downloadFiles}>
+                  style={[styles.loginButton, { backgroundColor: '#4bab4e' }]}
+                  onPress={downloadFiles}
+                >
                   <Text style={styles.loginButtonText}>
                     📥 Download File(s)
                   </Text>
@@ -1140,7 +1173,8 @@ export default function App() {
             {newVersionAvailable[0] && (
               <TouchableOpacity
                 onPress={() => Linking.openURL(RELEASE_URL)}
-                style={{marginTop: 10}}>
+                style={{ marginTop: 10 }}
+              >
                 <Text
                   style={[
                     styles.message,
@@ -1149,21 +1183,27 @@ export default function App() {
                       fontWeight: 'bold',
                       textDecorationLine: 'underline',
                     },
-                  ]}>
+                  ]}
+                >
                   New version available! 🚀 Click here to update ({APP_VERSION}{' '}
                   ➞ {newVersionAvailable[1]})
                 </Text>
               </TouchableOpacity>
             )}
-            <View style={{marginTop: 20, paddingHorizontal: 10}}>
+            <View style={{ marginTop: 20, paddingHorizontal: 10 }}>
               <Text
-                style={[styles.message, {fontWeight: 'bold', fontSize: 18}]}>
+                style={[styles.message, { fontWeight: 'bold', fontSize: 18 }]}
+              >
                 Instructions
               </Text>
 
-              <View style={{marginTop: 15}}>
+              <View style={{ marginTop: 15 }}>
                 <Text
-                  style={[styles.label, {fontWeight: 'bold', marginBottom: 5}]}>
+                  style={[
+                    styles.label,
+                    { fontWeight: 'bold', marginBottom: 5 },
+                  ]}
+                >
                   Clipboard Sharing on Android 10+:
                 </Text>
                 <Text style={styles.label}>
@@ -1171,31 +1211,36 @@ export default function App() {
                   restricted for privacy reasons. To share clipboard content
                   using ClipCascade:
                 </Text>
-                <View style={{marginTop: 10, marginLeft: 15}}>
+                <View style={{ marginTop: 10, marginLeft: 15 }}>
                   <Text style={styles.label}>
                     1. Select the text, image, or file(s) you want to copy.
                   </Text>
                   <Text style={styles.label}>
                     2. Tap 'Share', select 'ClipCascade'.
                   </Text>
-                  <Text style={[styles.label, {marginLeft: 15}]}>(or)</Text>
-                  <Text style={[styles.label, {marginLeft: 15}]}>
+                  <Text style={[styles.label, { marginLeft: 15 }]}>(or)</Text>
+                  <Text style={[styles.label, { marginLeft: 15 }]}>
                     Tap 'ClipCascade' instead of 'Copy'.
                   </Text>
                 </View>
                 <Text
                   style={[
                     styles.label,
-                    {marginTop: 5, fontSize: 15, fontStyle: 'italic'},
-                  ]}>
+                    { marginTop: 5, fontSize: 15, fontStyle: 'italic' },
+                  ]}
+                >
                   There's also a workaround to enable clipboard sharing in the
                   background. Scroll down for setup instructions.
                 </Text>
               </View>
 
-              <View style={{marginTop: 20}}>
+              <View style={{ marginTop: 20 }}>
                 <Text
-                  style={[styles.label, {fontWeight: 'bold', marginBottom: 5}]}>
+                  style={[
+                    styles.label,
+                    { fontWeight: 'bold', marginBottom: 5 },
+                  ]}
+                >
                   Background Clipboard Reception:
                 </Text>
                 <Text style={styles.label}>
@@ -1204,9 +1249,13 @@ export default function App() {
                 </Text>
               </View>
 
-              <View style={{marginTop: 20}}>
+              <View style={{ marginTop: 20 }}>
                 <Text
-                  style={[styles.label, {fontWeight: 'bold', marginBottom: 5}]}>
+                  style={[
+                    styles.label,
+                    { fontWeight: 'bold', marginBottom: 5 },
+                  ]}
+                >
                   Important Note:
                 </Text>
                 <Text style={styles.label}>
@@ -1217,33 +1266,39 @@ export default function App() {
               </View>
 
               <TouchableOpacity
-                style={[styles.loginButton, {backgroundColor: 'black'}]}
+                style={[styles.loginButton, { backgroundColor: 'black' }]}
                 onPress={async () =>
                   await notifee.openBatteryOptimizationSettings()
-                }>
+                }
+              >
                 <Text style={styles.loginButtonText}>
                   Battery Optimization Settings
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.loginButton, {backgroundColor: 'black'}]}
-                onPress={async () => await notifee.openPowerManagerSettings()}>
+                style={[styles.loginButton, { backgroundColor: 'black' }]}
+                onPress={async () => await notifee.openPowerManagerSettings()}
+              >
                 <Text style={styles.loginButtonText}>
                   Power Manager Settings
                 </Text>
               </TouchableOpacity>
 
               {/* ADB Commands Section */}
-              <View style={{marginTop: 20}}>
+              <View style={{ marginTop: 20 }}>
                 <Text
-                  style={[styles.label, {fontWeight: 'bold', marginBottom: 5}]}>
+                  style={[
+                    styles.label,
+                    { fontWeight: 'bold', marginBottom: 5 },
+                  ]}
+                >
                   Automatic Clipboard Monitoring Setup:
                 </Text>
                 <Text style={styles.label}>
                   On rooted/non-rooted devices, to enable automatic clipboard
                   monitoring you need to execute these 3 ADB commands:
                 </Text>
-                <View style={{marginTop: 10, marginLeft: 15}}>
+                <View style={{ marginTop: 10, marginLeft: 15 }}>
                   <Text style={styles.label}>
                     1. Enable the READ_LOGS permission:
                   </Text>
@@ -1251,8 +1306,9 @@ export default function App() {
                     selectable
                     style={[
                       styles.label,
-                      {fontWeight: 'bold', marginLeft: 15},
-                    ]}>
+                      { fontWeight: 'bold', marginLeft: 15 },
+                    ]}
+                  >
                     {`> adb -d shell pm grant com.clipcascade android.permission.READ_LOGS`}
                   </Text>
 
@@ -1264,8 +1320,9 @@ export default function App() {
                     selectable
                     style={[
                       styles.label,
-                      {fontWeight: 'bold', marginLeft: 15},
-                    ]}>
+                      { fontWeight: 'bold', marginLeft: 15 },
+                    ]}
+                  >
                     {`> adb -d shell appops set com.clipcascade SYSTEM_ALERT_WINDOW allow`}
                   </Text>
 
@@ -1276,8 +1333,9 @@ export default function App() {
                     selectable
                     style={[
                       styles.label,
-                      {fontWeight: 'bold', marginLeft: 15},
-                    ]}>
+                      { fontWeight: 'bold', marginLeft: 15 },
+                    ]}
+                  >
                     {`> adb -d shell am force-stop com.clipcascade`}
                   </Text>
                 </View>
@@ -1288,30 +1346,34 @@ export default function App() {
           <View style={styles.footerContainer}>
             <TouchableOpacity
               style={styles.spacing}
-              onPress={() => Linking.openURL(GITHUB_URL)}>
+              onPress={() => Linking.openURL(GITHUB_URL)}
+            >
               <Text style={styles.footerText}>GITHUB</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.spacing}
-              onPress={() => Linking.openURL(HELP_URL)}>
+              onPress={() => Linking.openURL(HELP_URL)}
+            >
               <Text style={styles.footerText}>HELP</Text>
             </TouchableOpacity>
             {donateUrl && (
               <TouchableOpacity
                 style={styles.spacing}
-                onPress={() => Linking.openURL(donateUrl)}>
+                onPress={() => Linking.openURL(donateUrl)}
+              >
                 <Text style={styles.footerText}>DONATE</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity
               style={styles.spacing}
-              onPress={() => Linking.openURL(data.server_url)}>
+              onPress={() => Linking.openURL(data.server_url)}
+            >
               <Text style={styles.footerText}>HOMEPAGE</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
       )}
-    </>
+    </SafeAreaView>
   );
 }
 
