@@ -2,7 +2,7 @@
 
 **ClipCascade** is a lightweight, open-source utility that automatically syncs your clipboard across multiple devices—no manual input required. It ensures seamless sharing with robust end-to-end encryption, providing a secure and reliable clipboard experience across workstations.
 
-🚀 **No Server? No Problem!** Instantly sync your clipboard using the **Live Community Server** at **[clipcascade.sathvik.dev](http://clipcascade.sathvik.dev/)**—**no setup needed**. Just create an account and start sharing your clipboard across devices in seconds!
+**No Server? No Problem!** Instantly sync your clipboard using the **Live Community Server** at **[clipcascade.sathvik.dev](http://clipcascade.sathvik.dev/)**—**no setup needed**. Just create an account and start sharing your clipboard across devices in seconds!
 
 <div align="center">
 
@@ -121,11 +121,11 @@
 
 ### 🦾 Self-Hosting ClipCascade on Bare Metal:
 
-To deploy the ClipCascade server on any operating system that supports Java 17 or later, follow the steps outlined below.
+To deploy the ClipCascade server on any operating system that supports Java 21 or later, follow the steps outlined below.
 
 1. **Download the Server JAR File**  
 
-    Obtain the latest release of `ClipCascade-Server-JRE_17.jar` from the [release page](https://github.com/Sathvik-Rao/ClipCascade/releases).
+    Obtain the latest release of `ClipCascade-Server-JRE_21.jar` from the [release page](https://github.com/Sathvik-Rao/ClipCascade/releases).
 
 2. **Configure Environment Variables (Optional)**  
 
@@ -145,7 +145,7 @@ To deploy the ClipCascade server on any operating system that supports Java 17 o
     Run the following command in the terminal to launch the ClipCascade server:
 
     ```bash
-    java -jar ClipCascade-Server-JRE_17.jar
+    java -jar ClipCascade-Server-JRE_21.jar
     ```
    
 4. **Access the Server**  
@@ -980,6 +980,36 @@ Defines the STOMP broker password for external message handling.
 <td>admin</td>
 </tr>
 
+<!-- 33 -->
+<tr>
+  <td>CC_MAX_WS_GLOBAL_CONNECTIONS</td>
+  <td>
+    Maximum number of global WebSocket connections allowed.
+    <br><br>
+    <strong>Supported Mode:</strong> Only applies when <code>CC_P2P_ENABLED</code> is <code>true</code>.
+    <br><br>
+    <strong>Note:</strong><br>
+    - This value represents the total number of active WebSocket connections allowed across all users.<br>
+    - <code>-1</code> means unlimited.
+  </td>
+  <td>-1</td>
+</tr>
+
+<!-- 34 -->
+<tr>
+  <td>CC_MAX_WS_CONNECTIONS_PER_USER</td>
+  <td>
+    Maximum number of WebSocket connections allowed per user.
+    <br><br>
+    <strong>Supported Mode:</strong> Only applies when <code>CC_P2P_ENABLED</code> is <code>true</code>.
+    <br><br>
+    <strong>Note:</strong><br>
+    - This value limits how many simultaneous WebSocket connections a single user can have.<br>
+    - <code>-1</code> means unlimited.
+  </td>
+  <td>-1</td>
+</tr>
+
 </tbody>
 </table>
 
@@ -1071,10 +1101,10 @@ You can adjust these settings in the **Extra Config** section on the login page 
    |---------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
    | **Windows**               | Uses `win32gui`, `win32api`, `win32con`, and `win32clipboard` to capture clipboard changes in an event-driven manner.                                         |
    | **macOS**                 | Utilizes the `pasteboard` to monitor the clipboard with polling every 0.3 seconds. Instead of checking clipboard content directly, it compares a counter to detect changes efficiently. |
-   | **Linux (X11)**           | Employs `Gtk.Clipboard` to capture clipboard changes in an event-driven manner, running in GUI mode.                                                         |
+   | **Linux (X11)**           | Integrates `Gtk.Clipboard` to capture clipboard changes in an event-driven manner, running in GUI mode.                                                         |
    | **Linux (XWayland, Unknown)** | Switches between `Gtk.Clipboard` (event-based) or `x-clip` (polling every 0.3 seconds) depending on permissions (requires sudo for `Gtk.Clipboard`). Both operate in GUI mode. |
-   | **Linux (Wayland, Hyprland)** | Uses `wl-clipboard` with polling every 1 seconds in CLI mode. The delay accounts for Wayland's requirement to focus a window to grab clipboard content, ensuring smoother OS interaction. |
-   | **Android**               | Leverages `ClipboardManager` to capture clipboard changes in an event-driven manner.                                                                         |
+   | **Linux (Wayland, Hyprland)** | Uses `wl-clipboard` with polling every 1 seconds in CLI mode. The delay accounts for Wayland's requirement to focus a window to grab clipboard content. |
+   | **Android**               | Uses `ClipboardManager` to capture clipboard changes in an event-driven manner.                                                                         |
 
 
   <table border="1">
@@ -1158,6 +1188,29 @@ http://clipcascade.sample.com {
 ### Note:
 Additionally, it might be helpful to mention that the server uses WebSockets (ws/wss) for live clipboard broadcasting. In most cases, no extra configuration is needed for WebSockets since they typically rely on an HTTP switching protocol. Most providers will support WebSocket connections out of the box, without requiring additional setup. Example: `ws://localhost:8080/clipsocket`, `ws://localhost:8080/p2psignaling`.
 
+
+##  SSO Proxy Bypass Rules
+
+When fronting ClipCascade with an SSO proxy (Auth0, Keycloak, etc.), you’ll need to exempt both the unauthenticated HTTP URLs _and_ the raw-WebSocket handshake endpoints. Add these rules to your proxy’s “bypass” or “whitelist” list:
+
+#### HTTP(S) endpoints
+```
+/login
+/logout
+/signup
+/captcha
+/help
+/donate
+/health
+/ping
+/assets/**
+```
+
+#### WebSocket handshake endpoints
+```
+/p2psignaling   # P2P mode
+/clipsocket     # P2S mode
+```
 
 ## 🔧 Usage
 
