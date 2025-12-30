@@ -47,6 +47,14 @@ class TaskbarPanel:
         self.root = tk.Tk()
         self.root.withdraw()  # Hide the root window
 
+        # Hide dock icon on macOS after creating tkinter window
+        if PLATFORM == MACOS:
+            try:
+                from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
+                NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+            except ImportError:
+                pass
+
         # Initial state: Connected
         self.is_connected = True
 
