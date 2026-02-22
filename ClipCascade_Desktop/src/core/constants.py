@@ -38,8 +38,6 @@ def detect_linux_display_server():
     wayland_display = os.environ.get("WAYLAND_DISPLAY")
     x_display = os.environ.get("DISPLAY")
 
-    # Priority detection order: X11 > XWayland > Hyprland > Wayland > Unknown
-
     if session_type == "x11":
         return "X11"
 
@@ -55,17 +53,39 @@ def detect_linux_display_server():
     return "Unknown"
 
 
+def check_ext_data_control_support():
+    if os.environ.get("XDG_SESSION_TYPE", "").lower().strip() != "wayland":
+        return False
+
+    try:
+        from pywayland.client import Display
+
+        display = Display()
+        if display:
+            display.disconnect()
+            return True
+    except Exception:
+        pass
+    return False
+
+
 PLATFORM = get_os_and_display_server()
 
+XMODE = False
+EXT_DATA_CONTROL_SUPPORT = False
+
 if PLATFORM.startswith(LINUX):
-    if (
-        detect_linux_display_server() == "X11"
-        or detect_linux_display_server() == "XWayland"
-        or detect_linux_display_server() == "Unknown"
-    ):
+    display_server = detect_linux_display_server()
+    if display_server == "X11":
         XMODE = True
-    else:
+    elif display_server == "XWayland":
+        XMODE = True
+        EXT_DATA_CONTROL_SUPPORT = check_ext_data_control_support()
+    elif display_server in ("Wayland", "Hyprland"):
         XMODE = False
+        EXT_DATA_CONTROL_SUPPORT = check_ext_data_control_support()
+    else:
+        XMODE = True
 
 
 # App version

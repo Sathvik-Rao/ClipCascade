@@ -50,22 +50,23 @@ class P2PManager(WSInterface):
 
         # Fragment variables
         self.sending_fragment_id = ""  # The id of the fragment currently being sent
-        self.receiving_fragments: dict = (
-            {}
-        )  # Mapping: fragmentid:str -> fragment:list[str]
+        self.receiving_fragments: dict = {}  # Mapping: fragmentid:str -> fragment:list[str]
         self.sending_fragment_stats: str = None
         self.receiving_fragment_stats: str = None
 
         # p2p variables
         self.my_peer_id: str = None  # Own peer id assigned by the server
         self.peers: set[str] = set()  # All peers in this 'room'
-        self.peer_connections: dict[str, RTCPeerConnection] = (
-            {}
-        )  # Mapping: peer_id -> RTCPeerConnection
-        self.data_channels: dict[str, RTCDataChannel] = (
-            {}
-        )  # Mapping: peer_id -> DataChannel
+        self.peer_connections: dict[
+            str, RTCPeerConnection
+        ] = {}  # Mapping: peer_id -> RTCPeerConnection
+        self.data_channels: dict[
+            str, RTCDataChannel
+        ] = {}  # Mapping: peer_id -> DataChannel
         self.live_connections: int = 0  # Number of active connections
+        self.pending_ice_candidates: dict[
+            str, list
+        ] = {}  # Mapping: peer_id -> list of pending ICE candidates
 
         # Event loop for asyncio
         self.loop = asyncio.new_event_loop()
@@ -291,6 +292,7 @@ class P2PManager(WSInterface):
         self.peer_connections.clear()
         self.data_channels.clear()
         self.live_connections = 0
+        self.pending_ice_candidates.clear()
 
     async def _handle_peer_list(self, peer_list):
         """
@@ -443,6 +445,9 @@ class P2PManager(WSInterface):
             }
         )
 
+        # Process any buffered ICE candidates for this peer
+        await self._process_pending_ice_candidates(from_peer_id)
+
     async def _handle_answer(self, from_peer_id: str, answer: dict):
         """
         Handle an incoming ANSWER to our previously sent OFFER.
@@ -456,9 +461,13 @@ class P2PManager(WSInterface):
         desc = RTCSessionDescription(sdp=answer["sdp"], type=answer["type"])
         await pc.setRemoteDescription(desc)
 
+        # Process any buffered ICE candidates for this peer
+        await self._process_pending_ice_candidates(from_peer_id)
+
     async def _handle_ice_candidate(self, from_peer_id: str, candidate_data: dict):
         """
         Handle an incoming ICE candidate from the remote peer.
+        Buffers candidates if remote description is not yet set.
         """
         pc = self.peer_connections.get(from_peer_id)
         if not pc:
@@ -467,6 +476,20 @@ class P2PManager(WSInterface):
             )
             return
 
+        # Check if remote description is set
+        if pc.remoteDescription is None:
+            # Buffer the candidate for later processing
+            if from_peer_id not in self.pending_ice_candidates:
+                self.pending_ice_candidates[from_peer_id] = []
+            self.pending_ice_candidates[from_peer_id].append(candidate_data)
+            return
+
+        await self._add_ice_candidate(pc, candidate_data)
+
+    async def _add_ice_candidate(self, pc: RTCPeerConnection, candidate_data: dict):
+        """
+        Parse and add an ICE candidate to the peer connection.
+        """
         parsed_candidate = P2PManager.parse_ice_candidate_line(
             candidate_data.get("candidate")
         )
@@ -485,6 +508,21 @@ class P2PManager(WSInterface):
             tcpType=parsed_candidate.get("tcptype"),
         )
         await pc.addIceCandidate(ice_candidate)
+
+    async def _process_pending_ice_candidates(self, peer_id: str):
+        """
+        Process any buffered ICE candidates for a peer after remote description is set.
+        """
+        pending = self.pending_ice_candidates.pop(peer_id, [])
+        if not pending:
+            return
+
+        pc = self.peer_connections.get(peer_id)
+        if not pc:
+            return
+
+        for candidate_data in pending:
+            await self._add_ice_candidate(pc, candidate_data)
 
     def _setup_data_channel(self, remote_peer_id: str, channel: RTCDataChannel):
         """
@@ -600,9 +638,9 @@ class P2PManager(WSInterface):
                     f"{metadata['index'] + 1}/{metadata['totalFragments']}"
                 )
                 if metadata["id"] in self.receiving_fragments:
-                    self.receiving_fragments[metadata["id"]][
-                        metadata["index"]
-                    ] = payload
+                    self.receiving_fragments[metadata["id"]][metadata["index"]] = (
+                        payload
+                    )
                     if metadata["index"] == metadata["totalFragments"] - 1:
                         if all(
                             s != "" for s in self.receiving_fragments[metadata["id"]]
@@ -621,9 +659,9 @@ class P2PManager(WSInterface):
                     self.receiving_fragments[metadata["id"]] = [""] * metadata[
                         "totalFragments"
                     ]
-                    self.receiving_fragments[metadata["id"]][
-                        metadata["index"]
-                    ] = payload
+                    self.receiving_fragments[metadata["id"]][metadata["index"]] = (
+                        payload
+                    )
                     return
 
             if self.config.data["cipher_enabled"]:

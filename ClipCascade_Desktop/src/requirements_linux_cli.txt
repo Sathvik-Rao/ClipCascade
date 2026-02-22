@@ -5,3 +5,4 @@ websocket_client==1.8.0
 xxhash==3.5.0
 beautifulsoup4==4.12.3
 aiortc==1.10.0
+pywayland>=0.4.0
