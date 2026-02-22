@@ -1,2 +1,4 @@
 private/
 screenshots/
+.DS_Store
+.vscode/
