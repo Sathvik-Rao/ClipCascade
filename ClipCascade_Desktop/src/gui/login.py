@@ -125,10 +125,12 @@ class LoginForm(tk.Tk):
 
         # Extra Configurations Toggle Label
         self.show_extra = False  # State to track visibility
+        self.toggle_normal_color = "#007acc"  # neutral blue with strong contrast
+        self.toggle_hover_color = "#005a9e"   # slightly darker for hover feedback
         self.toggle_label = tk.Label(
             main_frame,
             text="Enable Extra Config",
-            fg="blue",
+            fg=self.toggle_normal_color,
             cursor="hand2",
             font=font.Font(family="Helvetica", size=13, underline=True),
         )
@@ -332,11 +334,11 @@ class LoginForm(tk.Tk):
 
     def _on_hover(self, event=None):
         """Change text color on hover."""
-        self.toggle_label.config(fg="dark blue")
+        self.toggle_label.config(fg=self.toggle_hover_color)
 
     def _on_leave(self, event=None):
         """Revert text color when not hovered."""
-        self.toggle_label.config(fg="blue")
+        self.toggle_label.config(fg=self.toggle_normal_color)
 
     def _bind_mousewheel(self):
         """Bind mouse wheel events to the canvas for scrolling."""
