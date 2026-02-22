@@ -36,7 +36,12 @@ class CustomDialog(tk.Tk):
     def _configure_window(self):
         """Configure the dialog window properties."""
         self.title("ClipCascade")
-        self.geometry("600x300")
+        self.geometry(
+            "600x300+{}+{}".format(
+                (self.winfo_screenwidth() - 600) // 2,
+                (self.winfo_screenheight() - 300) // 2,
+            )
+        )
         self.update_idletasks()
         center_window(self)
         self.attributes("-topmost", True)
@@ -66,9 +71,7 @@ class CustomDialog(tk.Tk):
         )
         symbol_label.pack(side="left", padx=(0, 10))
 
-        title_label = ttk.Label(
-            title_frame, text=title, style="Header.TLabel", foreground=color
-        )
+        title_label = ttk.Label(title_frame, text=title, style="Header.TLabel", foreground=color)
         title_label.pack(side="left")
 
         # Message frame for scrolled text

@@ -48,9 +48,7 @@ class LoginForm(tk.Tk):
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Title Label
-        title_label = ttk.Label(
-            main_frame, text="Please Log In", font=("Helvetica", 16, "bold")
-        )
+        title_label = ttk.Label(main_frame, text="Please Log In", font=("Helvetica", 16, "bold"))
         title_label.pack(pady=(0, 10))
 
         # Create a frame for the fields
@@ -60,9 +58,7 @@ class LoginForm(tk.Tk):
         # Username
         user_label = ttk.Label(self.field_frame, text="Username:")
         user_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.username_entry = ttk.Entry(
-            self.field_frame, width=50, font=("Helvetica", 13)
-        )
+        self.username_entry = ttk.Entry(self.field_frame, width=50, font=("Helvetica", 13))
         self.username_entry.insert(0, self.config.data["username"])
         self.username_entry.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
 
@@ -84,9 +80,7 @@ class LoginForm(tk.Tk):
         # Server URL
         server_label = ttk.Label(self.field_frame, text="Server URL:")
         server_label.grid(row=2, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.server_url_entry = ttk.Entry(
-            self.field_frame, width=50, font=("Helvetica", 13)
-        )
+        self.server_url_entry = ttk.Entry(self.field_frame, width=50, font=("Helvetica", 13))
         self.server_url_entry.insert(0, self.config.data["server_url"])
         self.server_url_entry.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
 
@@ -118,15 +112,13 @@ class LoginForm(tk.Tk):
         button_frame.pack(pady=(10, 0))
 
         # Login Button
-        self.login_button = ttk.Button(
-            button_frame, text="Login", command=self.on_login
-        )
+        self.login_button = ttk.Button(button_frame, text="Login", command=self.on_login)
         self.login_button.pack()
 
         # Extra Configurations Toggle Label
         self.show_extra = False  # State to track visibility
         self.toggle_normal_color = "#007acc"  # neutral blue with strong contrast
-        self.toggle_hover_color = "#005a9e"   # slightly darker for hover feedback
+        self.toggle_hover_color = "#005a9e"  # slightly darker for hover feedback
         self.toggle_label = tk.Label(
             main_frame,
             text="Enable Extra Config",
@@ -172,26 +164,18 @@ class LoginForm(tk.Tk):
         # Bind the configure event to update the scrollregion
         self.extra_frame.bind(
             "<Configure>",
-            lambda event: self.extra_canvas.configure(
-                scrollregion=self.extra_canvas.bbox("all")
-            ),
+            lambda event: self.extra_canvas.configure(scrollregion=self.extra_canvas.bbox("all")),
         )
 
         # Bind a configure event to the container to adjust the width
-        self.extra_frame_container.bind(
-            "<Configure>", self._on_extra_container_configure
-        )
+        self.extra_frame_container.bind("<Configure>", self._on_extra_container_configure)
 
         # Hash Rounds
         hash_rounds_label = ttk.Label(self.extra_frame, text="Hash Rounds:")
         hash_rounds_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.hash_rounds_entry = ttk.Entry(
-            self.extra_frame, width=50, font=("Helvetica", 13)
-        )
+        self.hash_rounds_entry = ttk.Entry(self.extra_frame, width=50, font=("Helvetica", 13))
         self.hash_rounds_entry.insert(0, str(self.config.data["hash_rounds"]))
-        self.hash_rounds_entry.grid(
-            row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E
-        )
+        self.hash_rounds_entry.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
 
         # Salt
         salt_label = ttk.Label(self.extra_frame, text="Salt:")
@@ -217,26 +201,18 @@ class LoginForm(tk.Tk):
         local_clipboard_size_label = ttk.Label(
             self.extra_frame, text="Maximum Clipboard Size\nLocal Limit (in bytes):"
         )
-        local_clipboard_size_label.grid(
-            row=3, column=0, padx=(0, 10), pady=5, sticky=tk.W
-        )
+        local_clipboard_size_label.grid(row=3, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.local_clipboard_size_entry = ttk.Entry(
             self.extra_frame, width=50, font=("Helvetica", 13)
         )
         self.local_clipboard_size_entry.insert(
             0, str(self.config.data["max_clipboard_size_local_limit_bytes"] or "")
         )
-        self.local_clipboard_size_entry.grid(
-            row=3, column=1, padx=10, pady=5, sticky=tk.W + tk.E
-        )
+        self.local_clipboard_size_entry.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
 
         # Enable Image Sharing Checkbox
-        enable_image_sharing_label = ttk.Label(
-            self.extra_frame, text="Enable Image Sharing:"
-        )
-        enable_image_sharing_label.grid(
-            row=4, column=0, padx=(0, 10), pady=5, sticky=tk.W
-        )
+        enable_image_sharing_label = ttk.Label(self.extra_frame, text="Enable Image Sharing:")
+        enable_image_sharing_label.grid(row=4, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.enable_image_sharing_var = tk.BooleanVar(
             value=self.config.data["enable_image_sharing"]
         )
@@ -244,27 +220,17 @@ class LoginForm(tk.Tk):
             self.extra_frame,
             variable=self.enable_image_sharing_var,
         )
-        self.enable_image_sharing_checkbox.grid(
-            row=4, column=1, padx=10, pady=5, sticky=tk.W
-        )
+        self.enable_image_sharing_checkbox.grid(row=4, column=1, padx=10, pady=5, sticky=tk.W)
 
         # Enable File Sharing Checkbox
-        enable_file_sharing_label = ttk.Label(
-            self.extra_frame, text="Enable File Sharing:"
-        )
-        enable_file_sharing_label.grid(
-            row=5, column=0, padx=(0, 10), pady=5, sticky=tk.W
-        )
-        self.enable_file_sharing_var = tk.BooleanVar(
-            value=self.config.data["enable_file_sharing"]
-        )
+        enable_file_sharing_label = ttk.Label(self.extra_frame, text="Enable File Sharing:")
+        enable_file_sharing_label.grid(row=5, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.enable_file_sharing_var = tk.BooleanVar(value=self.config.data["enable_file_sharing"])
         self.enable_file_sharing_checkbox = ttk.Checkbutton(
             self.extra_frame,
             variable=self.enable_file_sharing_var,
         )
-        self.enable_file_sharing_checkbox.grid(
-            row=5, column=1, padx=10, pady=5, sticky=tk.W
-        )
+        self.enable_file_sharing_checkbox.grid(row=5, column=1, padx=10, pady=5, sticky=tk.W)
 
         # Default File Download Location
         default_file_download_location_label = ttk.Label(
@@ -304,10 +270,9 @@ class LoginForm(tk.Tk):
         self.deiconify()  # Show window
         self.update_idletasks()
         center_window(self, self.max_window_height)
-        
+
         # Drop always-on-top after showing
         self.after(300, lambda: self.attributes("-topmost", False))
-        
 
     def _toggle_password(self, event=None):
         if self.password_entry.cget("show") == "*":
@@ -408,15 +373,11 @@ class LoginForm(tk.Tk):
         self.config.data["save_password"] = self.save_password_var.get()
 
         # Validate max_clipboard_size_local_limit_bytes
-        max_clipboard_size_local_limit_bytes_input = (
-            self.local_clipboard_size_entry.get().strip()
-        )
+        max_clipboard_size_local_limit_bytes_input = self.local_clipboard_size_entry.get().strip()
         if max_clipboard_size_local_limit_bytes_input == "":
             self.config.data["max_clipboard_size_local_limit_bytes"] = None
         else:
-            if not LoginForm.is_positive_integer(
-                max_clipboard_size_local_limit_bytes_input
-            ):
+            if not LoginForm.is_positive_integer(max_clipboard_size_local_limit_bytes_input):
                 CustomDialog(
                     "Invalid Input\nMax Clipboard Size Local Limit must be a positive integer.",
                     msg_type="error",
@@ -430,9 +391,7 @@ class LoginForm(tk.Tk):
         self.config.data["enable_file_sharing"] = self.enable_file_sharing_var.get()
 
         # Validate file download location
-        default_file_download_location = (
-            self.default_file_download_location_entry.get().strip()
-        )
+        default_file_download_location = self.default_file_download_location_entry.get().strip()
         if default_file_download_location == "":
             self.config.data["default_file_download_location"] = ""
         else:
@@ -442,9 +401,7 @@ class LoginForm(tk.Tk):
                     msg_type="error",
                 ).mainloop()
                 return  # retry login
-            self.config.data["default_file_download_location"] = (
-                default_file_download_location
-            )
+            self.config.data["default_file_download_location"] = default_file_download_location
 
         # call login callback
         if self.on_login_callback:
