@@ -16,6 +16,8 @@ class Main:
     def __init__(self):
         Application().run()
 
+def main():
+    Main()
 
 if __name__ == "__main__":
-    Main()
+    main()
