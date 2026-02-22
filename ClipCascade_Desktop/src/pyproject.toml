@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ClipCascade"
+version = "3.2.0"
+description = "ClipCascade is a lightweight utility that automatically syncs the clipboard across devices, no key press required."
+authors = [{ name = "Sathvik Rao", email = "sathvik.poladi@gmail.com" }]
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+keywords = [
+    "clipboard",
+    "sync",
+    "cross-platform",
+    "open-source",
+    "utility",
+    "encryption",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Monitoring",
+]
+
+dependencies = [
+    "Pillow>=10.4.0",
+    "plyer==2.1.0",
+    "pycryptodome==3.20.0",
+    "pystray==0.19.5",
+    "Requests==2.32.3",
+    "websocket_client==1.8.0",
+    "xxhash==3.5.0",
+    "beautifulsoup4==4.12.3",
+    "aiortc==1.10.0",
+    # Platform-specific dependencies
+    "pyfiglet==1.0.2; sys_platform == 'linux'",
+    "pyperclip==1.8.2; sys_platform == 'win32' or sys_platform == 'darwin'",
+    "pywin32==306; sys_platform == 'win32'",
+    "certifi; sys_platform == 'darwin'",
+    "pyobjus==1.2.3; sys_platform == 'darwin'",
+    "pasteboard==0.4.0; sys_platform == 'darwin'",
+]
+
+[project.scripts]
+clipcascade = "main:main"
+
+[tool.setuptools]
+py-modules = ["main"]
+packages = [
+    "cli",
+    "clipboard",
+    "core",
+    "gui",
+    "interfaces",
+    "p2p",
+    "stomp_ws",
+    "utils",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311", "py312"]
+include = "\\.pyi?$"
+
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_mode = 3
+
+[project.urls]
+Homepage = "https://clipcascade.sathvik.dev/"
+Repository = "https://github.com/Sathvik-Rao/ClipCascade"
+Documentation = "https://github.com/Sathvik-Rao/ClipCascade#readme"
+Issues = "https://github.com/Sathvik-Rao/ClipCascade/issues"
+Discussions = "https://github.com/Sathvik-Rao/ClipCascade/discussions"

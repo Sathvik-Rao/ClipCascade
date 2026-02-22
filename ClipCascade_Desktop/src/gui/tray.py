@@ -72,20 +72,23 @@ class TaskbarPanel:
 
     def create_clipboard_icon(self):
         width, height = 64, 64  # Icon dimensions
-        image = Image.new("RGBA", (width, height), (255, 255, 255, 0))
-
+        image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
 
-        # Draw a clipboard shape
-        clipboard_rect = [15, 10, 49, 50]
-        draw.rectangle(clipboard_rect, fill=(200, 200, 200), outline=(0, 0, 0))
+        fill_color = (220, 220, 220)
+        outline_color = (255, 255, 255)
 
-        # Draw the clipboard clip centered horizontally
-        clip_width = 10
-        clip_height = 5
-        clip_x = (clipboard_rect[0] + clipboard_rect[2]) / 2 - clip_width / 2
-        clip_rect = [clip_x, 5, clip_x + clip_width, 5 + clip_height]
-        draw.rectangle(clip_rect, fill=(150, 150, 150), outline=(0, 0, 0))
+        board_coords = (12, 12, 52, 57)
+        try:
+            draw.rounded_rectangle(board_coords, radius=5, fill=None, outline=outline_color, width=3)
+        except (AttributeError, TypeError):
+            draw.rectangle(board_coords, fill=None, outline=outline_color)
+
+        clip_coords = (22, 7, 42, 17)
+        try:
+            draw.rounded_rectangle(clip_coords, radius=3, fill=fill_color, outline=outline_color, width=3)
+        except (AttributeError, TypeError):
+            draw.rectangle(clip_coords, fill=fill_color, outline=outline_color)
 
         return image
 
