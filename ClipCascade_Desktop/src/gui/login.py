@@ -3,7 +3,9 @@ import tkinter as tk
 from tkinter import ttk, font
 import gc
 import time
+import os
 
+from utils.window_manager import center_window
 from core.config import Config
 from gui.info import CustomDialog
 from core.constants import *
@@ -294,32 +296,16 @@ class LoginForm(tk.Tk):
         # Set a maximum height for the window
         self.max_window_height = 600
 
-        # Center the window on the screen
-        self._center_window()
-
         # on press enter key
         self.bind("<Return>", lambda event: self.on_login())
 
-        self.deiconify()  # Show the root window
-
-    def _center_window(self):
-        """Centers the window on the screen based on its current size."""
-        self.update_idletasks()  # Ensure accurate dimensions
-        window_width = self.winfo_width()
-        window_height = self.winfo_height()
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
-
-        # Calculate position
-        x = (screen_width // 2) - (window_width // 2)
-        y = (screen_height // 2) - (window_height // 2)
-
-        # Enforce maximum height if needed
-        if window_height > self.max_window_height:
-            window_height = self.max_window_height
-
-        # Always set geometry to the current (or adjusted) size and center it
-        self.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        self.deiconify()  # Show window
+        self.update_idletasks()
+        center_window(self, self.max_window_height)
+        
+        # Drop always-on-top after showing
+        self.after(300, lambda: self.attributes("-topmost", False))
+        
 
     def _toggle_password(self, event=None):
         if self.password_entry.cget("show") == "*":
@@ -342,7 +328,7 @@ class LoginForm(tk.Tk):
         self.update_idletasks()
         self.geometry("")
         self.update_idletasks()
-        self._center_window()
+        center_window(self)
 
     def _on_hover(self, event=None):
         """Change text color on hover."""

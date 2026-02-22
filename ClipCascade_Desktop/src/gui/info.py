@@ -4,6 +4,8 @@ from tkinter import scrolledtext
 import gc
 import time
 
+from utils.window_manager import center_window
+
 
 class CustomDialog(tk.Tk):
     def __init__(self, message, msg_type="info", timeout=None):
@@ -34,12 +36,9 @@ class CustomDialog(tk.Tk):
     def _configure_window(self):
         """Configure the dialog window properties."""
         self.title("ClipCascade")
-        self.geometry(
-            "600x300+{}+{}".format(
-                (self.winfo_screenwidth() - 600) // 2,
-                (self.winfo_screenheight() - 300) // 2,
-            )
-        )
+        self.geometry("600x300")
+        self.update_idletasks()
+        center_window(self)
         self.attributes("-topmost", True)
         self.resizable(False, False)
         self.focus_force()
