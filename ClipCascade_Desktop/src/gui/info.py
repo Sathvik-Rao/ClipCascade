@@ -5,6 +5,7 @@ import gc
 import time
 
 from utils.window_manager import center_window
+from core.constants import *
 
 
 class CustomDialog(tk.Tk):
@@ -47,6 +48,9 @@ class CustomDialog(tk.Tk):
         self.attributes("-topmost", True)
         self.resizable(False, False)
         self.focus_force()
+
+        if PLATFORM == MACOS:
+            self.after(100, self._macos_restore_focus)
 
     def _show_dialog(self):
         """Display the appropriate dialog based on the message type."""
@@ -95,6 +99,17 @@ class CustomDialog(tk.Tk):
         ok_button = ttk.Button(button_frame, text="OK", command=self.close, width=10)
         ok_button.pack()
         ok_button.focus_set()
+
+    def _macos_restore_focus(self):
+        """Force macOS to properly activate and focus the dialog."""
+        try:
+            from AppKit import NSApplication
+            app = NSApplication.sharedApplication()
+            app.activateIgnoringOtherApps_(True)
+        except ImportError:
+            pass
+        self.lift()
+        self.focus_force()
 
     def close(self):
         if self.after_id:

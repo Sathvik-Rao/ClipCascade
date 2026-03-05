@@ -274,6 +274,22 @@ class LoginForm(tk.Tk):
         # Drop always-on-top after showing
         self.after(300, lambda: self.attributes("-topmost", False))
 
+        if PLATFORM == MACOS:
+            self.after(400, self._macos_restore_focus)
+
+    def _macos_restore_focus(self):
+        """Force macOS to properly activate and focus the window.
+        Needed after sequential tk.Tk() creation/destruction cycles."""
+        try:
+            from AppKit import NSApplication
+            app = NSApplication.sharedApplication()
+            app.activateIgnoringOtherApps_(True)
+        except ImportError:
+            pass
+        self.lift()
+        self.focus_force()
+        self.username_entry.focus_set()
+
     def _toggle_password(self, event=None):
         if self.password_entry.cget("show") == "*":
             self.password_entry.config(show="")

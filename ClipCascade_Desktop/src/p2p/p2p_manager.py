@@ -65,7 +65,7 @@ class P2PManager(WSInterface):
         self.data_channels: dict[str, RTCDataChannel] = (
             {}
         )  # Mapping: peer_id -> DataChannel
-        self.live_connections: int = 0  # Number of active connections
+        self._live_peer_ids: set[str] = set()  # Peer IDs with open data channels
 
         # Event loop for asyncio
         self.loop = asyncio.new_event_loop()
@@ -73,6 +73,10 @@ class P2PManager(WSInterface):
             target=self.loop.run_forever, name="P2PManagerEventLoopThread", daemon=True
         )
         self.loop_thread.start()
+
+    @property
+    def live_connections(self) -> int:
+        return len(self._live_peer_ids)
 
     def schedule_task(self, coro):
         """Submit an async function to the manager's event loop thread."""
@@ -118,18 +122,16 @@ class P2PManager(WSInterface):
                 on_close=self._on_ws_close,
             )
 
+            ws_kwargs = {"ping_interval": 30, "ping_timeout": 10}
             if PLATFORM == MACOS:
                 ssl_context = ssl.create_default_context(cafile=certifi.where())
-                Thread(
-                    target=self.ws_client.run_forever,
-                    kwargs={"sslopt": {"context": ssl_context}},
-                    daemon=True,
-                ).start()
-            else:
-                Thread(
-                    target=self.ws_client.run_forever,
-                    daemon=True,
-                ).start()
+                ws_kwargs["sslopt"] = {"context": ssl_context}
+
+            Thread(
+                target=self.ws_client.run_forever,
+                kwargs=ws_kwargs,
+                daemon=True,
+            ).start()
 
             if not self.is_clipboard_monitoring_on:
                 # Start clipboard monitoring
@@ -167,8 +169,17 @@ class P2PManager(WSInterface):
                     message="Check your internet connection. Retrying...",
                 )
                 self.first_conn_lost = False
-            time.sleep(RECONNECT_WS_TIMER)  # seconds
-            self.connect()
+            self.schedule_task(self._reconnect_after_close())
+
+    async def _reconnect_after_close(self):
+        """Clean up dead P2P connections and reconnect after a delay."""
+        try:
+            await self._cleanup_peer_connections()
+            await asyncio.sleep(RECONNECT_WS_TIMER)
+            if not self.disconnected:
+                self.connect()
+        except Exception as e:
+            logging.error(f"Failed to reconnect after close: {e}")
 
     def manual_reconnect(self):
         if not self.is_auto_reconnecting:
@@ -290,7 +301,7 @@ class P2PManager(WSInterface):
         self.peers.clear()
         self.peer_connections.clear()
         self.data_channels.clear()
-        self.live_connections = 0
+        self._live_peer_ids.clear()
 
     async def _handle_peer_list(self, peer_list):
         """
@@ -493,7 +504,7 @@ class P2PManager(WSInterface):
 
         @channel.on("open")
         def on_open():
-            self.live_connections += 1
+            self._live_peer_ids.add(remote_peer_id)
 
         # manually call on_open if the channel is already open by the time event is attached
         if channel.readyState == "open":
@@ -505,7 +516,7 @@ class P2PManager(WSInterface):
 
         @channel.on("close")
         def on_close():
-            self.live_connections -= 1
+            self._live_peer_ids.discard(remote_peer_id)
 
         @channel.on("error")
         def on_error(e):
