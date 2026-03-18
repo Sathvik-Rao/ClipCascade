@@ -47,6 +47,16 @@ class TaskbarPanel:
         self.root = tk.Tk()
         self.root.withdraw()  # Hide the root window
 
+        # Hide dock icon on macOS (menu bar only)
+        if PLATFORM == MACOS:
+            try:
+                import AppKit
+                AppKit.NSApp.setActivationPolicy_(
+                    AppKit.NSApplicationActivationPolicyAccessory
+                )
+            except Exception:
+                pass
+
         # Initial state: Connected
         self.is_connected = True
 
