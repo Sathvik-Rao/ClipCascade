@@ -83,6 +83,14 @@ elif PLATFORM.startswith(LINUX):
 # core constants
 RECONNECT_WS_TIMER = 10  # seconds
 WEBSOCKET_TIMEOUT = 3000  # milliseconds
+
+# P2P signaling WebSocket keepalive (RFC 6455 ping/pong).
+P2P_WS_PING_INTERVAL_SEC = 25
+P2P_WS_PING_TIMEOUT_SEC = 20
+# After sleep, aiortc RTCPeerConnection.close() can block; cap wait so the asyncio
+# thread does not stall (which would also block processing ASSIGNED_ID / PEER_LIST).
+P2P_PC_CLOSE_TIMEOUT_SEC = 5.0
+
 LOG_FILE_NAME = "clipcascade_log.log"
 LOG_LEVEL = logging.INFO  # Use valid levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
 DATA_FILE_NAME = "DATA"
@@ -99,16 +107,12 @@ WEBSOCKET_ENDPOINT = "/clipsocket"
 WEBSOCKET_ENDPOINT_P2P = "/p2psignaling"
 STUN_URL = "/stun-url"
 
-VERSION_URL = (
-    "https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json"
-)
+VERSION_URL = "https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json"
 RELEASE_URL = "https://github.com/Sathvik-Rao/ClipCascade/releases/latest"
 GITHUB_URL = "https://github.com/Sathvik-Rao/ClipCascade"
 APP_NAME = "ClipCascade"
 HELP_URL = f"{GITHUB_URL}/blob/main/README.md"
-METADATA_URL = (
-    "https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/metadata.json"
-)
+METADATA_URL = "https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/metadata.json"
 
 if PLATFORM == WINDOWS:
     MUTEX_NAME = "Global\\ClipCascade_Mutex_PSSR"

@@ -5,7 +5,8 @@ import websocket
 import asyncio
 import uuid
 
-from threading import Thread
+from threading import Lock, Thread
+from typing import List, Optional
 from core.config import Config
 from interfaces.ws_interface import WSInterface
 from utils.cipher_manager import CipherManager
@@ -21,7 +22,6 @@ from aiortc import (
     RTCConfiguration,
     RTCDataChannel,
 )
-
 
 if PLATFORM.startswith(LINUX) and not XMODE:
     from cli.tray import TaskbarPanel
@@ -50,9 +50,7 @@ class P2PManager(WSInterface):
 
         # Fragment variables
         self.sending_fragment_id = ""  # The id of the fragment currently being sent
-        self.receiving_fragments: dict = (
-            {}
-        )  # Mapping: fragmentid:str -> fragment:list[str]
+        self.receiving_fragments: dict = {}  # Mapping: fragmentid:str -> fragment:list[str]
         self.sending_fragment_stats: str = None
         self.receiving_fragment_stats: str = None
 
@@ -62,10 +60,11 @@ class P2PManager(WSInterface):
         self.peer_connections: dict[str, RTCPeerConnection] = (
             {}
         )  # Mapping: peer_id -> RTCPeerConnection
-        self.data_channels: dict[str, RTCDataChannel] = (
-            {}
-        )  # Mapping: peer_id -> DataChannel
-        self._live_peer_ids: set[str] = set()  # Peer IDs with open data channels
+        self.data_channels: dict[str, RTCDataChannel] = {}  # Mapping: peer_id -> DataChannel
+        self.live_connections: int = 0  # Number of open data channels (derived; see _sync)
+        self._live_connections_lock = Lock()
+        # If PEER_LIST arrives before ASSIGNED_ID (e.g. right after signaling reconnect), mesh setup waits.
+        self._pending_peer_list: Optional[List[str]] = None
 
         # Event loop for asyncio
         self.loop = asyncio.new_event_loop()
@@ -73,10 +72,6 @@ class P2PManager(WSInterface):
             target=self.loop.run_forever, name="P2PManagerEventLoopThread", daemon=True
         )
         self.loop_thread.start()
-
-    @property
-    def live_connections(self) -> int:
-        return len(self._live_peer_ids)
 
     def schedule_task(self, coro):
         """Submit an async function to the manager's event loop thread."""
@@ -89,9 +84,19 @@ class P2PManager(WSInterface):
         self.sys_tray = sys_tray
         self.clipboard_manager.set_tray_ref(sys_tray)
 
+    def _sync_live_connections_count(self):
+        """Set live_connections from open data channels (avoids +/- drift and negatives)."""
+        with self._live_connections_lock:
+            self.live_connections = sum(
+                1 for ch in self.data_channels.values() if getattr(ch, "readyState", "") == "open"
+            )
+
     def get_stats(self) -> str:
+        self._sync_live_connections_count()
         stats = "📊"
-        stats += f" Peers: {self.live_connections}"
+        with self._live_connections_lock:
+            n = self.live_connections
+        stats += f" Peers: {n}"
         if self.sending_fragment_stats is not None:
             stats += f" | Sending: {self.sending_fragment_stats}"
         if self.receiving_fragment_stats is not None:
@@ -113,23 +118,23 @@ class P2PManager(WSInterface):
 
             self.ws_client = websocket.WebSocketApp(
                 url=self.config.data["websocket_url"],
-                header={
-                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
-                },
+                header={"Cookie": RequestManager.format_cookie(self.config.data["cookie"])},
                 on_open=self._on_ws_open,
                 on_error=self._on_ws_error,
                 on_message=self._on_ws_message,
                 on_close=self._on_ws_close,
             )
 
-            ws_kwargs = {"ping_interval": 30, "ping_timeout": 10}
+            ws_run_kw = {
+                "ping_interval": P2P_WS_PING_INTERVAL_SEC,
+                "ping_timeout": P2P_WS_PING_TIMEOUT_SEC,
+            }
             if PLATFORM == MACOS:
                 ssl_context = ssl.create_default_context(cafile=certifi.where())
-                ws_kwargs["sslopt"] = {"context": ssl_context}
-
+                ws_run_kw["sslopt"] = {"context": ssl_context}
             Thread(
                 target=self.ws_client.run_forever,
-                kwargs=ws_kwargs,
+                kwargs=ws_run_kw,
                 daemon=True,
             ).start()
 
@@ -169,21 +174,14 @@ class P2PManager(WSInterface):
                     message="Check your internet connection. Retrying...",
                 )
                 self.first_conn_lost = False
-            self.schedule_task(self._reconnect_after_close())
-
-    async def _reconnect_after_close(self):
-        """Clean up dead P2P connections and reconnect after a delay."""
-        try:
-            await self._cleanup_peer_connections()
-            await asyncio.sleep(RECONNECT_WS_TIMER)
-            if not self.disconnected:
-                self.connect()
-        except Exception as e:
-            logging.error(f"Failed to reconnect after close: {e}")
+            time.sleep(RECONNECT_WS_TIMER)  # seconds
+            self.connect()
 
     def manual_reconnect(self):
         if not self.is_auto_reconnecting:
             self.disconnected = False
+            self.ws_close()
+            self.is_connected = False
             self.connect()
 
     def _on_ws_message(self, ws, message):
@@ -199,6 +197,10 @@ class P2PManager(WSInterface):
                 if self.my_peer_id is not None and self.my_peer_id != data["peerId"]:
                     await self._cleanup_peer_connections()
                 self.my_peer_id = data["peerId"]
+                if self._pending_peer_list is not None:
+                    pending = self._pending_peer_list
+                    self._pending_peer_list = None
+                    await self._handle_peer_list(pending)
             elif msg_type == "PEER_LIST":
                 await self._handle_peer_list(data["peers"])
             elif msg_type == "OFFER":
@@ -219,7 +221,17 @@ class P2PManager(WSInterface):
                 self.disconnect()
                 return
 
-            # logging.info("Websocket connected")
+            # Tear down WebRTC after any signaling reconnect so PEER_LIST recreates PCs.
+            try:
+                fut = asyncio.run_coroutine_threadsafe(self._cleanup_peer_connections(), self.loop)
+                # Upper bound: N peers * P2P_PC_CLOSE_TIMEOUT + margin;
+                fut.result(timeout=90)
+            except Exception as e:
+                logging.warning(
+                    "P2P peer cleanup on signaling open: %s",
+                    e if str(e) else type(e).__name__,
+                )
+
             self.is_connected = True
             self.is_auto_reconnecting = False
             if not self.first_conn_lost:
@@ -229,7 +241,7 @@ class P2PManager(WSInterface):
                     message="Connection re-established",
                 )
         except Exception as e:
-            logging.error(f"Failed to connect websocket: {e}")
+            logging.error(f"Failed to open P2P signaling session: {e}")
 
     def _on_ws_error(self, ws, error, *args):
         logging.debug(error)
@@ -282,26 +294,26 @@ class P2PManager(WSInterface):
             logging.error(f"Failed to disconnect websocket: {e}")
 
     async def _cleanup_peer_connections(self):
-        # Close data channels
-        for dc in self.data_channels.values():
-            try:
-                dc.close()
-            except Exception:
-                pass
+        try:
+            for dc in list(self.data_channels.values()):
+                try:
+                    dc.close()
+                except Exception:
+                    pass
 
-        # Close peer connections
-        for pc in self.peer_connections.values():
-            try:
-                await pc.close()
-            except Exception:
-                pass
-
-        # Clear all P2P-related variables
-        self.my_peer_id = None
-        self.peers.clear()
-        self.peer_connections.clear()
-        self.data_channels.clear()
-        self._live_peer_ids.clear()
+            for pc in list(self.peer_connections.values()):
+                try:
+                    await asyncio.wait_for(pc.close(), timeout=P2P_PC_CLOSE_TIMEOUT_SEC)
+                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                    pass
+        finally:
+            self.my_peer_id = None
+            self.peers.clear()
+            self.peer_connections.clear()
+            self.data_channels.clear()
+            self._pending_peer_list = None
+            with self._live_connections_lock:
+                self.live_connections = 0
 
     async def _handle_peer_list(self, peer_list):
         """
@@ -314,6 +326,10 @@ class P2PManager(WSInterface):
 
         # 2) Update self.peers
         self.peers = updated_peers
+
+        if self.my_peer_id is None:
+            self._pending_peer_list = list(peer_list)
+            return
 
         # 3) For each peer, if we have no RTCPeerConnection, create one
         for pid in self.peers:
@@ -354,9 +370,11 @@ class P2PManager(WSInterface):
             pc = self.peer_connections.pop(old_pid, None)
             if pc is not None:
                 try:
-                    await pc.close()
-                except Exception:
+                    await asyncio.wait_for(pc.close(), timeout=P2P_PC_CLOSE_TIMEOUT_SEC)
+                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                     pass
+
+        self._sync_live_connections_count()
 
     def _create_peer_connection(self, remote_peer_id: str) -> RTCPeerConnection:
         """
@@ -460,9 +478,7 @@ class P2PManager(WSInterface):
         """
         pc = self.peer_connections.get(from_peer_id)
         if not pc:
-            logging.warning(
-                f"No peer connection exists for id={from_peer_id}, ignoring ANSWER."
-            )
+            logging.warning(f"No peer connection exists for id={from_peer_id}, ignoring ANSWER.")
             return
         desc = RTCSessionDescription(sdp=answer["sdp"], type=answer["type"])
         await pc.setRemoteDescription(desc)
@@ -478,9 +494,7 @@ class P2PManager(WSInterface):
             )
             return
 
-        parsed_candidate = P2PManager.parse_ice_candidate_line(
-            candidate_data.get("candidate")
-        )
+        parsed_candidate = P2PManager.parse_ice_candidate_line(candidate_data.get("candidate"))
         ice_candidate = RTCIceCandidate(
             component=parsed_candidate.get("component"),
             foundation=parsed_candidate.get("foundation"),
@@ -504,11 +518,10 @@ class P2PManager(WSInterface):
 
         @channel.on("open")
         def on_open():
-            self._live_peer_ids.add(remote_peer_id)
+            self._sync_live_connections_count()
 
-        # manually call on_open if the channel is already open by the time event is attached
         if channel.readyState == "open":
-            on_open()
+            self._sync_live_connections_count()
 
         @channel.on("message")
         def on_message(message):
@@ -516,11 +529,12 @@ class P2PManager(WSInterface):
 
         @channel.on("close")
         def on_close():
-            self._live_peer_ids.discard(remote_peer_id)
+            self._sync_live_connections_count()
 
         @channel.on("error")
         def on_error(e):
             logging.error(f"[data] Data channel error with {remote_peer_id}: {e}")
+            self._sync_live_connections_count()
 
     def send(self, payload: str, payload_type: str = "text"):
         self.schedule_task(self._send(payload, payload_type))
@@ -611,13 +625,9 @@ class P2PManager(WSInterface):
                     f"{metadata['index'] + 1}/{metadata['totalFragments']}"
                 )
                 if metadata["id"] in self.receiving_fragments:
-                    self.receiving_fragments[metadata["id"]][
-                        metadata["index"]
-                    ] = payload
+                    self.receiving_fragments[metadata["id"]][metadata["index"]] = payload
                     if metadata["index"] == metadata["totalFragments"] - 1:
-                        if all(
-                            s != "" for s in self.receiving_fragments[metadata["id"]]
-                        ):
+                        if all(s != "" for s in self.receiving_fragments[metadata["id"]]):
                             payload = "".join(self.receiving_fragments[metadata["id"]])
                         else:
                             self.reset_receiving_fragments()
@@ -629,12 +639,8 @@ class P2PManager(WSInterface):
                         return
                 else:
                     self.reset_receiving_fragments()
-                    self.receiving_fragments[metadata["id"]] = [""] * metadata[
-                        "totalFragments"
-                    ]
-                    self.receiving_fragments[metadata["id"]][
-                        metadata["index"]
-                    ] = payload
+                    self.receiving_fragments[metadata["id"]] = [""] * metadata["totalFragments"]
+                    self.receiving_fragments[metadata["id"]][metadata["index"]] = payload
                     return
 
             if self.config.data["cipher_enabled"]:
@@ -648,9 +654,7 @@ class P2PManager(WSInterface):
                     base64_string=payload, type_=payload_type
                 )
         except json.decoder.JSONDecodeError:
-            logging.error(
-                "If cipher is enabled, please make sure it is enabled on all devices"
-            )
+            logging.error("If cipher is enabled, please make sure it is enabled on all devices")
         except Exception as e:
             logging.error(f"Failed to receive data: {e}")
 
@@ -693,9 +697,7 @@ class P2PManager(WSInterface):
 
         # 1) Must start with something like "candidate:..."
         if not tokens or not tokens[0].startswith("candidate:"):
-            raise ValueError(
-                "Not a valid ICE candidate line (must start with 'candidate:')."
-            )
+            raise ValueError("Not a valid ICE candidate line (must start with 'candidate:').")
 
         # 2) Basic mandatory fields (RFC 5245)
         #
