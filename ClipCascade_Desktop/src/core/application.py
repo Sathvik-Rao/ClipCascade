@@ -16,7 +16,7 @@ elif PLATFORM == MACOS or PLATFORM.startswith(LINUX):
     import fcntl
 
 
-if PLATFORM.startswith(LINUX) and not XMODE:
+if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     import pyfiglet
     from cli.login import LoginForm
     from cli.info import CustomDialog
@@ -131,7 +131,7 @@ class Application:
         # enable login form
         used_saved_credentials = False
         display_login_success_dialog = False
-        if PLATFORM.startswith(LINUX) and not XMODE:
+        if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
             Echo("═" * 14 + "\n║ LOGIN FORM ║\n" + "═" * 14)
         while True:
             if (
@@ -149,7 +149,7 @@ class Application:
                     self.config,
                     on_quit_callback=(
                         None
-                        if (PLATFORM.startswith(LINUX) and not XMODE)
+                        if (PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI)
                         else lambda: sys.exit(0)
                     ),
                 )
@@ -205,7 +205,7 @@ class Application:
                 CustomDialog("Login Failed\n" + msg_login, msg_type="error").mainloop()
 
             raw_password = None  # Clear the raw password
-            if PLATFORM.startswith(LINUX) and not XMODE:
+            if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
                 Echo("-" * 53)
 
     def _get_ws_manager(self):
@@ -230,7 +230,7 @@ class Application:
             elif PLATFORM == MACOS:
                 key = "macos"
             elif PLATFORM.startswith(LINUX):
-                if XMODE:
+                if not LINUX_USE_CLI_UI:
                     key = "linux_gui"
                 else:
                     key = "linux_non_gui"
@@ -264,7 +264,7 @@ class Application:
             raise Exception(f"Error during logging off: {e}")
 
     def banner(self):
-        if PLATFORM.startswith(LINUX) and not XMODE:
+        if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
             Echo(pyfiglet.figlet_format(APP_NAME))
             Echo("*" * 53)
             Echo("Real-Time Clipboard Syncing".center(53))

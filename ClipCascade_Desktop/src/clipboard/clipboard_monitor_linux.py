@@ -65,7 +65,10 @@ def _monitor_x_wl_clipboard(
         r"no suitable type of content copied",  # wl-clipboard pattern
     ]
 
-    if x_mode:
+    if LINUX_CLIPBOARD_POLL_INTERVAL_SEC is not None:
+        timeout = LINUX_CLIPBOARD_POLL_INTERVAL_SEC
+        logging.info(f"Clipboard polling interval (--polling): {timeout}s")
+    elif x_mode:
         timeout = 0.3  # xclip seconds
     else:
         timeout = 3  # wl-clipboard seconds

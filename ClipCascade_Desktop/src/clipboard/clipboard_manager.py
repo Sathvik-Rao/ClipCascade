@@ -10,7 +10,7 @@ from PIL import Image
 from core.constants import *
 from core.config import Config
 
-if PLATFORM.startswith(LINUX) and not XMODE:
+if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     from cli.tray import TaskbarPanel
 else:
     from gui.tray import TaskbarPanel

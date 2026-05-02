@@ -55,7 +55,83 @@ def detect_linux_display_server():
     return "Unknown"
 
 
+def _parse_linux_bool_flag_token(raw):
+    if raw is None or not str(raw).strip():
+        raise ValueError("empty value")
+    s = str(raw).strip().lower()
+    if s == "true":
+        return True
+    if s == "false":
+        return False
+    raise ValueError(raw)
+
+
+def _parse_linux_positive_float(raw):
+    if raw is None or not str(raw).strip():
+        raise ValueError("empty value")
+    try:
+        value = float(str(raw).strip())
+    except ValueError:
+        raise ValueError(f"not a number: {raw!r}")
+    if value <= 0:
+        raise ValueError("must be a positive number")
+    return value
+
+
+def _strip_linux_cli_overrides(argv):
+    """
+    Linux-only: parse --gui / --xmode (true|false), --polling (seconds), remove them from argv.
+    Last occurrence wins if a flag is repeated.
+    """
+    gui_override = None
+    xmode_override = None
+    polling_override = None
+    i = 1
+    kept = [argv[0]] if argv else []
+    while i < len(argv):
+        item = argv[i]
+        if item.startswith("--gui="):
+            gui_override = _parse_linux_bool_flag_token(item.split("=", 1)[1])
+            i += 1
+            continue
+        if item == "--gui":
+            if i + 1 >= len(argv):
+                raise ValueError("--gui requires true or false")
+            gui_override = _parse_linux_bool_flag_token(argv[i + 1])
+            i += 2
+            continue
+        if item.startswith("--xmode="):
+            xmode_override = _parse_linux_bool_flag_token(item.split("=", 1)[1])
+            i += 1
+            continue
+        if item == "--xmode":
+            if i + 1 >= len(argv):
+                raise ValueError("--xmode requires true or false")
+            xmode_override = _parse_linux_bool_flag_token(argv[i + 1])
+            i += 2
+            continue
+        if item.startswith("--polling="):
+            polling_override = _parse_linux_positive_float(item.split("=", 1)[1])
+            i += 1
+            continue
+        if item == "--polling":
+            if i + 1 >= len(argv):
+                raise ValueError("--polling requires a positive number (seconds)")
+            polling_override = _parse_linux_positive_float(argv[i + 1])
+            i += 2
+            continue
+        kept.append(item)
+        i += 1
+    argv[:] = kept
+    return gui_override, xmode_override, polling_override
+
+
 PLATFORM = get_os_and_display_server()
+
+# Linux: CLI UI vs GTK tray — False on other platforms (unused except behind LINUX checks).
+LINUX_USE_CLI_UI = False
+# Linux: optional override for xclip/wl-paste polling sleep (seconds); None = use built-ins (0.3 / 3).
+LINUX_CLIPBOARD_POLL_INTERVAL_SEC = None
 
 if PLATFORM.startswith(LINUX):
     if (
@@ -66,6 +142,25 @@ if PLATFORM.startswith(LINUX):
         XMODE = True
     else:
         XMODE = False
+
+    try:
+        gui_override, xmode_override, polling_override = _strip_linux_cli_overrides(
+            sys.argv
+        )
+    except ValueError as e:
+        print(f"clipcascade (Linux CLI): {e}", file=sys.stderr)
+        sys.exit(2)
+
+    if xmode_override is not None:
+        XMODE = xmode_override
+
+    if gui_override is not None:
+        LINUX_USE_CLI_UI = not gui_override
+    else:
+        LINUX_USE_CLI_UI = not XMODE
+
+    if polling_override is not None:
+        LINUX_CLIPBOARD_POLL_INTERVAL_SEC = polling_override
 
 
 # App version
