@@ -11,6 +11,51 @@ from gui.info import CustomDialog
 from core.constants import *
 
 
+class HoverTooltip:
+    """Simple hover tooltip for Tk widgets."""
+
+    def __init__(self, widget, text, wraplength=520):
+        self.widget = widget
+        self.text = text
+        self.wraplength = wraplength
+        self.tooltip_window = None
+        self.widget.bind("<Enter>", self._show, add="+")
+        self.widget.bind("<Leave>", self._hide, add="+")
+        self.widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _show(self, _event=None):
+        if self.tooltip_window or not self.text.strip():
+            return
+
+        # Position tooltip near the widget with an offset.
+        x = self.widget.winfo_rootx() + 18
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 8
+
+        self.tooltip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+
+        label = tk.Label(
+            tw,
+            text=self.text,
+            justify=tk.LEFT,
+            relief=tk.SOLID,
+            borderwidth=1,
+            background="#ffffe0",
+            foreground="#202020",
+            font=("Helvetica", 10),
+            wraplength=self.wraplength,
+            padx=8,
+            pady=6,
+        )
+        label.pack()
+
+    def _hide(self, _event=None):
+        if self.tooltip_window:
+            self.tooltip_window.destroy()
+            self.tooltip_window = None
+
+
 class LoginForm(tk.Tk):
     def __init__(
         self,
@@ -30,6 +75,7 @@ class LoginForm(tk.Tk):
 
         self.withdraw()  # Hide the root window
         self.title("ClipCascade")
+        self._tooltips = []
 
         # Make the window appear on top and grab focus
         self.attributes("-topmost", True)
@@ -66,6 +112,11 @@ class LoginForm(tk.Tk):
         self.username_entry = ttk.Entry(self.field_frame, width=50, font=("Helvetica", 13))
         self.username_entry.insert(0, self.config.data["username"])
         self.username_entry.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self._add_tooltip(
+            [user_label, self.username_entry],
+            "Username used to log in to your ClipCascade account.\n\n"
+            "Use the same account name on all devices that should share clipboard data.",
+        )
 
         # Password
         pass_label = ttk.Label(self.field_frame, text="Password:")
@@ -83,6 +134,12 @@ class LoginForm(tk.Tk):
         )
         self.eye_icon.pack(side=tk.RIGHT, padx=(5, 0))
         self.eye_icon.bind("<Button-1>", self._toggle_password)
+        self._add_tooltip(
+            [pass_label, self.password_entry, self.eye_icon],
+            "Account password used for server authentication.\n\n"
+            "If encryption is enabled, this password is also used to derive your encryption key.\n"
+            "Use the same password on all devices for successful decrypt/sync.",
+        )
 
         # Server URL
         server_label = ttk.Label(self.field_frame, text="Server URL:")
@@ -90,6 +147,15 @@ class LoginForm(tk.Tk):
         self.server_url_entry = ttk.Entry(self.field_frame, width=50, font=("Helvetica", 13))
         self.server_url_entry.insert(0, self.config.data["server_url"])
         self.server_url_entry.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self._add_tooltip(
+            [server_label, self.server_url_entry],
+            "Address of your ClipCascade server.\n\n"
+            "Examples:\n"
+            "- Local server: http://localhost:8080\n"
+            "- LAN server: http://192.168.1.50:8080\n"
+            "- Reverse proxy/domain: https://clipcascade.example.com\n\n"
+            "Include protocol (http/https). Do not add /login or /clipsocket.",
+        )
 
         # Configure grid weights to ensure entries expand
         self.field_frame.columnconfigure(1, weight=1)
@@ -107,6 +173,13 @@ class LoginForm(tk.Tk):
             takefocus=False,
         )
         self.cipher_checkbox.pack(pady=3, anchor=tk.W)
+        self._add_tooltip(
+            [self.cipher_checkbox],
+            "Enables end-to-end encryption for clipboard content (recommended).\n\n"
+            "When enabled, clipboard data is encrypted on-device before sending.\n"
+            "All devices in the same account must use the same encryption settings "
+            "(password, salt, and hash rounds) to decrypt data correctly.",
+        )
 
         # Notification Checkbox
         self.notification_var = tk.BooleanVar(value=self.config.data["notification"])
@@ -117,6 +190,12 @@ class LoginForm(tk.Tk):
             takefocus=False,
         )
         self.notification_checkbox.pack(pady=3, anchor=tk.W)
+        self._add_tooltip(
+            [self.notification_checkbox],
+            "Shows local notifications for connection status events.\n\n"
+            "Useful to know when WebSocket disconnects/reconnects happen.\n"
+            "Turn this off if you prefer a quieter experience with fewer popups.",
+        )
 
         # Button frame
         button_frame = ttk.Frame(main_frame)
@@ -140,6 +219,11 @@ class LoginForm(tk.Tk):
         )
         self.toggle_label.pack(pady=(5, 10))
         self.toggle_label.bind("<Button-1>", self._toggle_extra_config)
+        self._add_tooltip(
+            [self.toggle_label],
+            "Shows advanced settings for encryption and clipboard behavior.\n\n"
+            "Most users can keep defaults. Open this section only if you need custom tuning.",
+        )
 
         # hover effects for the toggle label
         self.toggle_label.bind("<Enter>", self._on_hover)
@@ -192,6 +276,13 @@ class LoginForm(tk.Tk):
         self.hash_rounds_entry = ttk.Entry(self.extra_frame, width=50, font=("Helvetica", 13))
         self.hash_rounds_entry.insert(0, str(self.config.data["hash_rounds"]))
         self.hash_rounds_entry.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self._add_tooltip(
+            [hash_rounds_label, self.hash_rounds_entry],
+            "Number of hash iterations used for encryption key derivation.\n\n"
+            "Higher value = stronger brute-force resistance, but slower processing.\n"
+            "Default is tuned for balance. Keep default unless you know why to change.\n"
+            "Must be a positive integer and must match on every device.",
+        )
 
         # Salt
         salt_label = ttk.Label(self.extra_frame, text="Salt:")
@@ -199,6 +290,14 @@ class LoginForm(tk.Tk):
         self.salt_entry = ttk.Entry(self.extra_frame, width=50, font=("Helvetica", 13))
         self.salt_entry.insert(0, self.config.data["salt"])
         self.salt_entry.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self._add_tooltip(
+            [salt_label, self.salt_entry],
+            "Optional extra text mixed into encryption key generation.\n\n"
+            "It can be any combination of letters and numbers (you can also include symbols/spaces if desired).\n"
+            "Use the same exact salt on all devices if encryption is enabled.\n"
+            "If left blank, encryption still works using password + hash rounds.\n"
+            "Changing salt later will prevent old devices from decrypting new clipboard data.",
+        )
 
         # Save Password Locally Checkbox
         save_password_label = ttk.Label(
@@ -213,6 +312,12 @@ class LoginForm(tk.Tk):
             takefocus=False,
         )
         self.save_password_checkbox.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
+        self._add_tooltip(
+            [save_password_label, self.save_password_checkbox],
+            "Stores your plain password locally for automatic login convenience.\n\n"
+            "Security trade-off: avoid this on shared or untrusted machines.\n"
+            "This only works when encryption is disabled.",
+        )
 
         # Maximum Clipboard Size - Local Limit
         local_clipboard_size_label = ttk.Label(
@@ -226,6 +331,14 @@ class LoginForm(tk.Tk):
             0, str(self.config.data["max_clipboard_size_local_limit_bytes"] or "")
         )
         self.local_clipboard_size_entry.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self._add_tooltip(
+            [local_clipboard_size_label, self.local_clipboard_size_entry],
+            "Optional local safety limit for clipboard payload size (incoming and outgoing) in bytes.\n\n"
+            "Example: 1 MiB = 1048576 bytes.\n"
+            "Leave empty for no local limit.\n"
+            "Use a lower value if your device struggles with very large clipboard data "
+            "(large text/images/files). Must be a positive integer.",
+        )
 
         # Enable Image Sharing Checkbox
         enable_image_sharing_label = ttk.Label(self.extra_frame, text="Enable Image Sharing:")
@@ -239,6 +352,11 @@ class LoginForm(tk.Tk):
             takefocus=False,
         )
         self.enable_image_sharing_checkbox.grid(row=4, column=1, padx=10, pady=5, sticky=tk.W)
+        self._add_tooltip(
+            [enable_image_sharing_label, self.enable_image_sharing_checkbox],
+            "Controls whether this device sends copied images to other devices.\n\n"
+            "If disabled, this device can still receive images sent from other devices.",
+        )
 
         # Enable File Sharing Checkbox
         enable_file_sharing_label = ttk.Label(self.extra_frame, text="Enable File Sharing:")
@@ -250,6 +368,11 @@ class LoginForm(tk.Tk):
             takefocus=False,
         )
         self.enable_file_sharing_checkbox.grid(row=5, column=1, padx=10, pady=5, sticky=tk.W)
+        self._add_tooltip(
+            [enable_file_sharing_label, self.enable_file_sharing_checkbox],
+            "Controls whether this device sends copied/shared files to other devices.\n\n"
+            "If disabled, this device can still receive files sent from other devices.",
+        )
 
         # Default File Download Location
         default_file_download_location_label = ttk.Label(
@@ -266,6 +389,15 @@ class LoginForm(tk.Tk):
         )
         self.default_file_download_location_entry.grid(
             row=6, column=1, padx=10, pady=5, sticky=tk.W + tk.E
+        )
+        self._add_tooltip(
+            [default_file_download_location_label, self.default_file_download_location_entry],
+            "Optional default folder to save incoming files automatically.\n\n"
+            "Examples:\n"
+            "- Windows: C:\\Users\\YourName\\Downloads\n"
+            "- macOS/Linux: /Users/yourname/Downloads\n\n"
+            "Leave blank to choose a location manually when downloading files.\n"
+            "Path must already exist on this device.",
         )
 
         # Configure grid weights for extra_frame
@@ -309,6 +441,10 @@ class LoginForm(tk.Tk):
         )
         for w in extra_entries:
             w.configure(takefocus=bool(self.show_extra))
+
+    def _add_tooltip(self, widgets, text):
+        for widget in widgets:
+            self._tooltips.append(HoverTooltip(widget, text))
 
     def _macos_restore_focus(self):
         """Force macOS to properly activate and focus the window.
