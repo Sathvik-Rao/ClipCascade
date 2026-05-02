@@ -48,7 +48,12 @@ class LoginForm(tk.Tk):
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Title Label
-        title_label = ttk.Label(main_frame, text="Please Log In", font=("Helvetica", 16, "bold"))
+        title_label = ttk.Label(
+            main_frame,
+            text="Please Log In",
+            font=("Helvetica", 16, "bold"),
+            takefocus=False,
+        )
         title_label.pack(pady=(0, 10))
 
         # Create a frame for the fields
@@ -73,7 +78,9 @@ class LoginForm(tk.Tk):
         self.password_entry.insert(0, self.config.data["password"])
         self.password_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        self.eye_icon = ttk.Label(self.password_frame, text="🙈", cursor="hand2")
+        self.eye_icon = ttk.Label(
+            self.password_frame, text="🙈", cursor="hand2", takefocus=False
+        )
         self.eye_icon.pack(side=tk.RIGHT, padx=(5, 0))
         self.eye_icon.bind("<Button-1>", self._toggle_password)
 
@@ -97,13 +104,17 @@ class LoginForm(tk.Tk):
             checks_frame,
             text="Enable Encryption (recommended)",
             variable=self.cipher_var,
+            takefocus=False,
         )
         self.cipher_checkbox.pack(pady=3, anchor=tk.W)
 
         # Notification Checkbox
         self.notification_var = tk.BooleanVar(value=self.config.data["notification"])
         self.notification_checkbox = ttk.Checkbutton(
-            checks_frame, text="Enable Notification", variable=self.notification_var
+            checks_frame,
+            text="Enable Notification",
+            variable=self.notification_var,
+            takefocus=False,
         )
         self.notification_checkbox.pack(pady=3, anchor=tk.W)
 
@@ -125,6 +136,7 @@ class LoginForm(tk.Tk):
             fg=self.toggle_normal_color,
             cursor="hand2",
             font=font.Font(family="Helvetica", size=13, underline=True),
+            takefocus=False,
         )
         self.toggle_label.pack(pady=(5, 10))
         self.toggle_label.bind("<Button-1>", self._toggle_extra_config)
@@ -140,7 +152,10 @@ class LoginForm(tk.Tk):
 
         # Create a canvas inside the extra_frame_container
         self.extra_canvas = tk.Canvas(
-            self.extra_frame_container, borderwidth=0, background="#f0f0f0"
+            self.extra_frame_container,
+            borderwidth=0,
+            background="#f0f0f0",
+            takefocus=False,
         )
         self.extra_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -149,6 +164,7 @@ class LoginForm(tk.Tk):
             self.extra_frame_container,
             orient="vertical",
             command=self.extra_canvas.yview,
+            takefocus=False,
         )
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
@@ -194,6 +210,7 @@ class LoginForm(tk.Tk):
         self.save_password_checkbox = ttk.Checkbutton(
             self.extra_frame,
             variable=self.save_password_var,
+            takefocus=False,
         )
         self.save_password_checkbox.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
 
@@ -219,6 +236,7 @@ class LoginForm(tk.Tk):
         self.enable_image_sharing_checkbox = ttk.Checkbutton(
             self.extra_frame,
             variable=self.enable_image_sharing_var,
+            takefocus=False,
         )
         self.enable_image_sharing_checkbox.grid(row=4, column=1, padx=10, pady=5, sticky=tk.W)
 
@@ -229,6 +247,7 @@ class LoginForm(tk.Tk):
         self.enable_file_sharing_checkbox = ttk.Checkbutton(
             self.extra_frame,
             variable=self.enable_file_sharing_var,
+            takefocus=False,
         )
         self.enable_file_sharing_checkbox.grid(row=5, column=1, padx=10, pady=5, sticky=tk.W)
 
@@ -267,6 +286,8 @@ class LoginForm(tk.Tk):
         # on press enter key
         self.bind("<Return>", lambda event: self.on_login())
 
+        self._sync_login_tab_order()
+
         self.deiconify()  # Show window
         self.update_idletasks()
         center_window(self, self.max_window_height)
@@ -276,6 +297,18 @@ class LoginForm(tk.Tk):
 
         if PLATFORM == MACOS:
             self.after(400, self._macos_restore_focus)
+
+    def _sync_login_tab_order(self):
+        """Tab cycles username → password → server → Login → [extra entries if shown] → repeat.
+        Checkboxes and chrome are excluded from keyboard focus."""
+        extra_entries = (
+            self.hash_rounds_entry,
+            self.salt_entry,
+            self.local_clipboard_size_entry,
+            self.default_file_download_location_entry,
+        )
+        for w in extra_entries:
+            w.configure(takefocus=bool(self.show_extra))
 
     def _macos_restore_focus(self):
         """Force macOS to properly activate and focus the window.
@@ -300,13 +333,23 @@ class LoginForm(tk.Tk):
 
     def _toggle_extra_config(self, event=None):
         """Toggle the visibility of the extra configuration fields."""
+        extra_entries = (
+            self.hash_rounds_entry,
+            self.salt_entry,
+            self.local_clipboard_size_entry,
+            self.default_file_download_location_entry,
+        )
         if self.show_extra:
+            focused = self.focus_get()
+            if focused in extra_entries:
+                self.login_button.focus_set()
             self.extra_frame_container.pack_forget()
             self.toggle_label.config(text="Enable Extra Config")
         else:
             self.extra_frame_container.pack(fill=tk.BOTH, expand=True)
             self.toggle_label.config(text="Hide Extra Config")
         self.show_extra = not self.show_extra
+        self._sync_login_tab_order()
 
         self.update_idletasks()
         self.geometry("")
