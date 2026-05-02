@@ -68,7 +68,7 @@ def _monitor_x_wl_clipboard(
     if x_mode:
         timeout = 0.3  # xclip seconds
     else:
-        timeout = 1  # wl-clipboard seconds
+        timeout = 3  # wl-clipboard seconds
 
     while _run_poll.is_set():
         if x_mode:
@@ -401,6 +401,7 @@ def _start_clipboard_polling(enable_image_monitoring, enable_file_monitoring):
 
 def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
     global _is_gdk_running, _run_poll
+    logging.info(f"XMODE: {XMODE}")
     try:
         _run_poll.set()
         import gi
@@ -410,6 +411,7 @@ def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
         from gi.repository import Gtk, Gdk
 
         if "x11" in str(type(Gdk.Display.get_default())).lower():  # X11
+            logging.info("Starting GTK clipboard monitoring for X11 display server.")
             clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
             clipboard.connect(
                 "owner-change",
