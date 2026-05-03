@@ -60,7 +60,7 @@ import StartForegroundService from './StartForegroundService';
  */
 
 // App version
-const APP_VERSION = '3.1.0';
+const APP_VERSION = '3.2.0';
 
 // Main App
 export default function App() {

@@ -6,7 +6,7 @@ import asyncio
 import uuid
 
 from threading import Lock, Thread
-from typing import List, Optional
+from typing import Dict, List, Optional
 from core.config import Config
 from interfaces.ws_interface import WSInterface
 from utils.cipher_manager import CipherManager
@@ -62,6 +62,12 @@ class P2PManager(WSInterface):
         # If PEER_LIST arrives before ASSIGNED_ID (e.g. right after signaling reconnect), mesh setup waits.
         self._pending_peer_list: Optional[List[str]] = None
 
+        # True during full P2P teardown (logout / signaling reconnect prep); suppresses ICE recovery.
+        self._p2p_shutting_down: bool = False
+        # Serialize recover + offer handling per peer (same asyncio loop as signaling handlers).
+        self._peer_recovery_locks: Dict[str, asyncio.Lock] = {}
+        self._dc_heartbeat_handle: Optional[asyncio.TimerHandle] = None
+
         # Event loop for asyncio
         self.loop = asyncio.new_event_loop()
         self.loop_thread = Thread(
@@ -72,6 +78,37 @@ class P2PManager(WSInterface):
     def schedule_task(self, coro):
         """Submit an async function to the manager's event loop thread."""
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
+
+    def _cancel_dc_heartbeat(self) -> None:
+        if self._dc_heartbeat_handle is not None:
+            self._dc_heartbeat_handle.cancel()
+            self._dc_heartbeat_handle = None
+
+    def _dc_heartbeat_tick(self) -> None:
+        self._dc_heartbeat_handle = None
+        if self.disconnected or self._p2p_shutting_down or not self.is_connected:
+            return
+        ping = json.dumps({"_cc_keepalive": True})
+        for ch in list(self.data_channels.values()):
+            try:
+                if getattr(ch, "readyState", "") == "open":
+                    ch.send(ping)
+            except Exception:
+                pass
+        self._schedule_next_dc_heartbeat()
+
+    def _schedule_next_dc_heartbeat(self) -> None:
+        if self.disconnected or self._p2p_shutting_down or not self.is_connected:
+            return
+        self._cancel_dc_heartbeat()
+        self._dc_heartbeat_handle = self.loop.call_later(
+            P2P_DC_HEARTBEAT_INTERVAL_SEC, self._dc_heartbeat_tick
+        )
+
+    def _restart_dc_heartbeat(self) -> None:
+        self._cancel_dc_heartbeat()
+        if not self.disconnected and not self._p2p_shutting_down and self.is_connected:
+            self._schedule_next_dc_heartbeat()
 
     def set_tray_ref(self, sys_tray: TaskbarPanel):
         """
@@ -240,6 +277,7 @@ class P2PManager(WSInterface):
 
             self.is_connected = True
             self.is_auto_reconnecting = False
+            self.loop.call_soon_threadsafe(self._restart_dc_heartbeat)
             if not self.first_conn_lost:
                 self.first_conn_lost = True
                 self.notification_manager.notify(
@@ -300,26 +338,32 @@ class P2PManager(WSInterface):
             logging.error(f"Failed to disconnect websocket: {e}")
 
     async def _cleanup_peer_connections(self):
+        self._p2p_shutting_down = True
+        self._cancel_dc_heartbeat()
         try:
-            for dc in list(self.data_channels.values()):
-                try:
-                    dc.close()
-                except Exception:
-                    pass
+            try:
+                for dc in list(self.data_channels.values()):
+                    try:
+                        dc.close()
+                    except Exception:
+                        pass
 
-            for pc in list(self.peer_connections.values()):
-                try:
-                    await asyncio.wait_for(pc.close(), timeout=P2P_PC_CLOSE_TIMEOUT_SEC)
-                except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
-                    pass
+                for pc in list(self.peer_connections.values()):
+                    try:
+                        await asyncio.wait_for(pc.close(), timeout=P2P_PC_CLOSE_TIMEOUT_SEC)
+                    except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                        pass
+            finally:
+                self.my_peer_id = None
+                self.peers.clear()
+                self.peer_connections.clear()
+                self.data_channels.clear()
+                self._pending_peer_list = None
+                self._peer_recovery_locks.clear()
+                with self._live_connections_lock:
+                    self.live_connections = 0
         finally:
-            self.my_peer_id = None
-            self.peers.clear()
-            self.peer_connections.clear()
-            self.data_channels.clear()
-            self._pending_peer_list = None
-            with self._live_connections_lock:
-                self.live_connections = 0
+            self._p2p_shutting_down = False
 
     async def _handle_peer_list(self, peer_list):
         """
@@ -327,11 +371,10 @@ class P2PManager(WSInterface):
         We create connections or data channels accordingly.
         """
         updated_peers = set(peer_list)
-        # 1) Remove any stale peers
-        await self._remove_stale_peers(updated_peers)
-
-        # 2) Update self.peers
+        # Keep room membership in sync before closing stale PCs so ICE recovery does not
+        # treat removed peers as still present when data-channel close handlers run.
         self.peers = updated_peers
+        await self._remove_stale_peers(updated_peers)
 
         if self.my_peer_id is None:
             self._pending_peer_list = list(peer_list)
@@ -364,6 +407,7 @@ class P2PManager(WSInterface):
         stale_ids = set(self.peer_connections.keys()) - updated_peers
         for old_pid in stale_ids:
             logging.debug(f"Removing stale peer: {old_pid}")
+            self._peer_recovery_locks.pop(old_pid, None)
             # Close data channel
             dc = self.data_channels.pop(old_pid, None)
             if dc is not None:
@@ -381,6 +425,76 @@ class P2PManager(WSInterface):
                     pass
 
         self._sync_live_connections_count()
+
+    def _get_peer_lock(self, peer_id: str) -> asyncio.Lock:
+        lock = self._peer_recovery_locks.get(peer_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._peer_recovery_locks[peer_id] = lock
+        return lock
+
+    async def _dispose_peer_connection(self, peer_id: str) -> None:
+        """Close and drop one peer's DC/PC without changing self.peers (used by recovery and offer handling)."""
+        dc = self.data_channels.pop(peer_id, None)
+        if dc is not None:
+            try:
+                dc.close()
+            except Exception:
+                pass
+        pc = self.peer_connections.pop(peer_id, None)
+        if pc is not None:
+            try:
+                await asyncio.wait_for(pc.close(), timeout=P2P_PC_CLOSE_TIMEOUT_SEC)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                pass
+        self._sync_live_connections_count()
+
+    async def _recover_peer_transport(
+        self, remote_peer_id: str, dead_pc: Optional[RTCPeerConnection] = None
+    ) -> None:
+        """
+        Re-establish WebRTC to a peer that is still in the room after ICE failure or data-channel loss.
+        Signaling WebSocket stays up; no server change required.
+        """
+        if self._p2p_shutting_down or self.disconnected or self.is_login_phase:
+            return
+        if self.my_peer_id is None or remote_peer_id not in self.peers:
+            return
+        if dead_pc is not None and self.peer_connections.get(remote_peer_id) is not dead_pc:
+            return
+
+        lock = self._get_peer_lock(remote_peer_id)
+        async with lock:
+            if self._p2p_shutting_down or self.disconnected or self.my_peer_id is None:
+                return
+            if remote_peer_id not in self.peers:
+                return
+            if dead_pc is not None and self.peer_connections.get(remote_peer_id) is not dead_pc:
+                return
+            if dead_pc is None:
+                ch = self.data_channels.get(remote_peer_id)
+                if ch is not None and getattr(ch, "readyState", "") == "open":
+                    return
+
+            logging.info("P2P: recovering WebRTC transport to peer %s", remote_peer_id)
+
+            await self._dispose_peer_connection(remote_peer_id)
+
+            if (
+                self._p2p_shutting_down
+                or self.my_peer_id is None
+                or remote_peer_id not in self.peers
+            ):
+                return
+
+            pc = self._create_peer_connection(remote_peer_id)
+            self.peer_connections[remote_peer_id] = pc
+
+            if self.my_peer_id < remote_peer_id:
+                channel = pc.createDataChannel("cliptext")
+                self.data_channels[remote_peer_id] = channel
+                self._setup_data_channel(remote_peer_id, channel)
+                await self._create_offer(remote_peer_id)
 
     def _create_peer_connection(self, remote_peer_id: str) -> RTCPeerConnection:
         """
@@ -423,6 +537,15 @@ class P2PManager(WSInterface):
                     }
                 )
 
+        @pc.on("connectionstatechange")
+        def on_connectionstatechange():
+            try:
+                state = pc.connectionState
+            except Exception:
+                return
+            if state in ("failed", "closed"):
+                self.schedule_task(self._recover_peer_transport(remote_peer_id, pc))
+
         @pc.on("datachannel")
         def on_datachannel(channel):
             # This fires when the remote side creates a datachannel
@@ -454,29 +577,45 @@ class P2PManager(WSInterface):
     async def _handle_offer(self, from_peer_id: str, offer: dict):
         """
         Respond to an incoming OFFER from a remote peer.
+        Always replaces any existing RTCPeerConnection for this peer before applying
+        the SDP: recovery sends a full new offer; applying it on an already-connected
+        PC leaves ICE/datachannel mismatched (remote shows Peers: 1, local 0).
         """
-        pc = self.peer_connections.get(from_peer_id)
-        if not pc:
+        if self._p2p_shutting_down:
+            return
+        # Ignore delayed/stale OFFERs for peers no longer present in the latest PEER_LIST.
+        # Startup guard: allow early signaling before ASSIGNED_ID/PEER_LIST is established.
+        if self.my_peer_id is not None and self.peers and from_peer_id not in self.peers:
+            logging.debug("Ignoring stale OFFER for removed peer: %s", from_peer_id)
+            return
+        lock = self._get_peer_lock(from_peer_id)
+        async with lock:
+            # TOCTOU guard: PEER_LIST can change after the outer fast-path check.
+            if self.my_peer_id is not None and self.peers and from_peer_id not in self.peers:
+                logging.debug("Ignoring stale OFFER for removed peer (in-lock): %s", from_peer_id)
+                return
+            if from_peer_id in self.peer_connections:
+                await self._dispose_peer_connection(from_peer_id)
             pc = self._create_peer_connection(from_peer_id)
             self.peer_connections[from_peer_id] = pc
 
-        desc = RTCSessionDescription(sdp=offer["sdp"], type=offer["type"])
-        await pc.setRemoteDescription(desc)
+            desc = RTCSessionDescription(sdp=offer["sdp"], type=offer["type"])
+            await pc.setRemoteDescription(desc)
 
-        answer = await pc.createAnswer()
-        await pc.setLocalDescription(answer)
+            answer = await pc.createAnswer()
+            await pc.setLocalDescription(answer)
 
-        self.ws_send(
-            {
-                "type": "ANSWER",
-                "fromPeerId": self.my_peer_id,
-                "toPeerId": from_peer_id,
-                "answer": {
-                    "type": pc.localDescription.type,
-                    "sdp": pc.localDescription.sdp,
-                },
-            }
-        )
+            self.ws_send(
+                {
+                    "type": "ANSWER",
+                    "fromPeerId": self.my_peer_id,
+                    "toPeerId": from_peer_id,
+                    "answer": {
+                        "type": pc.localDescription.type,
+                        "sdp": pc.localDescription.sdp,
+                    },
+                }
+            )
 
     async def _handle_answer(self, from_peer_id: str, answer: dict):
         """
@@ -485,6 +624,9 @@ class P2PManager(WSInterface):
         pc = self.peer_connections.get(from_peer_id)
         if not pc:
             logging.warning(f"No peer connection exists for id={from_peer_id}, ignoring ANSWER.")
+            return
+        if getattr(pc, "connectionState", "") in ("failed", "closed"):
+            logging.debug("Ignoring ANSWER for dead peer connection: %s", from_peer_id)
             return
         desc = RTCSessionDescription(sdp=answer["sdp"], type=answer["type"])
         await pc.setRemoteDescription(desc)
@@ -498,6 +640,9 @@ class P2PManager(WSInterface):
             logging.warning(
                 f"No peer connection exists for id={from_peer_id}, ignoring ICE_CANDIDATE."
             )
+            return
+        if getattr(pc, "connectionState", "") in ("failed", "closed"):
+            logging.debug("Ignoring ICE candidate for dead peer connection: %s", from_peer_id)
             return
 
         parsed_candidate = P2PManager.parse_ice_candidate_line(candidate_data.get("candidate"))
@@ -536,6 +681,7 @@ class P2PManager(WSInterface):
         @channel.on("close")
         def on_close():
             self._sync_live_connections_count()
+            self.schedule_task(self._recover_peer_transport(remote_peer_id, None))
 
         @channel.on("error")
         def on_error(e):
@@ -606,8 +752,10 @@ class P2PManager(WSInterface):
 
     def _receive(self, frame: any) -> str:
         try:
-            self.reset_sending_fragment_id()
             body = json.loads(frame)
+            if isinstance(body, dict) and body.get("_cc_keepalive") is True:
+                return
+            self.reset_sending_fragment_id()
             payload = body["payload"]
             payload_type = body.get("type", "text")
             metadata = body.get("metadata")
