@@ -4,11 +4,15 @@ import requests
 from core.constants import *
 from core.config import Config
 from bs4 import BeautifulSoup
+from utils.ssl_helper import requests_verify_arg
 
 
 class RequestManager:
     def __init__(self, config: Config):
         self.config = config
+
+    def _verify(self):
+        return requests_verify_arg(self.config)
 
     @staticmethod
     def format_cookie(cookie: dict) -> str:
@@ -22,7 +26,10 @@ class RequestManager:
             session = requests.Session()
 
             # Fetch the login page to get the CSRF token
-            response = session.get(self.config.data["server_url"] + LOGIN_URL)
+            response = session.get(
+                self.config.data["server_url"] + LOGIN_URL,
+                verify=self._verify(),
+            )
 
             if response.status_code != 200:
                 msg = f"Failed to fetch login page: {response.status_code}"
@@ -41,6 +48,7 @@ class RequestManager:
             response = session.post(
                 self.config.data["server_url"] + LOGIN_URL,
                 data=form_data,
+                verify=self._verify(),
             )
             if (
                 response.status_code == 200
@@ -67,6 +75,7 @@ class RequestManager:
                 headers={
                     "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
                 },
+                verify=self._verify(),
             )
             if response.status_code == 200:
                 # maxsize request successful
@@ -86,6 +95,7 @@ class RequestManager:
                 headers={
                     "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
                 },
+                verify=self._verify(),
             )
             if response.status_code == 200:
                 # server mode request successful
@@ -103,6 +113,7 @@ class RequestManager:
                 headers={
                     "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
                 },
+                verify=self._verify(),
             )
             if response.status_code == 200:
                 # stun url request successful
@@ -120,6 +131,7 @@ class RequestManager:
                 headers={
                     "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
                 },
+                verify=True,
             )
             if response.status_code == 200:
                 # metadata request successful
@@ -136,6 +148,7 @@ class RequestManager:
                 headers={
                     "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
                 },
+                verify=self._verify(),
             )
             if response.status_code == 204:
                 logging.info(f"Logout successful: {response.status_code}")
@@ -149,6 +162,7 @@ class RequestManager:
                 headers={
                     "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
                 },
+                verify=self._verify(),
             )
 
             if response.status_code == 200:
@@ -159,12 +173,12 @@ class RequestManager:
             return ""
 
     @staticmethod
-    def get(url: str, headers: dict = None) -> requests.Response:
+    def get(url: str, headers: dict = None, verify=True) -> requests.Response:
         """
         A generic GET mapper for handling GET requests.
         """
         try:
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, verify=verify)
             response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
             return response
         except Exception as e:
@@ -172,12 +186,14 @@ class RequestManager:
             raise
 
     @staticmethod
-    def post(url: str, data: dict, headers: dict = None) -> requests.Response:
+    def post(
+        url: str, data: dict, headers: dict = None, verify=True
+    ) -> requests.Response:
         """
         A generic POST mapper for handling POST requests.
         """
         try:
-            response = requests.post(url, data=data, headers=headers)
+            response = requests.post(url, data=data, headers=headers, verify=verify)
             response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
             return response
         except Exception as e:

@@ -70,8 +70,9 @@ class TaskbarPanel:
     def run(self):
         self.icon.run()
 
-    def create_clipboard_icon(self):
-        width, height = 64, 64  # Icon dimensions
+    def _create_clipboard_base_image(self):
+        """Shared clipboard artwork for normal tray icon and file-download badge variant."""
+        width, height = 64, 64
         image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
 
@@ -80,36 +81,31 @@ class TaskbarPanel:
 
         board_coords = (12, 12, 52, 57)
         try:
-            draw.rounded_rectangle(board_coords, radius=5, fill=None, outline=outline_color, width=3)
+            draw.rounded_rectangle(
+                board_coords, radius=5, fill=None, outline=outline_color, width=3
+            )
         except (AttributeError, TypeError):
             draw.rectangle(board_coords, fill=None, outline=outline_color)
 
         clip_coords = (22, 7, 42, 17)
         try:
-            draw.rounded_rectangle(clip_coords, radius=3, fill=fill_color, outline=outline_color, width=3)
+            draw.rounded_rectangle(
+                clip_coords, radius=3, fill=fill_color, outline=outline_color, width=3
+            )
         except (AttributeError, TypeError):
             draw.rectangle(clip_coords, fill=fill_color, outline=outline_color)
 
         return image
 
+    def create_clipboard_icon(self):
+        return self._create_clipboard_base_image()
+
     def create_clipboard_icon_with_dot(self):
-        width, height = 64, 64  # Icon dimensions
-        image = Image.new("RGBA", (width, height), (255, 255, 255, 0))
-
+        """Same clipboard as normal state, plus a blue notification dot for pending file download."""
+        image = self._create_clipboard_base_image().copy()
         draw = ImageDraw.Draw(image)
+        width, height = 64, 64
 
-        # Draw a clipboard shape
-        clipboard_rect = [15, 10, 49, 50]
-        draw.rectangle(clipboard_rect, fill=(200, 200, 200), outline=(0, 0, 0))
-
-        # Draw the clipboard clip centered horizontally
-        clip_width = 10
-        clip_height = 5
-        clip_x = (clipboard_rect[0] + clipboard_rect[2]) / 2 - clip_width / 2
-        clip_rect = [clip_x, 5, clip_x + clip_width, 5 + clip_height]
-        draw.rectangle(clip_rect, fill=(150, 150, 150), outline=(0, 0, 0))
-
-        # Draw a notification dot in the top-right corner with a shiny effect
         dot_radius = 8
         dot_center_x = width - dot_radius - 5
         dot_center_y = dot_radius + 5
@@ -119,9 +115,8 @@ class TaskbarPanel:
             dot_center_x + dot_radius,
             dot_center_y + dot_radius,
         ]
-        draw.ellipse(dot_bbox, fill=(0, 128, 255, 255))  # Blue dot
+        draw.ellipse(dot_bbox, fill=(0, 128, 255, 255))
 
-        # Add a shiny highlight to the dot
         highlight_radius = dot_radius // 2
         highlight_center_x = dot_center_x - highlight_radius // 2
         highlight_center_y = dot_center_y - highlight_radius // 2
@@ -131,9 +126,7 @@ class TaskbarPanel:
             highlight_center_x + highlight_radius,
             highlight_center_y + highlight_radius,
         ]
-        draw.ellipse(
-            highlight_bbox, fill=(255, 255, 255, 180)
-        )  # Semi-transparent white highlight
+        draw.ellipse(highlight_bbox, fill=(255, 255, 255, 180))
 
         return image
 

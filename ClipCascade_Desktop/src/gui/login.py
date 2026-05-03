@@ -206,12 +206,13 @@ class LoginForm(tk.Tk):
         self.login_button.pack()
 
         # Extra Configurations Toggle Label
-        self.show_extra = False  # State to track visibility
+        # macOS: show advanced fields by default
+        self.show_extra = PLATFORM == MACOS
         self.toggle_normal_color = "#007acc"  # neutral blue with strong contrast
         self.toggle_hover_color = "#005a9e"  # slightly darker for hover feedback
         self.toggle_label = tk.Label(
             main_frame,
-            text="Enable Extra Config",
+            text="Hide Extra Config" if PLATFORM == MACOS else "Enable Extra Config",
             fg=self.toggle_normal_color,
             cursor="hand2",
             font=font.Font(family="Helvetica", size=13, underline=True),
@@ -231,8 +232,10 @@ class LoginForm(tk.Tk):
 
         # Extra Configuration Frame with Scrollbar
         self.extra_frame_container = ttk.Frame(main_frame)
-        # Initially hide the extra configuration frame
-        self.extra_frame_container.pack_forget()
+        if PLATFORM == MACOS:
+            self.extra_frame_container.pack(fill=tk.BOTH, expand=True)
+        else:
+            self.extra_frame_container.pack_forget()
 
         # Create a canvas inside the extra_frame_container
         self.extra_canvas = tk.Canvas(
@@ -400,6 +403,24 @@ class LoginForm(tk.Tk):
             "Path must already exist on this device.",
         )
 
+        # SSL CA bundle (private / corporate PKI)
+        ssl_ca_label = ttk.Label(self.extra_frame, text="SSL CA bundle (optional):")
+        ssl_ca_label.grid(row=7, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.ssl_ca_bundle_entry = ttk.Entry(
+            self.extra_frame, width=50, font=("Helvetica", 13)
+        )
+        self.ssl_ca_bundle_entry.insert(
+            0, self.config.data.get("ssl_ca_bundle") or ""
+        )
+        self.ssl_ca_bundle_entry.grid(row=7, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self._add_tooltip(
+            [ssl_ca_label, self.ssl_ca_bundle_entry],
+            "Path to a PEM file that contains your root CA (or full chain) for HTTPS/WSS.\n\n"
+            "Leave empty for default verification (public CAs / OS defaults).\n"
+            "Use this when your server uses a certificate from a private or internal CA.\n\n"
+            "Example: /etc/ssl/corp-root.pem or C:\\\\certs\\\\corp-root.pem",
+        )
+
         # Configure grid weights for extra_frame
         self.extra_frame.columnconfigure(1, weight=1)
 
@@ -438,6 +459,7 @@ class LoginForm(tk.Tk):
             self.salt_entry,
             self.local_clipboard_size_entry,
             self.default_file_download_location_entry,
+            self.ssl_ca_bundle_entry,
         )
         for w in extra_entries:
             w.configure(takefocus=bool(self.show_extra))
@@ -474,6 +496,7 @@ class LoginForm(tk.Tk):
             self.salt_entry,
             self.local_clipboard_size_entry,
             self.default_file_download_location_entry,
+            self.ssl_ca_bundle_entry,
         )
         if self.show_extra:
             focused = self.focus_get()
@@ -597,6 +620,16 @@ class LoginForm(tk.Tk):
                 ).mainloop()
                 return  # retry login
             self.config.data["default_file_download_location"] = default_file_download_location
+
+        ssl_ca_bundle = self.ssl_ca_bundle_entry.get().strip()
+        if ssl_ca_bundle:
+            if not os.path.isfile(ssl_ca_bundle):
+                CustomDialog(
+                    "Invalid Input\nSSL CA bundle path is not a file or does not exist.",
+                    msg_type="error",
+                ).mainloop()
+                return
+        self.config.data["ssl_ca_bundle"] = ssl_ca_bundle
 
         # call login callback
         if self.on_login_callback:

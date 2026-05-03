@@ -13,6 +13,7 @@ from utils.cipher_manager import CipherManager
 from clipboard.clipboard_manager import ClipboardManager
 from utils.notification_manager import NotificationManager
 from utils.request_manager import RequestManager
+from utils.ssl_helper import websocket_sslopt_for_config
 from core.constants import *
 from aiortc import (
     RTCPeerConnection,
@@ -27,11 +28,6 @@ if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     from cli.tray import TaskbarPanel
 else:
     from gui.tray import TaskbarPanel
-
-if PLATFORM == MACOS:
-    import ssl
-    import certifi
-
 
 class P2PManager(WSInterface):
     def __init__(self, config: Config, is_login_phase=True):
@@ -114,7 +110,13 @@ class P2PManager(WSInterface):
         """
         try:
             if self.ws_client is not None:
-                return
+                if self.is_connected:
+                    return True, ""
+                try:
+                    self.ws_client.close()
+                except Exception:
+                    pass
+                self.ws_client = None
 
             self.ws_client = websocket.WebSocketApp(
                 url=self.config.data["websocket_url"],
@@ -129,9 +131,9 @@ class P2PManager(WSInterface):
                 "ping_interval": P2P_WS_PING_INTERVAL_SEC,
                 "ping_timeout": P2P_WS_PING_TIMEOUT_SEC,
             }
-            if PLATFORM == MACOS:
-                ssl_context = ssl.create_default_context(cafile=certifi.where())
-                ws_run_kw["sslopt"] = {"context": ssl_context}
+            ws_sslopt = websocket_sslopt_for_config(self.config)
+            if ws_sslopt:
+                ws_run_kw["sslopt"] = ws_sslopt
             Thread(
                 target=self.ws_client.run_forever,
                 kwargs=ws_run_kw,
@@ -160,6 +162,10 @@ class P2PManager(WSInterface):
         except Exception as e:
             msg = f"Failed to connect websocket: {e}"
             logging.error(msg)
+            try:
+                self.ws_close()
+            except Exception:
+                pass
             return False, msg
 
     def _on_ws_close(self, ws, *args):

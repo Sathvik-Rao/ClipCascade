@@ -10,6 +10,7 @@ from utils.cipher_manager import CipherManager
 from clipboard.clipboard_manager import ClipboardManager
 from utils.notification_manager import NotificationManager
 from utils.request_manager import RequestManager
+from utils.ssl_helper import websocket_sslopt_for_config
 from core.constants import *
 
 if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
@@ -49,40 +50,42 @@ class STOMPManager(WSInterface):
 
     def connect(self) -> tuple[bool, str]:
         try:
-            if not self.is_connected:
-                self.client = Client(
-                    self.config.data["websocket_url"],
-                    headers={
-                        "Cookie": RequestManager.format_cookie(
-                            self.config.data["cookie"]
-                        )
-                    },
-                    on_close_callback=self._on_close,
-                )
-                self.client.connect(
-                    timeout=WEBSOCKET_TIMEOUT,
-                    connectCallback=lambda _: self.client.subscribe(  # receive event
-                        destination=SUBSCRIPTION_DESTINATION,
-                        callback=self._receive,
-                    ),
-                )
-                if self.disconnected:
-                    self.disconnect()
-                    return False, "Websocket disconnected"
-
-                # logging.info("Websocket connected")
-                self.is_connected = True
-                self.is_auto_reconnecting = False
-                if not self.first_conn_lost:
-                    self.first_conn_lost = True
-                    self.notification_manager.notify(
-                        title=f"{APP_NAME}: WebSocket Connection Restored 🔗",
-                        message="Connection re-established",
+            if self.is_connected:
+                return True, ""
+            self.client = Client(
+                self.config.data["websocket_url"],
+                headers={
+                    "Cookie": RequestManager.format_cookie(
+                        self.config.data["cookie"]
                     )
+                },
+                on_close_callback=self._on_close,
+                sslopt=websocket_sslopt_for_config(self.config),
+            )
+            self.client.connect(
+                timeout=WEBSOCKET_TIMEOUT,
+                connectCallback=lambda _: self.client.subscribe(  # receive event
+                    destination=SUBSCRIPTION_DESTINATION,
+                    callback=self._receive,
+                ),
+            )
+            if self.disconnected:
+                self.disconnect()
+                return False, "Websocket disconnected"
 
-                # send event
-                self.clipboard_manager.on_copy(self.send)
-                return True, "Websocket connected"
+            # logging.info("Websocket connected")
+            self.is_connected = True
+            self.is_auto_reconnecting = False
+            if not self.first_conn_lost:
+                self.first_conn_lost = True
+                self.notification_manager.notify(
+                    title=f"{APP_NAME}: WebSocket Connection Restored 🔗",
+                    message="Connection re-established",
+                )
+
+            # send event
+            self.clipboard_manager.on_copy(self.send)
+            return True, "Websocket connected"
         except Exception as e:
             msg = f"Failed to connect websocket: {e}"
             logging.error(msg)
