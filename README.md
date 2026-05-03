@@ -22,7 +22,7 @@
     </td>
     <td>
       <a href="https://github.com/Sathvik-Rao/ClipCascade/releases">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Windows_logo_-_2012.svg/512px-Windows_logo_-_2012.svg.png" alt="Windows" width="50" />
+        <img src="https://upload.wikimedia.org/wikipedia/commons/5/5f/Windows_logo_-_2012.svg" alt="Windows" width="50" />
       </a>
     </td>
     <td>
@@ -251,6 +251,7 @@ To install the ClipCascade Windows desktop application, follow these steps:
     - When prompted, enter your **server's IP address, port number, or domain name**.
     - If encryption is enabled, ensure it is **enabled on all devices**.
     - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+    - In the **Extra Config** section, you can optionally set **SSL CA bundle** to a PEM file path if your server uses a private/internal CA.
 4. **Network Access Prompt (P2P Mode)**
     - If the server is running in **P2P mode**, you will see a Windows security prompt asking, **"Do you want to allow public and private networks to access this app?"**
 
@@ -260,6 +261,11 @@ To install the ClipCascade Windows desktop application, follow these steps:
     - Click **Allow** to enable clipboard data syncing across your devices without the help of a server. The server is needed only for signaling and authentication.
 
 **Important Note:** Since the application is not published or registered with Microsoft, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning or temporarily disable your antivirus during installation. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Microsoft requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
+
+To build your own desktop executable from source (`ClipCascade_Desktop/src`):
+```bash
+python3 -m PyInstaller ClipCascade_win.spec
+```
 
 The `.exe` file does not need UAC approval because it is standalone executable, while the `.msi` installer will request UAC permissions because it creates a designated folder for the software, adds a startup option, and allows for uninstallation via the Control Panel. Additionally, with the .msi installer, you have the option to choose any location to save the software. However, select locations where even when you create a file manually at that location, Windows shouldn’t prompt for permission to answer "yes or no" questions.
 
@@ -307,6 +313,7 @@ To install the ClipCascade macOS desktop application, follow these steps:
     - When prompted, enter your **server's IP address, port number, or domain name**.
     - If encryption is enabled, ensure it is **enabled on all devices**.
     - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+    - In the **Extra Config** section, you can optionally set **SSL CA bundle** to a PEM file path if your server uses a private/internal CA.
 
 7. **Network Access Prompt (P2P Mode)**
     - If the server is running in **P2P mode**, you will see a macOS security prompt asking, **"Allow "ClipCascade" to find devices on local networks?"**
@@ -322,10 +329,16 @@ To install the ClipCascade macOS desktop application, follow these steps:
 9. **Enable Auto-Startup**:
      - Right-click the **ClipCascade** icon in the dock (bottom of the screen).
      - Select **Options** and then check **Open at Login**.
-
+       
        <img src="https://github.com/user-attachments/assets/cadeb680-d1fd-4582-9d20-b41ba8713b39" alt="Startup" width="200" />
+     - Alternatively, open **Settings** → **General** → **Login Items & Extensions**, then add **ClipCascade** manually.
 
 **Important Note:** Since the application is not published or registered with Apple, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Apple requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
+
+To build your own desktop executable from source (`ClipCascade_Desktop/src`):
+```bash
+python3 -m PyInstaller ClipCascade_macos.spec
+```
 
 [➡️ Explore Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
 
@@ -484,9 +497,24 @@ Start ClipCascade by running (use sudo if needed):
    - When prompted, enter your **server's IP address, port number, or domain name**.
    - If encryption is enabled, ensure it is **enabled on all devices**.
    - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+   - In the **Extra Config** section, you can optionally set **SSL CA bundle** to a PEM file path if your server uses a private/internal CA.
 ```
 python3 main.py
 ```
+
+Linux supports optional launch arguments to manually tune behavior when needed:
+- `--gui <true|false>`: force GUI mode (`true`) or terminal/CLI mode (`false`).
+- `--xmode <true|false>`: force X11/XWayland-style clipboard path (`true`) or Wayland-style path (`false`).
+- `--polling <seconds>`: override clipboard polling interval (must be a positive number).
+
+Examples:
+```bash
+python3 main.py --gui true
+python3 main.py --gui false --xmode false --polling 3
+python3 main.py --polling 1.5
+```
+
+If these flags are not provided, ClipCascade automatically detects your environment and selects the most suitable mode.
 
 
 #### Step 5.1: Fix 'No module named `Crypto`' Error (if applicable)
@@ -1042,6 +1070,7 @@ Defines the STOMP broker password for external message handling.
 
   #### Desktop (Specific):
   - **Default File Download Location**: When this path is set, the app will save files directly to the specified location without prompting the user each time the "Download Files" button is clicked.
+  - **SSL CA bundle (optional)**: Path to a PEM file containing your root CA (or full chain) used for HTTPS/WSS verification. Leave it empty to use default public CA/OS trust. Use this field when your ClipCascade server certificate is signed by a private/internal CA (for example, corporate PKI).
   
   #### Android (Specific):
   - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
@@ -1103,7 +1132,7 @@ You can adjust these settings in the **Extra Config** section on the login page 
    | **macOS**                 | Utilizes the `pasteboard` to monitor the clipboard with polling every 0.3 seconds. Instead of checking clipboard content directly, it compares a counter to detect changes efficiently. |
    | **Linux (X11)**           | Integrates `Gtk.Clipboard` to capture clipboard changes in an event-driven manner, running in GUI mode.                                                         |
    | **Linux (XWayland, Unknown)** | Switches between `Gtk.Clipboard` (event-based) or `x-clip` (polling every 0.3 seconds) depending on permissions (requires sudo for `Gtk.Clipboard`). Both operate in GUI mode. |
-   | **Linux (Wayland, Hyprland)** | Uses `wl-clipboard` with polling every 1 seconds in CLI mode. The delay accounts for Wayland's requirement to focus a window to grab clipboard content. |
+   | **Linux (Wayland, Hyprland)** | Uses `wl-clipboard` with polling every 3 seconds in CLI mode by default. The delay accounts for Wayland's requirement to focus a window to grab clipboard content. You can override this using `--polling`. |
    | **Android**               | Uses `ClipboardManager` to capture clipboard changes in an event-driven manner.                                                                         |
 
 
