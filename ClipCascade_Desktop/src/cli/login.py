@@ -61,21 +61,6 @@ class LoginForm:
             server_url.strip()
         )
 
-        ssl_ca_bundle = (
-            input(
-                f"ssl ca bundle path (optional) [{self.config.data.get('ssl_ca_bundle') or ''}]: "
-            )
-            or (self.config.data.get("ssl_ca_bundle") or "")
-        ).strip()
-        if ssl_ca_bundle:
-            if not os.path.isfile(ssl_ca_bundle):
-                CustomDialog(
-                    "Invalid Input\nSSL CA bundle path is not a file or does not exist.",
-                    msg_type="error",
-                ).mainloop()
-                return
-        self.config.data["ssl_ca_bundle"] = ssl_ca_bundle
-
         self.config.data["cipher_enabled"] = LoginForm.str_to_bool(
             input(
                 f"enabled encryption(recommended) [{LoginForm.bool_to_str(self.config.data['cipher_enabled'])}]: "
@@ -200,6 +185,21 @@ class LoginForm:
                 default_file_download_location
             )
             break
+
+        ssl_ca_bundle = (
+            input(
+                f"ssl ca bundle path (optional) [{self.config.data.get('ssl_ca_bundle') or ''}]: "
+            )
+            or (self.config.data.get("ssl_ca_bundle") or "")
+        ).strip()
+        if ssl_ca_bundle:
+            if not os.path.isfile(ssl_ca_bundle):
+                CustomDialog(
+                    "Invalid Input\nSSL CA bundle path is not a file or does not exist.",
+                    msg_type="error",
+                ).mainloop()
+                return
+        self.config.data["ssl_ca_bundle"] = ssl_ca_bundle
 
         CustomDialog("Logging in...").mainloop()
 
