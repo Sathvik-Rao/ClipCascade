@@ -8,11 +8,13 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.session.SessionRegistry;
-import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
+import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.session.Session;
+import org.springframework.session.security.SpringSessionBackedSessionRegistry;
 import com.acme.clipcascade.service.BruteForceProtectionService;
 import com.acme.clipcascade.service.FacadeUserService;
 
@@ -37,10 +39,13 @@ public class SecurityConfiguration {
 		this.facadeUserService = facadeUserService;
 	}
 
-	// SessionRegistry bean to store session information
+	// Replaces the in-memory SessionRegistryImpl with a registry backed by
+	// the Spring Session repository, so server-side session state survives a
+	// restart and existing client cookies remain valid.
 	@Bean
-	public SessionRegistry sessionRegistry() {
-		return new SessionRegistryImpl();
+	public SessionRegistry sessionRegistry(
+			FindByIndexNameSessionRepository<? extends Session> sessionRepository) {
+		return new SpringSessionBackedSessionRegistry<>(sessionRepository);
 	}
 
 	// Ensures the SessionRegistry is notified of session lifecycle events
@@ -50,7 +55,9 @@ public class SecurityConfiguration {
 	}
 
 	@Bean
-	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+	public SecurityFilterChain securityFilterChain(
+			HttpSecurity http,
+			SessionRegistry sessionRegistry) throws Exception {
 		return http
 				.authorizeHttpRequests((authorize) -> authorize
 						.requestMatchers(
@@ -78,7 +85,7 @@ public class SecurityConfiguration {
 				.sessionManagement(session -> session
 						.sessionCreationPolicy(SessionCreationPolicy.ALWAYS) // Always create a new session
 						.maximumSessions(-1) // Allow unlimited sessions
-						.sessionRegistry(sessionRegistry()) // Use the session registry
+						.sessionRegistry(sessionRegistry)
 						.expiredSessionStrategy(new CustomExpiredSession())) // Custom expired session strategy
 				.build();
 	}
