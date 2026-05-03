@@ -251,7 +251,6 @@ To install the ClipCascade Windows desktop application, follow these steps:
     - When prompted, enter your **server's IP address, port number, or domain name**.
     - If encryption is enabled, ensure it is **enabled on all devices**.
     - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
-    - In the **Extra Config** section, you can optionally set **SSL CA bundle** to a PEM file path if your server uses a private/internal CA.
 4. **Network Access Prompt (P2P Mode)**
     - If the server is running in **P2P mode**, you will see a Windows security prompt asking, **"Do you want to allow public and private networks to access this app?"**
 
@@ -313,7 +312,6 @@ To install the ClipCascade macOS desktop application, follow these steps:
     - When prompted, enter your **server's IP address, port number, or domain name**.
     - If encryption is enabled, ensure it is **enabled on all devices**.
     - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
-    - In the **Extra Config** section, you can optionally set **SSL CA bundle** to a PEM file path if your server uses a private/internal CA.
 
 7. **Network Access Prompt (P2P Mode)**
     - If the server is running in **P2P mode**, you will see a macOS security prompt asking, **"Allow "ClipCascade" to find devices on local networks?"**
@@ -497,7 +495,6 @@ Start ClipCascade by running (use sudo if needed):
    - When prompted, enter your **server's IP address, port number, or domain name**.
    - If encryption is enabled, ensure it is **enabled on all devices**.
    - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
-   - In the **Extra Config** section, you can optionally set **SSL CA bundle** to a PEM file path if your server uses a private/internal CA.
 ```
 python3 main.py
 ```
@@ -1070,7 +1067,7 @@ Defines the STOMP broker password for external message handling.
 
   #### Desktop (Specific):
   - **Default File Download Location**: When this path is set, the app will save files directly to the specified location without prompting the user each time the "Download Files" button is clicked.
-  - **SSL CA bundle (optional)**: Path to a PEM file containing your root CA (or full chain) used for HTTPS/WSS verification. Leave it empty to use default public CA/OS trust. Use this field when your ClipCascade server certificate is signed by a private/internal CA (for example, corporate PKI).
+  - **SSL CA bundle**: Path to a PEM file containing your root CA (or full chain) used for HTTPS/WSS verification. Leave it empty to use default public CA/OS trust. Use this field when your ClipCascade server certificate is signed by a private/internal CA (for example, corporate PKI).
   
   #### Android (Specific):
   - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
