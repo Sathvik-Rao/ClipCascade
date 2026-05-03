@@ -263,6 +263,7 @@ To install the ClipCascade Windows desktop application, follow these steps:
 
 To build your own desktop executable from source (`ClipCascade_Desktop/src`):
 ```bash
+pip3 install -r requirements_win.txt
 python3 -m PyInstaller ClipCascade_win.spec
 ```
 
@@ -335,6 +336,7 @@ To install the ClipCascade macOS desktop application, follow these steps:
 
 To build your own desktop executable from source (`ClipCascade_Desktop/src`):
 ```bash
+pip3 install -r requirements_mac.txt
 python3 -m PyInstaller ClipCascade_macos.spec
 ```
 
