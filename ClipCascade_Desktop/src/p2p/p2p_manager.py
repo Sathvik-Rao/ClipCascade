@@ -258,6 +258,16 @@ class P2PManager(WSInterface):
         except Exception as e:
             logging.error(f"Failed to handle websocket message: {e}")
 
+    async def _prepare_reconnect_bootstrap(self):
+        """
+        Runs on the asyncio signaling loop thread.
+        Resets bootstrap state and tears down old mesh without clobbering newer
+        ASSIGNED_ID / PEER_LIST values that may arrive during cleanup.
+        """
+        self.my_peer_id = None
+        self._pending_peer_list = None
+        await self._cleanup_peer_connections(clear_bootstrap_state=False)
+
     def _on_ws_open(self, ws, *args):
         try:
             if self.disconnected:
@@ -266,7 +276,9 @@ class P2PManager(WSInterface):
 
             # Tear down WebRTC after any signaling reconnect so PEER_LIST recreates PCs.
             try:
-                fut = asyncio.run_coroutine_threadsafe(self._cleanup_peer_connections(), self.loop)
+                fut = asyncio.run_coroutine_threadsafe(
+                    self._prepare_reconnect_bootstrap(), self.loop
+                )
                 # Upper bound: N peers * P2P_PC_CLOSE_TIMEOUT + margin;
                 fut.result(timeout=90)
             except Exception as e:
@@ -337,7 +349,7 @@ class P2PManager(WSInterface):
         except Exception as e:
             logging.error(f"Failed to disconnect websocket: {e}")
 
-    async def _cleanup_peer_connections(self):
+    async def _cleanup_peer_connections(self, clear_bootstrap_state: bool = True):
         self._p2p_shutting_down = True
         self._cancel_dc_heartbeat()
         try:
@@ -354,11 +366,13 @@ class P2PManager(WSInterface):
                     except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                         pass
             finally:
-                self.my_peer_id = None
+                if clear_bootstrap_state:
+                    self.my_peer_id = None
                 self.peers.clear()
                 self.peer_connections.clear()
                 self.data_channels.clear()
-                self._pending_peer_list = None
+                if clear_bootstrap_state:
+                    self._pending_peer_list = None
                 self._peer_recovery_locks.clear()
                 with self._live_connections_lock:
                     self.live_connections = 0

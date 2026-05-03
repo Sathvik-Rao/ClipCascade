@@ -618,6 +618,7 @@ module.exports = async (inputData = null) => {
           let peerConnections = {}; // Map: peerId -> RTCPeerConnection
           let dataChannels = {}; // Map: peerId -> RTCDataChannel
           let liveConnectionsCount = 0; // Track open DataChannels
+          let pendingPeerList = null;
           let p2pShuttingDown = false;
           const peerOpChains = {};
           const dataChannelHeartbeatTimers = {};
@@ -728,6 +729,7 @@ module.exports = async (inputData = null) => {
               peerConnections = {};
 
               myPeerId = null;
+              pendingPeerList = null;
               peers.clear();
               liveConnectionsCount = 0;
               for (const k of Object.keys(peerOpChains)) {
@@ -772,6 +774,11 @@ module.exports = async (inputData = null) => {
                         await cleanupPeerConnections();
                       }
                       myPeerId = data.peerId;
+                      if (pendingPeerList != null) {
+                        const pending = pendingPeerList;
+                        pendingPeerList = null;
+                        await handlePeerList(pending);
+                      }
                       break;
 
                     case 'PEER_LIST':
@@ -1129,6 +1136,10 @@ module.exports = async (inputData = null) => {
            * For each peer, create a PeerConnection if we don't have one yet.
            */
           const handlePeerList = async peerList => {
+            if (!myPeerId) {
+              pendingPeerList = Array.isArray(peerList) ? [...peerList] : [];
+              return;
+            }
             const updatedPeers = new Set(peerList);
             peers = updatedPeers;
             await removeStalePeers(updatedPeers);
