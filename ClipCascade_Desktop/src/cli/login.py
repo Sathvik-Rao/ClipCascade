@@ -186,20 +186,24 @@ class LoginForm:
             )
             break
 
-        ssl_ca_bundle = (
-            input(
-                f"ssl ca bundle path (optional) [{self.config.data.get('ssl_ca_bundle') or ''}]: "
-            )
-            or (self.config.data.get("ssl_ca_bundle") or "")
-        ).strip()
-        if ssl_ca_bundle:
+        while True:
+            ssl_ca_bundle = (
+                input(
+                    f"ssl ca bundle path (optional) [{self.config.data.get('ssl_ca_bundle') or ''}]: "
+                )
+                or (self.config.data.get("ssl_ca_bundle") or "")
+            ).strip()
+            if ssl_ca_bundle == "":
+                self.config.data["ssl_ca_bundle"] = ""
+                break
             if not os.path.isfile(ssl_ca_bundle):
                 CustomDialog(
                     "Invalid Input\nSSL CA bundle path is not a file or does not exist.",
                     msg_type="error",
                 ).mainloop()
-                return
-        self.config.data["ssl_ca_bundle"] = ssl_ca_bundle
+                continue
+            self.config.data["ssl_ca_bundle"] = ssl_ca_bundle
+            break
 
         CustomDialog("Logging in...").mainloop()
 
