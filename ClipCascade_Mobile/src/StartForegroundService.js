@@ -222,9 +222,9 @@ module.exports = async (inputData = null) => {
               'wsStatusMessage',
               '⚠️ ' +
                 direction +
-                ' clipboard ignored: \n size (' +
+                ' clipboard ignored: size (' +
                 clipContentByteLength +
-                ' bytes) exceeds limits: \n Server max size (' +
+                ' bytes) exceeds limits; Server max size (' +
                 maxsize +
                 ' bytes) or Local max size (' +
                 max_clipboard_size_local_limit_bytes +
@@ -241,9 +241,9 @@ module.exports = async (inputData = null) => {
             p2pMsg =
               '⚠️ ' +
               direction +
-              ' clipboard ignored: \n size (' +
+              ' clipboard ignored: size (' +
               clipContentByteLength +
-              ' bytes) exceeds limits: \n Local max size (' +
+              ' bytes) exceeds limits; Local max size (' +
               max_clipboard_size_local_limit_bytes +
               ' bytes)';
             await p2pStatusMessageChanged();
@@ -640,7 +640,7 @@ module.exports = async (inputData = null) => {
               msg += ` | Receiving: ${receivingFragmentStats}`;
             }
             if (p2pMsg != null) {
-              msg += `\n${p2pMsg}`;
+              msg += ` | ${p2pMsg}`;
             }
             return msg;
           };

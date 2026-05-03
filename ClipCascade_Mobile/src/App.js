@@ -509,7 +509,7 @@ export default function App() {
         if (!serverModeResponse.ok) {
           return [
             false,
-            'Login Successful but unable to get server mode \n Status: ' +
+            'Login Successful but unable to get server mode; Status: ' +
               serverModeResponse.status,
             data_s,
           ];
@@ -530,7 +530,7 @@ export default function App() {
           if (!stunUrlResponse.ok) {
             return [
               false,
-              'Login Successful but unable to get stun url \n Status: ' +
+              'Login Successful but unable to get stun url; Status: ' +
                 stunUrlResponse.status,
               data_s,
             ];
@@ -556,7 +556,7 @@ export default function App() {
           if (!maxSizeResponse.ok) {
             return [
               false,
-              'Login Successful but unable to get max size \n Status: ' +
+              'Login Successful but unable to get max size; Status: ' +
                 maxSizeResponse.status,
               data_s,
             ];
