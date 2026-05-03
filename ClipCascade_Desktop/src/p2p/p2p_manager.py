@@ -42,6 +42,7 @@ class P2PManager(WSInterface):
         self.is_connected = False
         self.disconnected = False
         self.is_auto_reconnecting = False
+        self._suppress_auto_reconnect_once = False
         self.is_clipboard_monitoring_on = False
 
         # Fragment variables
@@ -208,6 +209,9 @@ class P2PManager(WSInterface):
     def _on_ws_close(self, ws, *args):
         self.ws_client = None
         self.is_connected = False
+        if self._suppress_auto_reconnect_once:
+            self._suppress_auto_reconnect_once = False
+            return
         # Auto Reconnect
         if not self.is_login_phase and not self.disconnected:
             self.is_auto_reconnecting = True
@@ -223,6 +227,7 @@ class P2PManager(WSInterface):
     def manual_reconnect(self):
         if not self.is_auto_reconnecting:
             self.disconnected = False
+            self._suppress_auto_reconnect_once = self.ws_client is not None
             self.ws_close()
             self.is_connected = False
             self.connect()

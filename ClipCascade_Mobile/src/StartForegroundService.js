@@ -820,9 +820,10 @@ module.exports = async (inputData = null) => {
 
               wsSignalingClient.onclose = async event => {
                 block_image_once = false;
+                const reason = event?.reason || 'closed by client';
                 await setDataInAsyncStorage(
                   'wsStatusMessage',
-                  '⚠️ WebSocket Close: ' + event.reason,
+                  '⚠️ WebSocket Close: ' + reason,
                 );
                 if (
                   enable_websocket_status_notification === 'true' &&
