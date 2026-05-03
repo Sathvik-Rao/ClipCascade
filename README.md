@@ -58,7 +58,7 @@
 | 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 🍏 Desktop ([macOS](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-macos-desktop-application)) | 🤖📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-cli)) | 🐧⌨️ Desktop ([Linux_CLI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-cli)) | 
 |-----------------------|--------------------|--------------------|--------------------|--------------------|
 | <img src="https://github.com/user-attachments/assets/369d5db5-685c-4284-946d-b6a0e1f4fef9" alt="Desktop (Windows) - 1" width="360" /> | <img src="https://github.com/user-attachments/assets/2c0a7f4d-652c-4f4c-97e9-ee9b9d66f03f" alt="Desktop (macOS) - 1" width="360" /> | <img src="https://github.com/user-attachments/assets/a5606f3c-6d8a-434f-8f1d-03d6276e03c0" alt="Mobile (Android) - 1" width="360" /> | <img src="https://github.com/user-attachments/assets/f1acd9f4-27ee-4eb0-8696-a786a21551ed" alt="Desktop (Linux_GUI) - 1" width="360" /> | <img src="https://github.com/user-attachments/assets/f3f7c3a9-0299-4f0d-9494-5d9a102a243f" alt="Desktop (Linux_CLI) - 1" width="360" /> |
-| <img src="https://github.com/user-attachments/assets/3d51539b-69d0-4b0d-8854-e262638333bd" alt="Desktop (Windows) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/3d473d8d-601e-4c78-bb7f-0684d39aef67" alt="Desktop (macOS) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/607135ff-498f-45ae-b60e-18da525b6b19" alt="Mobile (Android) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/394ab014-ae40-475d-8109-d95c9a69645b" alt="Desktop (Linux_GUI) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/daf0a4ac-4dcc-4547-9171-7bb0546f6712" alt="Desktop (Linux_non_GUI) - 2" width="240" /> |
+| <img src="https://github.com/user-attachments/assets/3d51539b-69d0-4b0d-8854-e262638333bd" alt="Desktop (Windows) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/3d473d8d-601e-4c78-bb7f-0684d39aef67" alt="Desktop (macOS) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/607135ff-498f-45ae-b60e-18da525b6b19" alt="Mobile (Android) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/394ab014-ae40-475d-8109-d95c9a69645b" alt="Desktop (Linux_GUI) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/daf0a4ac-4dcc-4547-9171-7bb0546f6712" alt="Desktop (Linux_CLI) - 2" width="240" /> |
 
 
 
@@ -396,7 +396,8 @@ After executing three ADB commands, when you click the **Start** button, you wil
 ### 🐧🖱️ Linux Desktop Application (GUI) / 🐧⌨️ Linux Terminal-Based Application (CLI):
 
 This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu, Fedora, and Arch-based systems. While the commands are specifically tailored for these distributions, you can adapt the process for other Linux distributions with minor modifications. The Linux code is available on the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`. Once downloaded, navigate to the `ClipCascade/` folder containing `main.py`, and open a terminal in that directory.
-> **Note:** Linux systems use different display servers, primarily `X11` and `Wayland`. `Wayland` can also include `XWayland`, which supports `X` sessions. The program automatically detects the display server and selects the appropriate interface, either **GUI** or **CLI**, based on the environment.
+
+> **Note:** On startup, ClipCascade reads a handful of **standard environment variables** your desktop session already sets—such as `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY`, and `DISPLAY`—so it knows which display and clipboard APIs to use (the same kind of information any graphical app needs locally). From those values it classifies the environment as **X11**, **XWayland** (a Wayland session that also exposes an X11 socket), **Hyprland**, **native Wayland**, or **unknown**. That classification picks **both** the default clipboard integration (X11-style versus Wayland-style tools) **and** the default user interface (**GTK tray / GUI** versus **terminal-based CLI**). **X11**, **XWayland**, and **unknown** default to the X11-style clipboard path and **GUI**; **native Wayland** and **Hyprland** default to the Wayland-style clipboard path and **CLI**. You can override defaults with `--gui` and `--xmode` (see below)—for example, **`--gui true` on Wayland** still uses the Wayland clipboard path unless you also change `--xmode`.
 
 #### Step 1: Check for updates and install required packages
 
@@ -502,9 +503,11 @@ python3 main.py
 ```
 
 Linux supports optional launch arguments to manually tune behavior when needed:
-- `--gui <true|false>`: force GUI mode (`true`) or terminal/CLI mode (`false`).
-- `--xmode <true|false>`: force X11/XWayland-style clipboard path (`true`) or Wayland-style path (`false`).
+- `--gui <true|false>`: force **GUI** (tray / GTK login) with `true`, or **terminal CLI** with `false`, independent of the auto-selected default.
+- `--xmode <true|false>`: force **X11 / XWayland-style** clipboard handling (`xclip`, GTK clipboard when applicable) with `true`, or **Wayland-style** handling (`wl-clipboard`) with `false`.
 - `--polling <seconds>`: override clipboard polling interval (must be a positive number).
+
+When flags are omitted, **display-server detection** sets the default `--xmode` behavior, and the default **GUI vs CLI** follows that same classification (GUI for X11, XWayland, and unknown; CLI for native Wayland and Hyprland). Use `--gui` / `--xmode` if your session variables do not match how you want the app to run.
 
 Examples:
 ```bash
@@ -513,7 +516,7 @@ python3 main.py --gui false --xmode false --polling 3
 python3 main.py --polling 1.5
 ```
 
-If these flags are not provided, ClipCascade automatically detects your environment and selects the most suitable mode.
+If these flags are not provided, ClipCascade automatically detects your environment and selects the most suitable clipboard path and interface.
 
 
 #### Step 5.1: Fix 'No module named `Crypto`' Error (if applicable)
@@ -1129,9 +1132,10 @@ You can adjust these settings in the **Extra Config** section on the login page 
    |---------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
    | **Windows**               | Uses `win32gui`, `win32api`, `win32con`, and `win32clipboard` to capture clipboard changes in an event-driven manner.                                         |
    | **macOS**                 | Utilizes the `pasteboard` to monitor the clipboard with polling every 0.3 seconds. Instead of checking clipboard content directly, it compares a counter to detect changes efficiently. |
-   | **Linux (X11)**           | Integrates `Gtk.Clipboard` to capture clipboard changes in an event-driven manner, running in GUI mode.                                                         |
-   | **Linux (XWayland, Unknown)** | Switches between `Gtk.Clipboard` (event-based) or `x-clip` (polling every 0.3 seconds) depending on permissions (requires sudo for `Gtk.Clipboard`). Both operate in GUI mode. |
-   | **Linux (Wayland, Hyprland)** | Uses `wl-clipboard` with polling every 3 seconds in CLI mode by default. The delay accounts for Wayland's requirement to focus a window to grab clipboard content. You can override this using `--polling`. |
+   | **Linux (X11)**           | Integrates `Gtk.Clipboard` to capture clipboard changes in an event-driven manner. **Default UI:** GUI (tray).                                                         |
+   | **Linux (XWayland)**      | Same X11-style stack as above: `Gtk.Clipboard` when possible, otherwise `xclip` polling (~0.3s). **Default UI:** GUI—not CLI. Detection treats XWayland as a Wayland session that also has `DISPLAY` and `WAYLAND_DISPLAY` set. |
+   | **Linux (Unknown)**     | Treated like the X11-style path for defaults (GTK / `xclip` as above). **Default UI:** GUI. |
+   | **Linux (native Wayland, Hyprland)** | Tries **`wl-paste --watch` first** (**event-driven** where the compositor supports it: clipboard changes wake the watcher instead of a fixed timer). If `--watch` is not supported or exits immediately, falls back to **polling** `wl-paste -l` (default every 3 seconds; `--polling`). **Default UI:** CLI (terminal). Override with `--gui` / `--xmode`. |
    | **Android**               | Uses `ClipboardManager` to capture clipboard changes in an event-driven manner.                                                                         |
 
 
