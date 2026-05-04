@@ -38,19 +38,32 @@ class Application:
         mutex_identifier=MUTEX_NAME,
     ):
         try:
-            self.log_file_path = os.path.join(
-                get_program_files_directory(), log_file_path
-            )
-            self.data_file_path = os.path.join(
-                get_program_files_directory(), data_file_path
-            )
+            if PLATFORM.startswith(LINUX):
+                self.log_file_path = os.path.join(
+                    get_user_cache_directory(), log_file_path
+                )
+                self.data_file_path = os.path.join(
+                    get_user_config_directory(), data_file_path
+                )
+            else:
+                self.log_file_path = os.path.join(
+                    get_program_files_directory(), log_file_path
+                )
+                self.data_file_path = os.path.join(
+                    get_program_files_directory(), data_file_path
+                )
             self.mutex_identifier = mutex_identifier
 
             if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
-                self.lock_file = None  # File(lock) object
-                self.mutex_identifier = os.path.join(
-                    get_program_files_directory(), self.mutex_identifier
-                )
+                self.lock_file = None
+                if PLATFORM.startswith(LINUX):
+                    self.mutex_identifier = os.path.join(
+                        get_user_cache_directory(), self.mutex_identifier
+                    )
+                else:
+                    self.mutex_identifier = os.path.join(
+                        get_program_files_directory(), self.mutex_identifier
+                    )
 
             self.config = Config(
                 file_name=self.data_file_path

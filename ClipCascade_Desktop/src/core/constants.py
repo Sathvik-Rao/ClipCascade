@@ -260,3 +260,45 @@ def get_downloads_folder():
     - Linux: /home/<Username>/Downloads
     """
     return os.path.join(get_user_home_directory(), "Downloads")
+
+
+def _ensure_dir_exists(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
+    return path
+
+
+def get_xdg_data_home():
+    return os.environ.get("XDG_DATA_HOME") or os.path.join(
+        get_user_home_directory(), ".local", "share"
+    )
+
+
+def get_xdg_config_home():
+    return os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        get_user_home_directory(), ".config"
+    )
+
+
+def get_xdg_cache_home():
+    return os.environ.get("XDG_CACHE_HOME") or os.path.join(
+        get_user_home_directory(), ".cache"
+    )
+
+
+def get_user_data_directory():
+    if PLATFORM.startswith(LINUX):
+        return _ensure_dir_exists(os.path.join(get_xdg_data_home(), "clipcascade"))
+    return get_program_files_directory()
+
+
+def get_user_config_directory():
+    if PLATFORM.startswith(LINUX):
+        return _ensure_dir_exists(os.path.join(get_xdg_config_home(), "clipcascade"))
+    return get_program_files_directory()
+
+
+def get_user_cache_directory():
+    if PLATFORM.startswith(LINUX):
+        return _ensure_dir_exists(os.path.join(get_xdg_cache_home(), "clipcascade"))
+    return get_program_files_directory()

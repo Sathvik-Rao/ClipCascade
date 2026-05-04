@@ -143,7 +143,7 @@ class TaskbarPanel:
         menu_items = [
             Menu.SEPARATOR,
             item("🗒️ Open Logs", self._open_logs),
-            item("📂 Program Files", self._open_program_location),
+            item("📂 Config Files", self._open_program_location),
             Menu.SEPARATOR,
             item("🏠 Homepage", self._open_homepage),
             item("❓ Help", self._open_help),
@@ -294,7 +294,10 @@ class TaskbarPanel:
             subprocess.run(["xdg-open", path])
 
     def _open_logs(self, icon, item):
-        log_file_path = os.path.join(get_program_files_directory(), LOG_FILE_NAME)
+        if PLATFORM.startswith(LINUX):
+            log_file_path = os.path.join(get_user_cache_directory(), LOG_FILE_NAME)
+        else:
+            log_file_path = os.path.join(get_program_files_directory(), LOG_FILE_NAME)
         if os.path.exists(log_file_path):
             try:
                 self.open_location(log_file_path)
@@ -310,7 +313,10 @@ class TaskbarPanel:
 
     def _open_program_location(self, icon, item):
         try:
-            program_location = get_program_files_directory()
+            if PLATFORM.startswith(LINUX):
+                program_location = get_user_config_directory()
+            else:
+                program_location = get_program_files_directory()
             self.open_location(program_location)
         except Exception as e:
             CustomDialog(
@@ -351,17 +357,22 @@ class TaskbarPanel:
                     logging.debug("No directory selected. Exiting.")
                     return
             except RuntimeError as re:
-                target_directory = os.path.join(
-                    get_program_files_directory(), "downloads"
-                )
+                if PLATFORM.startswith(LINUX):
+                    target_directory = os.path.join(
+                        get_user_data_directory(), "downloads"
+                    )
+                else:
+                    target_directory = os.path.join(
+                        get_program_files_directory(), "downloads"
+                    )
                 if not os.path.exists(target_directory):
                     os.makedirs(target_directory)
                 logging.error(
                     f"A runtime error occurred while starting filedialog to select a directory. Error: {re}.\n"
-                    + f"Setting the default location to the program directory '{target_directory}'."
+                    + f"Setting the default location to '{target_directory}'."
                 )
                 CustomDialog(
-                    f"ClipCascade 📥: Saving files to the program directory '{target_directory}'.",
+                    f"ClipCascade 📥: Saving files to '{target_directory}'.",
                     msg_type="info",
                     timeout=5000,
                 ).mainloop()
