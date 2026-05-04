@@ -1,26 +1,37 @@
 package com.acme.clipcascade.service;
 
-import java.util.List;
+import java.util.Map;
 
-import org.springframework.security.core.session.SessionInformation;
-import org.springframework.security.core.session.SessionRegistry;
+import org.springframework.session.FindByIndexNameSessionRepository;
+import org.springframework.session.Session;
 import org.springframework.stereotype.Service;
 
-import org.springframework.security.core.userdetails.UserDetails;
 import com.acme.clipcascade.utils.UserValidator;
 
 import jakarta.persistence.EntityNotFoundException;
 
 @Service
 public class SessionService {
-    private final SessionRegistry sessionRegistry;
+
+    // SpringSessionBackedSessionRegistry.getAllPrincipals() throws
+    // UnsupportedOperationException because Spring Session does not expose a
+    // way to enumerate every principal across the store. The previous
+    // implementation, which scanned that list and filtered by username,
+    // therefore broke every "log out user X" code path (admin force-logoff,
+    // self "Logoff from All Devices", username/password change, user delete).
+    //
+    // Looking sessions up by indexed principal name and deleting them
+    // directly preserves the original semantics — the client cookie is
+    // invalidated — while also being O(n) only in the user's own sessions.
+
+    private final FindByIndexNameSessionRepository<? extends Session> sessionRepository;
     private final UserService userService;
 
     public SessionService(
-            SessionRegistry sessionRegistry,
+            FindByIndexNameSessionRepository<? extends Session> sessionRepository,
             UserService userService) {
 
-        this.sessionRegistry = sessionRegistry;
+        this.sessionRepository = sessionRepository;
         this.userService = userService;
     }
 
@@ -35,26 +46,16 @@ public class SessionService {
             throw new EntityNotFoundException("User not found");
         }
 
-        // Iterate over all principals in the SessionRegistry
-        List<Object> principals = sessionRegistry.getAllPrincipals();
-        boolean foundUser = false;
+        // Indexed lookup against the SPRING_SESSION.PRINCIPAL_NAME column.
+        Map<String, ? extends Session> sessions = sessionRepository.findByPrincipalName(username);
 
-        for (Object principal : principals) {
-            if (principal instanceof UserDetails userDetails) { // <- Spring Security UserDetails
-                if (userDetails.getUsername().equals(username)) {
-                    foundUser = true;
-                    // Get all active sessions for this principal
-                    List<SessionInformation> sessions = sessionRegistry.getAllSessions(principal, false);
-                    // Expire each session to effectively force logout
-                    for (SessionInformation sessionInfo : sessions) {
-                        sessionInfo.expireNow(); // mark it as expired
-                    }
-                }
-            }
+        if (sessions.isEmpty()) {
+            return "No active sessions found for username: " + username;
         }
 
-        if (!foundUser) {
-            return "No active sessions found for username: " + username;
+        // Deleting the session row immediately invalidates the client cookie.
+        for (String sessionId : sessions.keySet()) {
+            sessionRepository.deleteById(sessionId);
         }
 
         return "User '" + username + "' has been logged out of all active sessions.";
