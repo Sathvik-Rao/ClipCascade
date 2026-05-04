@@ -48,10 +48,21 @@
 <br />
 
 <div align="center">
-    <img src="https://github.com/user-attachments/assets/0b7178fd-e40f-400c-9c6f-6ea9f4e5b800" alt="arch_design_p2s" width="360" height="300" />
-    <img src="https://github.com/user-attachments/assets/32366820-fc48-4849-914f-fe0474fa308a" alt="arch_design_p2p" width="360" height="300" />
+	<table>
+		<tr>
+			<td>
+				<div align="center">
+    				<img src="https://github.com/user-attachments/assets/0b7178fd-e40f-400c-9c6f-6ea9f4e5b800" alt="arch_design_p2s" width="360" height="300" />
+				</div>
+			</td>
+			<td>
+				<div align="center">
+    				<img src="https://github.com/user-attachments/assets/32366820-fc48-4849-914f-fe0474fa308a" alt="arch_design_p2p" width="360" height="300" />
+				</div>
+			</td>
+    	</tr>
+	</table>
 </div>
-
 
 ## 📸 Screenshots
 
