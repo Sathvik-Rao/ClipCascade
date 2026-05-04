@@ -1,4 +1,5 @@
 import getpass
+import os
 import re
 
 from core.config import Config
@@ -13,7 +14,6 @@ class LoginForm:
         on_login_callback=None,
         on_quit_callback=None,
     ):
-        super().__init__()
         self.config = config
         self.on_login_callback = on_login_callback
         self.on_quit_callback = on_quit_callback
@@ -184,6 +184,25 @@ class LoginForm:
             self.config.data["default_file_download_location"] = (
                 default_file_download_location
             )
+            break
+
+        while True:
+            ssl_ca_bundle = (
+                input(
+                    f"ssl ca bundle path (optional) [{self.config.data.get('ssl_ca_bundle') or ''}]: "
+                )
+                or (self.config.data.get("ssl_ca_bundle") or "")
+            ).strip()
+            if ssl_ca_bundle == "":
+                self.config.data["ssl_ca_bundle"] = ""
+                break
+            if not os.path.isfile(ssl_ca_bundle):
+                CustomDialog(
+                    "Invalid Input\nSSL CA bundle path is not a file or does not exist.",
+                    msg_type="error",
+                ).mainloop()
+                continue
+            self.config.data["ssl_ca_bundle"] = ssl_ca_bundle
             break
 
         CustomDialog("Logging in...").mainloop()

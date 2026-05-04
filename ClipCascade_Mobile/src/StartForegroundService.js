@@ -222,9 +222,9 @@ module.exports = async (inputData = null) => {
               'wsStatusMessage',
               '⚠️ ' +
                 direction +
-                ' clipboard ignored: \n size (' +
+                ' clipboard ignored: size (' +
                 clipContentByteLength +
-                ' bytes) exceeds limits: \n Server max size (' +
+                ' bytes) exceeds limits; Server max size (' +
                 maxsize +
                 ' bytes) or Local max size (' +
                 max_clipboard_size_local_limit_bytes +
@@ -241,9 +241,9 @@ module.exports = async (inputData = null) => {
             p2pMsg =
               '⚠️ ' +
               direction +
-              ' clipboard ignored: \n size (' +
+              ' clipboard ignored: size (' +
               clipContentByteLength +
-              ' bytes) exceeds limits: \n Local max size (' +
+              ' bytes) exceeds limits; Local max size (' +
               max_clipboard_size_local_limit_bytes +
               ' bytes)';
             await p2pStatusMessageChanged();
@@ -483,7 +483,7 @@ module.exports = async (inputData = null) => {
             },
             onWebSocketClose: async event => {
               block_image_once = false;
-              const reason = evt?.reason || 'closed by client';
+              const reason = event?.reason || 'closed by client';
               await setDataInAsyncStorage(
                 'wsStatusMessage',
                 `⚠️ WebSocket Close: ${reason}`,
@@ -618,6 +618,11 @@ module.exports = async (inputData = null) => {
           let peerConnections = {}; // Map: peerId -> RTCPeerConnection
           let dataChannels = {}; // Map: peerId -> RTCDataChannel
           let liveConnectionsCount = 0; // Track open DataChannels
+          let pendingPeerList = null;
+          let p2pShuttingDown = false;
+          const peerOpChains = {};
+          const dataChannelHeartbeatTimers = {};
+          const P2P_DC_KEEPALIVE_JSON = JSON.stringify({ _cc_keepalive: true });
 
           // Fragment variables
           let sendingFragmentId = '';
@@ -635,7 +640,7 @@ module.exports = async (inputData = null) => {
               msg += ` | Receiving: ${receivingFragmentStats}`;
             }
             if (p2pMsg != null) {
-              msg += `\n${p2pMsg}`;
+              msg += ` | ${p2pMsg}`;
             }
             return msg;
           };
@@ -657,11 +662,93 @@ module.exports = async (inputData = null) => {
             await p2pStatusMessageChanged();
           };
 
+          const syncLiveConnectionsCount = async () => {
+            liveConnectionsCount = Object.values(dataChannels).filter(
+              c => c && c.readyState === 'open',
+            ).length;
+            isP2PStatusMsgChanged = true;
+            await p2pStatusMessageChanged();
+          };
+
+          const runSerializedPeerOp = (peerId, op) => {
+            const prev = peerOpChains[peerId] || Promise.resolve();
+            const next = prev.then(() => op()).catch(() => {});
+            peerOpChains[peerId] = next;
+            return next;
+          };
+
+          const startDataChannelHeartbeat = (remotePeerId, channel) => {
+            if (dataChannelHeartbeatTimers[remotePeerId]) {
+              clearInterval(dataChannelHeartbeatTimers[remotePeerId]);
+            }
+            dataChannelHeartbeatTimers[remotePeerId] = setInterval(() => {
+              try {
+                if (channel.readyState === 'open') {
+                  channel.send(P2P_DC_KEEPALIVE_JSON);
+                }
+              } catch (e) {
+                // no-op
+              }
+            }, HEARTBEAT_INTERVAL);
+          };
+
+          async function cleanupPeerConnections() {
+            p2pShuttingDown = true;
+            try {
+              for (const id of Object.keys(dataChannelHeartbeatTimers)) {
+                clearInterval(dataChannelHeartbeatTimers[id]);
+                delete dataChannelHeartbeatTimers[id];
+              }
+              for (const [, dc] of Object.entries(dataChannels)) {
+                if (dc) {
+                  try {
+                    dc.onopen = null;
+                    dc.onmessage = null;
+                    dc.onclose = null;
+                    dc.onerror = null;
+                    dc.close();
+                  } catch (e) {
+                    // no-op
+                  }
+                }
+              }
+              dataChannels = {};
+
+              for (const [, pc] of Object.entries(peerConnections)) {
+                if (pc) {
+                  try {
+                    pc.onicecandidate = null;
+                    pc.ondatachannel = null;
+                    pc.onconnectionstatechange = null;
+                    pc.close();
+                  } catch (e) {
+                    // no-op
+                  }
+                }
+              }
+              peerConnections = {};
+
+              myPeerId = null;
+              pendingPeerList = null;
+              peers.clear();
+              liveConnectionsCount = 0;
+              for (const k of Object.keys(peerOpChains)) {
+                delete peerOpChains[k];
+              }
+              await resetReceivingFragments();
+              await resetSendingFragmentId();
+            } finally {
+              p2pShuttingDown = false;
+            }
+          }
+
           const initializeWebSocketSignalingClient = async () => {
             if (wsSignalingClient == null) {
               wsSignalingClient = new WebSocket(websocket_url);
 
               wsSignalingClient.onopen = async () => {
+                await cleanupPeerConnections();
+
                 await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
 
                 if (enable_websocket_status_notification === 'true') {
@@ -687,6 +774,11 @@ module.exports = async (inputData = null) => {
                         await cleanupPeerConnections();
                       }
                       myPeerId = data.peerId;
+                      if (pendingPeerList != null) {
+                        const pending = pendingPeerList;
+                        pendingPeerList = null;
+                        await handlePeerList(pending);
+                      }
                       break;
 
                     case 'PEER_LIST':
@@ -728,9 +820,10 @@ module.exports = async (inputData = null) => {
 
               wsSignalingClient.onclose = async event => {
                 block_image_once = false;
+                const reason = event?.reason || 'closed by client';
                 await setDataInAsyncStorage(
                   'wsStatusMessage',
-                  '⚠️ WebSocket Close: ' + event.reason,
+                  '⚠️ WebSocket Close: ' + reason,
                 );
                 if (
                   enable_websocket_status_notification === 'true' &&
@@ -928,10 +1021,14 @@ module.exports = async (inputData = null) => {
           // receive clipboard content P2P
           const onDataChannelMessage = async messageJson => {
             try {
+              const message = JSON.parse(messageJson);
+              if (message && message._cc_keepalive === true) {
+                return;
+              }
+
               await clearFiles((expensiveCall = true));
               await resetSendingFragmentId();
 
-              const message = JSON.parse(messageJson);
               let cb = String(message.payload);
               const type_ = message.type ?? 'text';
               const metadata = message.metadata;
@@ -1035,55 +1132,19 @@ module.exports = async (inputData = null) => {
             }
           };
 
-          const cleanupPeerConnections = async () => {
-            // 1) Close all DataChannels
-            for (const [peerId, dc] of Object.entries(dataChannels)) {
-              if (dc) {
-                try {
-                  dc.onopen = null;
-                  dc.onmessage = null;
-                  dc.onclose = null;
-                  dc.onerror = null;
-                  dc.close();
-                } catch (e) {
-                  // no-op
-                }
-              }
-            }
-            dataChannels = {};
-
-            // 2) Close all RTCPeerConnections
-            for (const [peerId, pc] of Object.entries(peerConnections)) {
-              if (pc) {
-                try {
-                  pc.onicecandidate = null;
-                  pc.ondatachannel = null;
-                  pc.close();
-                } catch (e) {
-                  // no-op
-                }
-              }
-            }
-            peerConnections = {};
-
-            // 3) Reset local P2P state as needed
-            myPeerId = null;
-            peers.clear();
-            liveConnectionsCount = 0;
-            await resetReceivingFragments();
-            await resetSendingFragmentId();
-          };
-
           /**
            * The server gave us the entire list of peers in the "room".
            * For each peer, create a PeerConnection if we don't have one yet.
            */
           const handlePeerList = async peerList => {
+            if (!myPeerId) {
+              pendingPeerList = Array.isArray(peerList) ? [...peerList] : [];
+              return;
+            }
             const updatedPeers = new Set(peerList);
-
+            peers = updatedPeers;
             await removeStalePeers(updatedPeers);
 
-            peers = updatedPeers;
             peers.forEach(async pid => {
               if (pid === myPeerId) return; // skip self
               if (!peerConnections[pid]) {
@@ -1112,13 +1173,13 @@ module.exports = async (inputData = null) => {
             );
             // 2) For each stale peer, close data channel and peer connection
             for (const oldPid of stalePeerIds) {
-              // Close and remove its data channel
+              delete peerOpChains[oldPid];
+              if (dataChannelHeartbeatTimers[oldPid]) {
+                clearInterval(dataChannelHeartbeatTimers[oldPid]);
+                delete dataChannelHeartbeatTimers[oldPid];
+              }
               if (dataChannels[oldPid]) {
                 try {
-                  if (dataChannels[oldPid].readyState === 'open') {
-                    liveConnectionsCount--;
-                    await p2pStatusMessageChanged();
-                  }
                   dataChannels[oldPid].onopen = null;
                   dataChannels[oldPid].onmessage = null;
                   dataChannels[oldPid].onclose = null;
@@ -1128,16 +1189,50 @@ module.exports = async (inputData = null) => {
                 delete dataChannels[oldPid];
               }
 
-              // Close and remove its RTCPeerConnection
               if (peerConnections[oldPid]) {
                 try {
                   peerConnections[oldPid].onicecandidate = null;
                   peerConnections[oldPid].ondatachannel = null;
+                  peerConnections[oldPid].onconnectionstatechange = null;
                   peerConnections[oldPid].close();
                 } catch (err) {}
                 delete peerConnections[oldPid];
               }
             }
+            await syncLiveConnectionsCount();
+          };
+
+          const disposePeerConnection = async peerId => {
+            if (dataChannelHeartbeatTimers[peerId]) {
+              clearInterval(dataChannelHeartbeatTimers[peerId]);
+              delete dataChannelHeartbeatTimers[peerId];
+            }
+            const dc = dataChannels[peerId];
+            if (dc) {
+              try {
+                dc.onopen = null;
+                dc.onmessage = null;
+                dc.onclose = null;
+                dc.onerror = null;
+                dc.close();
+              } catch (e) {
+                // no-op
+              }
+              delete dataChannels[peerId];
+            }
+            const pc = peerConnections[peerId];
+            if (pc) {
+              try {
+                pc.onicecandidate = null;
+                pc.ondatachannel = null;
+                pc.onconnectionstatechange = null;
+                pc.close();
+              } catch (e) {
+                // no-op
+              }
+              delete peerConnections[peerId];
+            }
+            await syncLiveConnectionsCount();
           };
 
           /**
@@ -1152,7 +1247,6 @@ module.exports = async (inputData = null) => {
               ],
             });
 
-            // This fires when the local side gathers an ICE candidate
             pc.onicecandidate = async event => {
               if (event.candidate) {
                 await signalingSend({
@@ -1164,11 +1258,17 @@ module.exports = async (inputData = null) => {
               }
             };
 
-            // This fires when the remote side creates a datachannel
             pc.ondatachannel = async event => {
               const channel = event.channel;
               dataChannels[remotePeerId] = channel;
               await setupDataChannel(remotePeerId, channel);
+            };
+
+            pc.onconnectionstatechange = () => {
+              const st = pc.connectionState;
+              if (st === 'failed' || st === 'closed') {
+                recoverPeerTransport(remotePeerId, pc);
+              }
             };
 
             return pc;
@@ -1190,25 +1290,79 @@ module.exports = async (inputData = null) => {
             });
           };
 
+          const recoverPeerTransport = async (remotePeerId, deadPc) => {
+            if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
+              return;
+            }
+            if (deadPc != null && peerConnections[remotePeerId] !== deadPc) {
+              return;
+            }
+            await runSerializedPeerOp(remotePeerId, async () => {
+              if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
+                return;
+              }
+              if (deadPc != null && peerConnections[remotePeerId] !== deadPc) {
+                return;
+              }
+              if (deadPc == null) {
+                const ch = dataChannels[remotePeerId];
+                if (ch && ch.readyState === 'open') {
+                  return;
+                }
+              }
+              await disposePeerConnection(remotePeerId);
+              if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
+                return;
+              }
+              const newPc = await createPeerConnection(remotePeerId);
+              peerConnections[remotePeerId] = newPc;
+              if (myPeerId < remotePeerId) {
+                const channel = await newPc.createDataChannel('cliptext');
+                dataChannels[remotePeerId] = channel;
+                await setupDataChannel(remotePeerId, channel);
+                await createOffer(remotePeerId);
+              }
+            });
+          };
+
           /**
            * Handle incoming OFFER from remote, then respond with ANSWER.
            */
           const handleOffer = async (fromPeerId, offer) => {
-            let pc = peerConnections[fromPeerId];
-            if (!pc) {
-              pc = await createPeerConnection(fromPeerId);
-              peerConnections[fromPeerId] = pc;
+            if (p2pShuttingDown) {
+              return;
             }
+            // Ignore delayed/stale OFFERs for peers removed from the latest PEER_LIST.
+            // Startup guard: allow early signaling before ASSIGNED_ID/PEER_LIST is ready.
+            if (myPeerId && peers.size > 0 && !peers.has(fromPeerId)) {
+              return;
+            }
+            await runSerializedPeerOp(fromPeerId, async () => {
+              if (p2pShuttingDown) {
+                return;
+              }
+              // TOCTOU guard: PEER_LIST can change after the outer fast-path check.
+              if (myPeerId && peers.size > 0 && !peers.has(fromPeerId)) {
+                return;
+              }
+              // Full new offer (e.g. after peer recovery): must not apply on an
+              // existing connected PC or datachannel counts diverge across devices.
+              if (peerConnections[fromPeerId]) {
+                await disposePeerConnection(fromPeerId);
+              }
+              const pc = await createPeerConnection(fromPeerId);
+              peerConnections[fromPeerId] = pc;
 
-            await pc.setRemoteDescription(new RTCSessionDescription(offer));
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
+              await pc.setRemoteDescription(new RTCSessionDescription(offer));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
 
-            await signalingSend({
-              type: 'ANSWER',
-              fromPeerId: myPeerId,
-              toPeerId: fromPeerId,
-              answer: pc.localDescription,
+              await signalingSend({
+                type: 'ANSWER',
+                fromPeerId: myPeerId,
+                toPeerId: fromPeerId,
+                answer: pc.localDescription,
+              });
             });
           };
 
@@ -1218,6 +1372,12 @@ module.exports = async (inputData = null) => {
           const handleAnswer = async (fromPeerId, answer) => {
             const pc = peerConnections[fromPeerId];
             if (!pc) {
+              return;
+            }
+            if (
+              pc.connectionState === 'failed' ||
+              pc.connectionState === 'closed'
+            ) {
               return;
             }
 
@@ -1232,6 +1392,12 @@ module.exports = async (inputData = null) => {
             if (!pc) {
               return;
             }
+            if (
+              pc.connectionState === 'failed' ||
+              pc.connectionState === 'closed'
+            ) {
+              return;
+            }
 
             await pc.addIceCandidate(new RTCIceCandidate(candidateData));
           };
@@ -1241,8 +1407,8 @@ module.exports = async (inputData = null) => {
            */
           const setupDataChannel = async (remotePeerId, channel) => {
             channel.onopen = async () => {
-              liveConnectionsCount++;
-              await p2pStatusMessageChanged();
+              startDataChannelHeartbeat(remotePeerId, channel);
+              await syncLiveConnectionsCount();
             };
 
             channel.onmessage = async e => {
@@ -1250,14 +1416,23 @@ module.exports = async (inputData = null) => {
             };
 
             channel.onclose = async () => {
-              liveConnectionsCount--;
-              await p2pStatusMessageChanged();
+              if (dataChannelHeartbeatTimers[remotePeerId]) {
+                clearInterval(dataChannelHeartbeatTimers[remotePeerId]);
+                delete dataChannelHeartbeatTimers[remotePeerId];
+              }
+              await syncLiveConnectionsCount();
+              await recoverPeerTransport(remotePeerId, null);
             };
 
             channel.onerror = async err => {
               p2pMsg = '❌ DataChannel error with ' + remotePeerId + ': ' + err;
               await p2pStatusMessageChanged();
             };
+
+            if (channel.readyState === 'open') {
+              startDataChannelHeartbeat(remotePeerId, channel);
+              await syncLiveConnectionsCount();
+            }
           };
         }
 

@@ -22,7 +22,7 @@
     </td>
     <td>
       <a href="https://github.com/Sathvik-Rao/ClipCascade/releases">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Windows_logo_-_2012.svg/512px-Windows_logo_-_2012.svg.png" alt="Windows" width="50" />
+        <img src="https://upload.wikimedia.org/wikipedia/commons/5/5f/Windows_logo_-_2012.svg" alt="Windows" width="50" />
       </a>
     </td>
     <td>
@@ -58,7 +58,7 @@
 | 🪟 Desktop ([Windows](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-windows-desktop-application)) | 🍏 Desktop ([macOS](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-macos-desktop-application)) | 🤖📱 Mobile ([Android](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-android-mobile-application)) | 🐧🖱️ Desktop ([Linux_GUI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-cli)) | 🐧⌨️ Desktop ([Linux_CLI](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-cli)) | 
 |-----------------------|--------------------|--------------------|--------------------|--------------------|
 | <img src="https://github.com/user-attachments/assets/369d5db5-685c-4284-946d-b6a0e1f4fef9" alt="Desktop (Windows) - 1" width="360" /> | <img src="https://github.com/user-attachments/assets/2c0a7f4d-652c-4f4c-97e9-ee9b9d66f03f" alt="Desktop (macOS) - 1" width="360" /> | <img src="https://github.com/user-attachments/assets/a5606f3c-6d8a-434f-8f1d-03d6276e03c0" alt="Mobile (Android) - 1" width="360" /> | <img src="https://github.com/user-attachments/assets/f1acd9f4-27ee-4eb0-8696-a786a21551ed" alt="Desktop (Linux_GUI) - 1" width="360" /> | <img src="https://github.com/user-attachments/assets/f3f7c3a9-0299-4f0d-9494-5d9a102a243f" alt="Desktop (Linux_CLI) - 1" width="360" /> |
-| <img src="https://github.com/user-attachments/assets/3d51539b-69d0-4b0d-8854-e262638333bd" alt="Desktop (Windows) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/3d473d8d-601e-4c78-bb7f-0684d39aef67" alt="Desktop (macOS) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/607135ff-498f-45ae-b60e-18da525b6b19" alt="Mobile (Android) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/394ab014-ae40-475d-8109-d95c9a69645b" alt="Desktop (Linux_GUI) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/daf0a4ac-4dcc-4547-9171-7bb0546f6712" alt="Desktop (Linux_non_GUI) - 2" width="240" /> |
+| <img src="https://github.com/user-attachments/assets/3d51539b-69d0-4b0d-8854-e262638333bd" alt="Desktop (Windows) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/3d473d8d-601e-4c78-bb7f-0684d39aef67" alt="Desktop (macOS) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/607135ff-498f-45ae-b60e-18da525b6b19" alt="Mobile (Android) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/394ab014-ae40-475d-8109-d95c9a69645b" alt="Desktop (Linux_GUI) - 2" width="240" /> | <img src="https://github.com/user-attachments/assets/daf0a4ac-4dcc-4547-9171-7bb0546f6712" alt="Desktop (Linux_CLI) - 2" width="240" /> |
 
 
 
@@ -261,6 +261,12 @@ To install the ClipCascade Windows desktop application, follow these steps:
 
 **Important Note:** Since the application is not published or registered with Microsoft, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning or temporarily disable your antivirus during installation. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Microsoft requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
 
+To build your own desktop executable from source (`ClipCascade_Desktop/src`):
+```bash
+pip3 install -r requirements_win.txt
+python3 -m PyInstaller ClipCascade_win.spec
+```
+
 The `.exe` file does not need UAC approval because it is standalone executable, while the `.msi` installer will request UAC permissions because it creates a designated folder for the software, adds a startup option, and allows for uninstallation via the Control Panel. Additionally, with the .msi installer, you have the option to choose any location to save the software. However, select locations where even when you create a file manually at that location, Windows shouldn’t prompt for permission to answer "yes or no" questions.
 
 [➡️ Explore Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
@@ -322,10 +328,17 @@ To install the ClipCascade macOS desktop application, follow these steps:
 9. **Enable Auto-Startup**:
      - Right-click the **ClipCascade** icon in the dock (bottom of the screen).
      - Select **Options** and then check **Open at Login**.
-
+       
        <img src="https://github.com/user-attachments/assets/cadeb680-d1fd-4582-9d20-b41ba8713b39" alt="Startup" width="200" />
+     - Alternatively, open **Settings** → **General** → **Login Items & Extensions**, then add **ClipCascade** manually.
 
 **Important Note:** Since the application is not published or registered with Apple, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Apple requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
+
+To build your own desktop executable from source (`ClipCascade_Desktop/src`):
+```bash
+pip3 install -r requirements_mac.txt
+python3 -m PyInstaller ClipCascade_macos.spec
+```
 
 [➡️ Explore Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
 
@@ -383,7 +396,8 @@ After executing three ADB commands, when you click the **Start** button, you wil
 ### 🐧🖱️ Linux Desktop Application (GUI) / 🐧⌨️ Linux Terminal-Based Application (CLI):
 
 This guide provides step-by-step instructions to install ClipCascade on Debian/Ubuntu, Fedora, and Arch-based systems. While the commands are specifically tailored for these distributions, you can adapt the process for other Linux distributions with minor modifications. The Linux code is available on the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) as `ClipCascade_Linux.zip`. Once downloaded, navigate to the `ClipCascade/` folder containing `main.py`, and open a terminal in that directory.
-> **Note:** Linux systems use different display servers, primarily `X11` and `Wayland`. `Wayland` can also include `XWayland`, which supports `X` sessions. The program automatically detects the display server and selects the appropriate interface, either **GUI** or **CLI**, based on the environment.
+
+> **Note:** On startup, ClipCascade reads a handful of **standard environment variables** your desktop session already sets—such as `XDG_SESSION_TYPE`, `WAYLAND_DISPLAY`, and `DISPLAY`—so it knows which display and clipboard APIs to use (the same kind of information any graphical app needs locally). From those values it classifies the environment as **X11**, **XWayland** (a Wayland session that also exposes an X11 socket), **Hyprland**, **native Wayland**, or **unknown**. That classification picks **both** the default clipboard integration (X11-style versus Wayland-style tools) **and** the default user interface (**GTK tray / GUI** versus **terminal-based CLI**). **X11**, **XWayland**, and **unknown** default to the X11-style clipboard path and **GUI**; **native Wayland** and **Hyprland** default to the Wayland-style clipboard path and **CLI**. You can override defaults with `--gui` and `--xmode` (see below)—for example, **`--gui true` on Wayland** still uses the Wayland clipboard path unless you also change `--xmode`.
 
 #### Step 1: Check for updates and install required packages
 
@@ -487,6 +501,22 @@ Start ClipCascade by running (use sudo if needed):
 ```
 python3 main.py
 ```
+
+Linux supports optional launch arguments to manually tune behavior when needed:
+- `--gui <true|false>`: force **GUI** (tray / GTK login) with `true`, or **terminal CLI** with `false`, independent of the auto-selected default.
+- `--xmode <true|false>`: force **X11 / XWayland-style** clipboard handling (`xclip`, GTK clipboard when applicable) with `true`, or **Wayland-style** handling (`wl-clipboard`) with `false`.
+- `--polling <seconds>`: override clipboard polling interval (must be a positive number).
+
+When flags are omitted, **display-server detection** sets the default `--xmode` behavior, and the default **GUI vs CLI** follows that same classification (GUI for X11, XWayland, and unknown; CLI for native Wayland and Hyprland). Use `--gui` / `--xmode` if your session variables do not match how you want the app to run.
+
+Examples:
+```bash
+python3 main.py --gui true
+python3 main.py --gui false --xmode false --polling 3
+python3 main.py --polling 1.5
+```
+
+If these flags are not provided, ClipCascade automatically detects your environment and selects the most suitable clipboard path and interface.
 
 
 #### Step 5.1: Fix 'No module named `Crypto`' Error (if applicable)
@@ -1042,6 +1072,7 @@ Defines the STOMP broker password for external message handling.
 
   #### Desktop (Specific):
   - **Default File Download Location**: When this path is set, the app will save files directly to the specified location without prompting the user each time the "Download Files" button is clicked.
+  - **SSL CA bundle**: Path to a PEM file containing your root CA (or full chain) used for HTTPS/WSS verification. Leave it empty to use default public CA/OS trust. Use this field when your ClipCascade server certificate is signed by a private/internal CA (for example, corporate PKI).
   
   #### Android (Specific):
   - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
@@ -1101,9 +1132,10 @@ You can adjust these settings in the **Extra Config** section on the login page 
    |---------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
    | **Windows**               | Uses `win32gui`, `win32api`, `win32con`, and `win32clipboard` to capture clipboard changes in an event-driven manner.                                         |
    | **macOS**                 | Utilizes the `pasteboard` to monitor the clipboard with polling every 0.3 seconds. Instead of checking clipboard content directly, it compares a counter to detect changes efficiently. |
-   | **Linux (X11)**           | Integrates `Gtk.Clipboard` to capture clipboard changes in an event-driven manner, running in GUI mode.                                                         |
-   | **Linux (XWayland, Unknown)** | Switches between `Gtk.Clipboard` (event-based) or `x-clip` (polling every 0.3 seconds) depending on permissions (requires sudo for `Gtk.Clipboard`). Both operate in GUI mode. |
-   | **Linux (Wayland, Hyprland)** | Uses `wl-clipboard` with polling every 1 seconds in CLI mode. The delay accounts for Wayland's requirement to focus a window to grab clipboard content. |
+   | **Linux (X11)**           | Integrates `Gtk.Clipboard` to capture clipboard changes in an event-driven manner. **Default UI:** GUI (tray).                                                         |
+   | **Linux (XWayland)**      | Same X11-style stack as above: `Gtk.Clipboard` when possible, otherwise `xclip` polling (~0.3s). **Default UI:** GUI—not CLI. Detection treats XWayland as a Wayland session that also has `DISPLAY` and `WAYLAND_DISPLAY` set. |
+   | **Linux (Unknown)**     | Treated like the X11-style path for defaults (GTK / `xclip` as above). **Default UI:** GUI. |
+   | **Linux (native Wayland, Hyprland)** | Tries **`wl-paste --watch` first** (**event-driven** where the compositor supports it: clipboard changes wake the watcher instead of a fixed timer). If `--watch` is not supported or exits immediately, falls back to **polling** `wl-paste -l` (default every 3 seconds; `--polling`). **Default UI:** CLI (terminal). Override with `--gui` / `--xmode`. |
    | **Android**               | Uses `ClipboardManager` to capture clipboard changes in an event-driven manner.                                                                         |
 
 

@@ -7,18 +7,15 @@ import logging
 
 from core.constants import *
 
-if PLATFORM == MACOS:
-    import ssl
-    import certifi
-
 VERSIONS = "1.0,1.1"
 
 
 class Client:
 
-    def __init__(self, url, headers={}, on_close_callback=None):
+    def __init__(self, url, headers={}, on_close_callback=None, sslopt=None):
 
         self.url = url
+        self._ws_sslopt = sslopt
         self.ws = websocket.WebSocketApp(self.url, headers)
         self.ws.on_open = self._on_open
         self.ws.on_message = self._on_message
@@ -37,10 +34,9 @@ class Client:
         self.errorCallback = None
 
     def _connect(self, timeout=0):
-        if PLATFORM == MACOS:
-            ssl_context = ssl.create_default_context(cafile=certifi.where())
+        if self._ws_sslopt:
             thread = Thread(
-                target=lambda: self.ws.run_forever(sslopt={"context": ssl_context})
+                target=lambda: self.ws.run_forever(sslopt=self._ws_sslopt)
             )
         else:
             thread = Thread(target=self.ws.run_forever)

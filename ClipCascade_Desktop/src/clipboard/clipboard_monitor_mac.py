@@ -9,6 +9,16 @@ _callback_update = None
 _run = False
 _first_run = False
 _block_image_once = False
+_pasteboard_lock = threading.Lock()
+_pb_writer = None
+
+
+def write_to_pasteboard(data, pb_type):
+    global _pb_writer
+    with _pasteboard_lock:
+        if _pb_writer is None:
+            _pb_writer = pasteboard.Pasteboard()
+        _pb_writer.set_contents(data, pb_type)
 
 
 def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
@@ -27,7 +37,8 @@ def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
 
             if enable_file_monitoring:
                 # Files
-                clipboard_files = pb_files.get_file_urls(diff=True)
+                with _pasteboard_lock:
+                    clipboard_files = pb_files.get_file_urls(diff=True)
                 if (
                     clipboard_files is not None
                     and type(clipboard_files) is tuple
@@ -38,10 +49,11 @@ def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
                         _callback_update("files", clipboard_files)
 
             # Text
-            clipboard_text = pb_text.get_contents(
-                type=pasteboard.String, diff=True
-            )  # If True, retrieves and returns the content only if it has changed since the last call.
-            # This approach is efficient even in cases of frequent polling.
+            with _pasteboard_lock:
+                clipboard_text = pb_text.get_contents(
+                    type=pasteboard.String, diff=True
+                ) # If True, retrieves and returns the content only if it has changed since the last call.
+                # This approach is efficient even in cases of frequent polling.
             if (
                 clipboard_text is not None
                 and type(clipboard_text) is str
@@ -52,9 +64,10 @@ def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
 
             if enable_image_monitoring:
                 # Image (PNG)
-                clipboard_image_png = pb_image_png.get_contents(
-                    type=pasteboard.PNG, diff=True
-                )
+                with _pasteboard_lock:
+                    clipboard_image_png = pb_image_png.get_contents(
+                        type=pasteboard.PNG, diff=True
+                    )
                 if (
                     clipboard_image_png is not None
                     and type(clipboard_image_png) is bytes
@@ -68,9 +81,10 @@ def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
                                 _callback_update("image", clipboard_image_png)
 
                 # Image (TIFF)
-                clipboard_image_tiff = pb_image_tiff.get_contents(
-                    type=pasteboard.TIFF, diff=True
-                )
+                with _pasteboard_lock:
+                    clipboard_image_tiff = pb_image_tiff.get_contents(
+                        type=pasteboard.TIFF, diff=True
+                    )
                 if (
                     clipboard_image_tiff is not None
                     and type(clipboard_image_tiff) is bytes
@@ -106,7 +120,7 @@ def _start(enable_image_monitoring=False, enable_file_monitoring=False):
 
 
 def stop():
-    global _clipboard_thread, _callback_update, _run, _first_run, _block_image_once
+    global _clipboard_thread, _callback_update, _run, _first_run, _block_image_once, _pb_writer
     if _clipboard_thread:
         _run = False
         _clipboard_thread.join()  # Wait for the thread to finish
@@ -114,6 +128,7 @@ def stop():
         _clipboard_thread = None
         _callback_update = None
         _block_image_once = False
+        _pb_writer = None
         logging.info("Clipboard monitor stopped")
 
 

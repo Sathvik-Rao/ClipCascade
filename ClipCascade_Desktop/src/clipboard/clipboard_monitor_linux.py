@@ -13,6 +13,7 @@ _block_image_once = False
 
 _is_gdk_running = False
 _run_poll = threading.Event()
+_wl_watch_proc = None
 
 
 def _on_clipboard_changed(
@@ -64,10 +65,13 @@ def _monitor_x_wl_clipboard(
         r"no suitable type of content copied",  # wl-clipboard pattern
     ]
 
-    if x_mode:
+    if LINUX_CLIPBOARD_POLL_INTERVAL_SEC is not None:
+        timeout = LINUX_CLIPBOARD_POLL_INTERVAL_SEC
+        logging.info(f"Clipboard polling interval (--polling): {timeout}s")
+    elif x_mode:
         timeout = 0.3  # xclip seconds
     else:
-        timeout = 1  # wl-clipboard seconds
+        timeout = 3  # wl-clipboard seconds
 
     while _run_poll.is_set():
         if x_mode:
@@ -179,6 +183,148 @@ def _monitor_x_wl_clipboard(
         time.sleep(timeout)
 
 
+def _monitor_wl_watch(enable_image_monitoring=False, enable_file_monitoring=False):
+    """Event-driven Wayland clipboard monitoring using wl-paste --watch.
+    Uses the wlr-data-control-v1 protocol which does not create visible
+    surfaces or steal focus. Supported by wlroots-based compositors
+    (Sway, Hyprland, etc.) and KDE Plasma on Wayland.
+    Returns True if watch mode ran successfully, False to fall back to polling."""
+    global _block_image_once, _wl_watch_proc
+
+    last_error = None
+    previous_clipboard = None
+    ignore_patterns = [
+        r"target .+ not available",
+        r"no suitable type of content copied",
+    ]
+
+    try:
+        _wl_watch_proc = subprocess.Popen(
+            ["wl-paste", "--watch", "echo"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        time.sleep(0.5)
+        if _wl_watch_proc.poll() is not None:
+            stderr_out = _wl_watch_proc.stderr.read().decode("utf-8", errors="ignore")
+            logging.warning(
+                f"wl-paste --watch exited immediately: {stderr_out.strip()}"
+            )
+            _wl_watch_proc = None
+            return False
+
+        logging.info(
+            "Using wl-paste --watch for clipboard monitoring (no focus stealing)"
+        )
+
+        while _run_poll.is_set():
+            line = _wl_watch_proc.stdout.readline()
+            if not line:
+                break
+            if not _run_poll.is_set():
+                break
+
+            success, mime_output = execute_command("wl-paste", "-l")
+            if not success:
+                error_msg = f"Failed to retrieve MIME types: {mime_output}"
+                if error_msg != last_error:
+                    logging.error(error_msg)
+                    last_error = error_msg
+                continue
+
+            mime_list = mime_output.decode("utf-8")
+            mime_list = mime_list.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+            mime_list = [m.strip() for m in mime_list if len(m.strip()) > 0]
+            type_ = convert_mime_to_generic_type(mime_list)
+
+            # Text
+            if type_ == "text":
+                success, text = execute_command("wl-paste", "-n")
+                if success:
+                    text = text.decode("utf-8")
+                    if len(text) > 0 and text != previous_clipboard:
+                        previous_clipboard = text
+                        if _callback_update:
+                            _callback_update("text", text)
+                else:
+                    error_msg = (
+                        f"Failed to retrieve text content from clipboard. {text}"
+                    )
+                    if error_msg != last_error:
+                        if not any(
+                            re.search(pattern, error_msg.lower())
+                            for pattern in ignore_patterns
+                        ):
+                            logging.error(error_msg)
+                        last_error = error_msg
+
+            # Image
+            elif type_ == "image" and enable_image_monitoring:
+                success, image = execute_command("wl-paste", "-t", "image/png")
+                if success:
+                    if image != previous_clipboard:
+                        previous_clipboard = image
+                        if _callback_update and not _block_image_once:
+                            _callback_update("image", image)
+                        else:
+                            _block_image_once = False
+                else:
+                    error_msg = (
+                        f"Failed to retrieve image content from clipboard. {image}"
+                    )
+                    if error_msg != last_error:
+                        if not any(
+                            re.search(pattern, error_msg.lower())
+                            for pattern in ignore_patterns
+                        ):
+                            logging.error(error_msg)
+                        last_error = error_msg
+
+            # Files
+            elif type_ == "files" and enable_file_monitoring:
+                success, files = execute_command(
+                    "wl-paste", "-t", "text/uri-list", "-n"
+                )
+                if success:
+                    files = files.decode("utf-8")
+                    files = (
+                        files.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+                    )
+                    files = [f.strip() for f in files if len(f.strip()) > 0]
+                    if files != previous_clipboard:
+                        previous_clipboard = files
+                        if _callback_update:
+                            _callback_update("files", files)
+                else:
+                    error_msg = (
+                        f"Failed to retrieve files content from clipboard. {files}"
+                    )
+                    if error_msg != last_error:
+                        if not any(
+                            re.search(pattern, error_msg.lower())
+                            for pattern in ignore_patterns
+                        ):
+                            logging.error(error_msg)
+                        last_error = error_msg
+
+        return True
+    except FileNotFoundError:
+        logging.warning("wl-paste not found, cannot use --watch mode")
+        return False
+    except Exception as e:
+        logging.warning(f"wl-paste --watch failed: {e}")
+        return False
+    finally:
+        if _wl_watch_proc is not None:
+            _wl_watch_proc.terminate()
+            try:
+                _wl_watch_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                _wl_watch_proc.kill()
+            _wl_watch_proc = None
+
+
 def convert_mime_to_generic_type(mime_list):
     if "text/uri-list" in mime_list:
         return "files"
@@ -242,15 +388,23 @@ def _start_clipboard_polling(enable_image_monitoring, enable_file_monitoring):
             enable_file_monitoring=enable_file_monitoring,
         )
     else:
-        _monitor_x_wl_clipboard(
-            x_mode=XMODE,
+        if not _monitor_wl_watch(
             enable_image_monitoring=enable_image_monitoring,
             enable_file_monitoring=enable_file_monitoring,
-        )
+        ):
+            logging.info(
+                "Falling back to wl-paste polling mode for clipboard monitoring"
+            )
+            _monitor_x_wl_clipboard(
+                x_mode=False,
+                enable_image_monitoring=enable_image_monitoring,
+                enable_file_monitoring=enable_file_monitoring,
+            )
 
 
 def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
     global _is_gdk_running, _run_poll
+    logging.info(f"XMODE: {XMODE}")
     try:
         _run_poll.set()
         import gi
@@ -260,6 +414,7 @@ def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
         from gi.repository import Gtk, Gdk
 
         if "x11" in str(type(Gdk.Display.get_default())).lower():  # X11
+            logging.info("Starting GTK clipboard monitoring for X11 display server.")
             clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
             clipboard.connect(
                 "owner-change",
@@ -293,7 +448,7 @@ def _start(enable_image_monitoring=False, enable_file_monitoring=False):
 
 
 def stop():
-    global _clipboard_thread, _callback_update, _block_image_once, _run_poll, _is_gdk_running
+    global _clipboard_thread, _callback_update, _block_image_once, _run_poll, _is_gdk_running, _wl_watch_proc
     if _clipboard_thread:
         if _is_gdk_running:
             import gi
@@ -304,10 +459,13 @@ def stop():
             Gtk.main_quit()
             _is_gdk_running = False
         _run_poll.clear()
+        if _wl_watch_proc is not None:
+            _wl_watch_proc.terminate()
         _clipboard_thread.join()  # Wait for the thread to finish
         _clipboard_thread = None
         _callback_update = None
         _block_image_once = False
+        _wl_watch_proc = None
         logging.info("Clipboard monitor stopped")
 
 

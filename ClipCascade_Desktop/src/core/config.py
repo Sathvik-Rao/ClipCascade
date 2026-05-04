@@ -28,6 +28,7 @@ class Config:
             "default_file_download_location": "",
             "server_mode": "P2S",
             "stun_url": "",
+            "ssl_ca_bundle": "",
         }
 
     def save(self):

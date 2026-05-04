@@ -10,7 +10,7 @@ from PIL import Image
 from core.constants import *
 from core.config import Config
 
-if PLATFORM.startswith(LINUX) and not XMODE:
+if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     from cli.tray import TaskbarPanel
 else:
     from gui.tray import TaskbarPanel
@@ -250,8 +250,7 @@ class ClipboardManager:
                         tiff_data = output.getvalue()
 
                     clipboard_monitor.enable_block_image_once()  # Block image copy to prevent deadlock
-                    pb_image = pasteboard.Pasteboard()
-                    pb_image.set_contents(tiff_data, pasteboard.TIFF)
+                    clipboard_monitor.write_to_pasteboard(tiff_data, pasteboard.TIFF)
                 elif PLATFORM.startswith(LINUX):
                     # Save the image to a binary buffer in PNG format
                     with io.BytesIO() as output:
