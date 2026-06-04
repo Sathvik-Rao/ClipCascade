@@ -76,7 +76,7 @@ def _monitor_x_wl_clipboard(
     while _run_poll.is_set():
         if x_mode:
             success, mime_list = execute_command(
-                "xclip", "-selection", "clipboard", "-t", "TARGETS", "-o"
+                "xclip", "-t", "TARGETS", "-o"
             )
         else:
             success, mime_list = execute_command("wl-paste", "-l")
@@ -372,7 +372,7 @@ def execute_command(*args) -> tuple:
 
 def is_x_clipboard_owner():
     # Check if the X clipboard is owned by the current user
-    return execute_command("xclip", "-selection", "clipboard", "-t", "TARGETS", "-o")[0]
+    return execute_command("xclip", "-t", "TARGETS", "-o")[0]
 
 
 def _start_clipboard_polling(enable_image_monitoring, enable_file_monitoring):
