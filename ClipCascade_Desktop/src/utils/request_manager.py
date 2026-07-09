@@ -21,6 +21,32 @@ class RequestManager:
         """
         return f"JSESSIONID={cookie.get('JSESSIONID', '')};"
 
+    def is_session_valid(self) -> bool:
+        """
+        Probe whether the stored session cookie is still authenticated.
+
+        Every protected endpoint 302-redirects to the login page once the
+        server-side session is gone (e.g. after a server restart drops its
+        in-memory sessions). Redirect following is disabled so that 302 is
+        observable instead of being masked by the 200 login page it points to.
+        Network/other errors return True so the caller falls through to the
+        normal WebSocket retry path instead of forcing an unnecessary re-login.
+        """
+        try:
+            response = requests.get(
+                self.config.data["server_url"] + CSRF_URL,
+                headers={
+                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
+                },
+                verify=self._verify(),
+                allow_redirects=False,
+                timeout=WEBSOCKET_TIMEOUT / 1000,
+            )
+            return response.status_code == 200
+        except Exception as e:
+            logging.error(f"Error probing session validity: {e}")
+            return True
+
     def login(self) -> tuple[bool, str, dict]:
         try:
             session = requests.Session()
