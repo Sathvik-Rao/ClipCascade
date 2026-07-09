@@ -56,6 +56,13 @@ class STOMPManager(WSInterface):
         try:
             if self.is_connected:
                 return True, ""
+            # Honor an explicit user disconnect: an auto-reconnect thread that
+            # was already sleeping when the user disconnected must not wake up
+            # and silently re-login/reconnect behind them. manual_reconnect()
+            # clears this flag before calling, so intentional reconnects still
+            # proceed.
+            if self.disconnected:
+                return False, "Websocket disconnected"
             # A restarted server drops its in-memory sessions, invalidating the
             # stored cookie. Refresh the session before (re)connecting so the
             # handshake is not 302-redirected to the login page — which the
