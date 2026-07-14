@@ -467,31 +467,28 @@ export default function App() {
         return [false, 'No CSRF token found in login page', data_s];
       }
 
-      // 2. Retrieve the cookie(s) from the "Set-Cookie" header
-      const setCookieHeader = loginPageResponse.headers.get('set-cookie');
-      if (!setCookieHeader) {
-        return [false, 'No Set-Cookie header returned from login page', null];
-      }
-
-      // 3. Prepare form data with the credentials AND the CSRF token
+      // 2. Prepare form data with the credentials AND the CSRF token
       const formData = new URLSearchParams();
       formData.append('username', data_s.username);
       formData.append('password', password_s);
       formData.append('_csrf', csrfToken);
 
-      // 4. Send a POST request to the login URL with cookies + form data
+      // 3. Send a POST request to the login URL with the form data. The
+      // session cookie set by the GET above is replayed by the platform's
+      // cookie jar (OkHttp on Android, NSURLSession on iOS); setting a
+      // Cookie header by hand here is both unnecessary and unreliable, as
+      // Set-Cookie is not always readable from the JS fetch response.
       const loginResponse = await fetchTimeout(data_s.server_url + LOGIN_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          Cookie: setCookieHeader, // Include the cookies from the initial GET
         },
         body: formData.toString(),
       });
 
       const loginResponseText = await loginResponse.text();
 
-      // 5. Check for login success
+      // 4. Check for login success
       if (
         loginResponse.ok &&
         !loginResponseText.toLowerCase().includes('bad credentials')
