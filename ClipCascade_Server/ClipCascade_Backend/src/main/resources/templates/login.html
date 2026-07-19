@@ -19,7 +19,7 @@
       name="keywords"
       content="ClipCascade, clipboard sync, secure clipboard, multi-device clipboard, end-to-end encryption, Windows clipboard sync, Mac clipboard sync, Linux clipboard sync, Android clipboard sync, Docker clipboard app"
     />
-    <link rel="icon" type="image/png" href="/assets/images/logo.png" />
+    <link rel="icon" type="image/svg+xml" href="/assets/images/logo.svg" />
     <link href="/assets/css/bootstrap@4.0.0.min.css" rel="stylesheet" />
     <style>
       .form-signin {
@@ -211,22 +211,6 @@
     <!-- js-sha3 library (CDN) -->
     <script src="/assets/js/sha3.min.js"></script>
 
-    <script>
-      document.addEventListener("DOMContentLoaded", function () {
-        const loginForm = document.getElementById("loginForm");
-        const passwordField = document.getElementById("password");
-
-        loginForm.addEventListener("submit", function (event) {
-          // 1) Get the raw password value
-          const rawPassword = passwordField.value;
-
-          // 2) Compute the SHA3-512 hash (returns a lowercase hex string)
-          const hashedPassword = sha3_512(rawPassword);
-
-          // 3) Replace the password field's value with the hashed version
-          passwordField.value = hashedPassword;
-        });
-      });
-    </script>
+    <script src="/assets/js/login.js"></script>
   </body>
 </html>

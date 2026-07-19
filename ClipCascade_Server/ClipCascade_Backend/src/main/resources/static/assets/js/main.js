@@ -43,6 +43,15 @@ const SELECTORS = {
   editUserNewUsername: "#edit-user-new-username",
   editUserNewPassword: "#edit-user-new-password",
   editUserEnabled: "#edit-user-enabled",
+
+  // Modals: Change Password
+  changePasswordModal: "#change-password-modal",
+  changePasswordForm: "#change-password-form",
+  changePasswordCurrent: "#change-password-current",
+  changePasswordNew: "#change-password-new",
+  changePasswordConfirm: "#change-password-confirm",
+  changePasswordError: "#change-password-error",
+  changePasswordClose: "#change-password-close",
 };
 
 const ENDPOINTS = {
@@ -178,6 +187,12 @@ function initEventHandlers() {
   // Add User Modal form submission
   $(SELECTORS.addUserForm).submit(onAddUserSubmit);
 
+  // Change Password modal
+  $(SELECTORS.changePasswordForm).submit(onChangePasswordSubmit);
+  $(SELECTORS.changePasswordClose).click(hideChangePasswordModal);
+  $("#add-user-modal-close").click(hideAddUserModal);
+  $("#edit-user-modal-close").click(hideEditUserModal);
+
   // Edit User Modal form submission
   $(SELECTORS.editUserForm).submit(onEditUserSubmit);
 }
@@ -300,6 +315,17 @@ function hideAddUserModal() {
 }
 function hideEditUserModal() {
   hideModal(SELECTORS.editUserModal);
+}
+function hideChangePasswordModal() {
+  hideModal(SELECTORS.changePasswordModal);
+  $(SELECTORS.changePasswordForm)[0]?.reset();
+  $(SELECTORS.changePasswordError).hide().text("");
+}
+function showChangePasswordModal() {
+  $(SELECTORS.changePasswordForm)[0]?.reset();
+  $(SELECTORS.changePasswordError).hide().text("");
+  showModal(SELECTORS.changePasswordModal);
+  $(SELECTORS.changePasswordCurrent).trigger("focus");
 }
 function validateUsername(username) {
   return (
@@ -795,28 +821,31 @@ function displayIncomingMessage(message) {
   const type = message.type || "text";
 
   const encodedText = base64EncodeUnicode(payload);
-  const escapedPayload = escapeHtml(payload);
-  const escapedType = escapeHtml(type);
+  let metadataText = "";
 
-  let metadataHtml = "";
   if (message.metadata) {
     const metadataStr = JSON.stringify(message.metadata);
-    metadataHtml = `, metadata:${escapeHtml(metadataStr)}`;
+    metadataText = `, metadata:${metadataStr}`;
   }
 
-  const row = $(`
-          <tr>
-            <td>{payload:${escapedPayload}, type:${escapedType}${metadataHtml}}</td>
-            <td>
-              <div class="button-container">
-                <button class="btn btn-primary download-btn"
-                        onclick="downloadFile('${filename}', '${encodedText}')">Download</button>
-                <button class="btn btn-default copy-btn"
-                        onclick="copyToClipboard('${escapedPayload}')">Copy</button>
-              </div>
-            </td>
-          </tr>
-        `);
+  const row = $("<tr></tr>");
+  row.append($("<td></td>").text(`{payload:${payload}, type:${type}${metadataText}}`));
+
+  const buttonContainer = $("<div></div>").addClass("button-container");
+  buttonContainer.append(
+    $("<button></button>")
+      .addClass("btn btn-primary download-btn")
+      .text("Download")
+      .on("click", () => downloadFile(filename, encodedText))
+  );
+  buttonContainer.append(
+    $("<button></button>")
+      .addClass("btn btn-default copy-btn")
+      .text("Copy")
+      .on("click", () => copyToClipboard(payload))
+  );
+
+  row.append($("<td></td>").append(buttonContainer));
   $(SELECTORS.conversationBody).append(row);
 }
 
@@ -850,23 +879,58 @@ function onChangeUsernameClick() {
 }
 
 function onChangePasswordClick() {
-  const newPassword = prompt("Enter your new password:");
-  if (!newPassword) {
-    alert("Password cannot be empty.");
+  showChangePasswordModal();
+}
+
+function showChangePasswordError(message) {
+  $(SELECTORS.changePasswordError).text(message).show();
+}
+
+function onChangePasswordSubmit(event) {
+  event.preventDefault();
+
+  const currentPassword = $(SELECTORS.changePasswordCurrent).val() || "";
+  const newPassword = $(SELECTORS.changePasswordNew).val() || "";
+  const confirmPassword = $(SELECTORS.changePasswordConfirm).val() || "";
+
+  if (!currentPassword) {
+    showChangePasswordError("Current password is required.");
     return;
   }
-  const hashedPassword = sha3_512(newPassword);
+  if (!newPassword) {
+    showChangePasswordError("New password cannot be empty.");
+    return;
+  }
+  if (newPassword.length < 12) {
+    showChangePasswordError("Password must be at least 12 characters long.");
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    showChangePasswordError("New password and confirmation do not match.");
+    return;
+  }
+
+  const hashedCurrentPassword = sha3_512(currentPassword);
+  const hashedNewPassword = sha3_512(newPassword);
 
   $.ajax({
     url: ENDPOINTS.updatePassword,
     type: "PUT",
     contentType: "application/json",
-    data: JSON.stringify({ newPassword: hashedPassword }),
+    data: JSON.stringify({
+      currentPassword: hashedCurrentPassword,
+      newPassword: hashedNewPassword,
+    }),
     success: (res) => {
-      alert(res);
+      hideChangePasswordModal();
+      alert(`${res}. Please sign in again.`);
+      window.location.href = "/login?expired";
     },
     error: (err) => {
-      alert("Failed to update password");
+      const msg =
+        (err && err.responseText) ||
+        "Failed to update password. Check current password and try again.";
+      showChangePasswordError(msg);
       console.error(err);
     },
   });

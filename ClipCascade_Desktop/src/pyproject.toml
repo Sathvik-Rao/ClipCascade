@@ -8,7 +8,7 @@ version = "3.2.0"
 description = "ClipCascade is a lightweight utility that automatically syncs the clipboard across devices, no key press required."
 authors = [{ name = "Sathvik Rao", email = "sathvik.poladi@gmail.com" }]
 license = { file = "LICENSE" }
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 keywords = [
     "clipboard",
     "sync",
@@ -23,8 +23,6 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -41,6 +39,7 @@ dependencies = [
     "xxhash==3.5.0",
     "beautifulsoup4==4.12.3",
     "aiortc==1.10.0",
+    "keyring>=25.0.0",
     # Platform-specific dependencies
     "pyfiglet==1.0.2; sys_platform == 'linux'",
     "pyperclip==1.8.2; sys_platform == 'win32' or sys_platform == 'darwin'",
@@ -68,7 +67,7 @@ packages = [
 
 [tool.black]
 line-length = 100
-target-version = ["py38", "py39", "py310", "py311", "py312"]
+target-version = ["py310", "py311", "py312"]
 include = "\\.pyi?$"
 
 [tool.isort]

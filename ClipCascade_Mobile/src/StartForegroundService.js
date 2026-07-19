@@ -5,11 +5,10 @@ import {
   Alert,
 } from 'react-native';
 
-import notifee, { AndroidImportance } from '@notifee/react-native';
+import notifee, { AndroidImportance, EventType } from '@notifee/react-native';
 import { Client } from '@stomp/stompjs';
 import * as encoding from 'text-encoding'; //do not remove this (polyfills for TextEncoder/TextDecoder stompjs)
 import { xxHash32 } from 'js-xxhash';
-import AesGcmCrypto from 'react-native-aes-gcm-crypto';
 import { Buffer } from 'buffer';
 import {
   RTCPeerConnection,
@@ -24,12 +23,28 @@ import {
   getMultipleDataFromAsyncStorage,
   clearAsyncStorage,
 } from './AsyncStorageManagement';
+import {
+  ReplayCache,
+  wrapOutbound,
+  unwrapInbound,
+  ensureDeviceId,
+  buildTransportFrame,
+  extractTransportEnvelope,
+} from './protocolV2';
+
+// Pre-3.2.0 peers send a bare {nonce,ciphertext,tag} blob with no envelope, so
+// none of the v2 checks apply to it. Mobile has no opt-in for legacy traffic
+// (see HARDENING_NEXT_STEPS.md), so it is always refused.
+const LEGACY_CIPHERTEXT_REJECTED =
+  'Rejected legacy un-versioned ciphertext (no replay or metadata binding). ' +
+  'Upgrade all devices to 3.2.0+.';
 
 function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
   DeviceEventEmitter.removeAllListeners('SHARED_IMAGE');
   DeviceEventEmitter.removeAllListeners('SHARED_FILES');
   DeviceEventEmitter.removeAllListeners('onClipboardChange');
+  DeviceEventEmitter.removeAllListeners('CAPTURE_CLIPBOARD_NOW');
 }
 
 module.exports = async (inputData = null) => {
@@ -45,8 +60,15 @@ module.exports = async (inputData = null) => {
     return new Promise(async () => {
       try {
         const { NativeBridgeModule } = NativeModules;
-        const textEncoder = new TextEncoder();
-        const textDecoder = new TextDecoder();
+        const textEncoder = new encoding.TextEncoder();
+        const textDecoder = new encoding.TextDecoder();
+        const replayCache = new ReplayCache();
+        const protocolStore = {
+          device_id: (await getDataFromAsyncStorage('device_id')) || '',
+          send_counter: Number(await getDataFromAsyncStorage('send_counter')) || 0,
+        };
+        ensureDeviceId(protocolStore);
+        await setDataInAsyncStorage('device_id', protocolStore.device_id);
 
         let previous_clipboard_content_hash = '';
         let toggle = false; // p2s toggle
@@ -93,39 +115,11 @@ module.exports = async (inputData = null) => {
           max_clipboard_size_local_limit_bytes = maxsize;
         }
 
-        // encrption
-        const encrypt = async plainText => {
-          try {
-            const encryptedData = await AesGcmCrypto.encrypt(
-              plainText,
-              false,
-              await getDataFromAsyncStorage('hashed_password'),
-            );
-            return JSON.stringify({
-              nonce: Buffer.from(encryptedData.iv, 'hex').toString('base64'),
-              ciphertext: encryptedData.content,
-              tag: Buffer.from(encryptedData.tag, 'hex').toString('base64'),
-            });
-          } catch (e) {
-            throw new Error('Failed to encrypt: ' + e);
-          }
-        };
-
-        // decryption
-        const decrypt = async encryptedData => {
-          try {
-            const plainText = await AesGcmCrypto.decrypt(
-              encryptedData['ciphertext'],
-              await getDataFromAsyncStorage('hashed_password'),
-              Buffer.from(encryptedData['nonce'], 'base64').toString('hex'),
-              Buffer.from(encryptedData['tag'], 'base64').toString('hex'),
-              false,
-            );
-            return plainText;
-          } catch (e) {
-            throw new Error('Failed to decrypt: ' + e);
-          }
-        };
+        // Un-versioned encrypt/decrypt helpers used to live here. All crypto now
+        // goes through wrapOutbound/unwrapInbound in protocolV2.js, which binds
+        // the metadata into the ciphertext and enforces replay protection.
+        // Keeping a bare AES helper around invites a caller to reintroduce the
+        // legacy path that bypasses those checks.
 
         // hash clipboard content
         const hashCB = async (input, seed = 0) => {
@@ -303,11 +297,33 @@ module.exports = async (inputData = null) => {
           }
         });
 
-        //clipboard monitor
+        //clipboard monitor (primary-clip changes only; no READ_LOGS/overlay)
         const { ClipboardListener } = NativeModules;
         const clipboardListener = new NativeEventEmitter(ClipboardListener);
         // start clipboard listening
         ClipboardListener.startListening();
+        // Explicit tile / notification capture
+        const triggerCaptureNow = async () => {
+          try {
+            if (ClipboardListener.captureNow) {
+              ClipboardListener.captureNow();
+            }
+          } catch (e) {
+            await setDataInAsyncStorage(
+              'wsStatusMessage',
+              '❌ Capture Error: ' + e,
+            );
+          }
+        };
+        DeviceEventEmitter.addListener('CAPTURE_CLIPBOARD_NOW', triggerCaptureNow);
+        notifee.onForegroundEvent(async ({type, detail}) => {
+          if (
+            type === EventType.ACTION_PRESS &&
+            detail?.pressAction?.id === 'capture_clipboard_now'
+          ) {
+            await triggerCaptureNow();
+          }
+        });
         // clipboard listener callback
         const clipboardOnChange = clipboardListener.addListener(
           'onClipboardChange',
@@ -399,18 +415,26 @@ module.exports = async (inputData = null) => {
 
                   if (message && message.body) {
                     const body = JSON.parse(message.body);
-                    let cb = String(body.payload);
-                    const type_ = body.type ?? 'text';
-
-                    //decrypt
-                    if (cipher_enabled === 'true') {
-                      try {
-                        cb = await decrypt(JSON.parse(cb));
-                      } catch (error) {
-                        throw new Error(
-                          `Encryption must be enabled on all devices if enabled. JSON parsing failed: ${error.message}`,
-                        );
-                      }
+                    let cb;
+                    let type_;
+                    try {
+                      const unwrapped = await unwrapInbound({
+                        body: extractTransportEnvelope(body),
+                        cipherEnabled: cipher_enabled === 'true',
+                        hashedPassword: await getDataFromAsyncStorage(
+                          'hashed_password',
+                        ),
+                        replayCache,
+                        localDeviceId: protocolStore.device_id,
+                        // Explicit: never inherit this from anywhere.
+                        allowLegacyV1: false,
+                      });
+                      cb = unwrapped.payload;
+                      type_ = unwrapped.type;
+                    } catch (error) {
+                      throw new Error(
+                        `Inbound message rejected: ${error.message}`,
+                      );
                     }
 
                     // hash clipboard content
@@ -526,7 +550,7 @@ module.exports = async (inputData = null) => {
                       clipContent,
                     );
                   } else if (type_ === 'files') {
-                    temp = {};
+                    const temp = {};
                     const file_paths = clipContent
                       .split(',')
                       .filter(item => item.trim() !== '');
@@ -548,23 +572,33 @@ module.exports = async (inputData = null) => {
                     } else {
                       toggle = true;
 
-                      if (cipher_enabled === 'true') {
-                        //ecrypt
-                        clipContent = await encrypt(clipContent);
-                      }
+                      const envelope = await wrapOutbound({
+                        payload: String(clipContent),
+                        type: type_,
+                        cipherEnabled: cipher_enabled === 'true',
+                        hashedPassword: await getDataFromAsyncStorage(
+                          'hashed_password',
+                        ),
+                        store: protocolStore,
+                      });
+                      await setDataInAsyncStorage(
+                        'send_counter',
+                        String(protocolStore.send_counter),
+                      );
 
                       await setDataInAsyncStorage(
                         'wsStatusMessage',
                         '✅ Connected - Broadcasting',
                       );
 
-                      // send
+                      // The server relays only {payload, type, metadata}, so
+                      // the envelope travels nested inside payload or it does
+                      // not arrive at all.
                       stompClient.publish({
                         destination: SEND_DESTINATION,
-                        body: JSON.stringify({
-                          payload: String(clipContent),
-                          type: type_,
-                        }),
+                        body: JSON.stringify(
+                          buildTransportFrame(envelope, type_),
+                        ),
                       });
                     }
                   }
@@ -626,9 +660,52 @@ module.exports = async (inputData = null) => {
 
           // Fragment variables
           let sendingFragmentId = '';
-          let receivingFragments = {}; // Map: fragmentId -> array of strings (ordered)
+          // Null-prototype: keys come straight off the wire, so a plain object
+          // would let a peer address Object.prototype (e.g. id "__proto__") and
+          // write properties every other object then inherits.
+          let receivingFragments = Object.create(null); // fragmentId -> ordered string[]
           let sendingFragmentStats = null;
           let receivingFragmentStats = null;
+
+          // Mirrors the desktop cap in p2p_manager.py. Without it, a peer sets
+          // totalFragments and we allocate an array of that size before any
+          // authentication has happened.
+          const MAX_RECEIVING_FRAGMENTS = 4096;
+          const UUID_RE =
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+          /**
+           * Validate peer-supplied fragment metadata before it indexes anything
+           * or sizes an allocation. Desktop has had this since protocol v2
+           * landed (_is_valid_fragment_metadata); mobile had no equivalent, so
+           * both the id and the index reached an object subscript unchecked.
+           */
+          const isValidFragmentMetadata = (metadata, payload) => {
+            if (!metadata || typeof metadata !== 'object') {
+              return false;
+            }
+            if (typeof metadata.id !== 'string' || !UUID_RE.test(metadata.id)) {
+              return false;
+            }
+            if (typeof metadata.isFragmented !== 'boolean') {
+              return false;
+            }
+            const {index, totalFragments} = metadata;
+            if (!Number.isSafeInteger(index) || !Number.isSafeInteger(totalFragments)) {
+              return false;
+            }
+            if (totalFragments < 1 || totalFragments > MAX_RECEIVING_FRAGMENTS) {
+              return false;
+            }
+            if (index < 0 || index >= totalFragments) {
+              return false;
+            }
+            const rawSize = metadata.combinedRawPayloadSizeInBytes ?? 0;
+            if (!Number.isSafeInteger(rawSize) || rawSize < 0) {
+              return false;
+            }
+            return typeof payload === 'string' && payload.length <= FRAGMENT_SIZE * 2;
+          };
 
           getP2PStatusMessage = async () => {
             let msg = '📊';
@@ -652,7 +729,7 @@ module.exports = async (inputData = null) => {
           };
 
           const resetReceivingFragments = async () => {
-            receivingFragments = {};
+            receivingFragments = Object.create(null);
             receivingFragmentStats = null;
             await resetP2PMsg();
           };
@@ -871,7 +948,7 @@ module.exports = async (inputData = null) => {
                     clipContent,
                   );
                 } else if (type_ === 'files') {
-                  temp = {};
+                  const temp = {};
                   const file_paths = clipContent
                     .split(',')
                     .filter(item => item.trim() !== '');
@@ -897,23 +974,35 @@ module.exports = async (inputData = null) => {
                     const rawPayloadSizeInBytes =
                       textEncoder.encode(clipContent).length;
 
-                    if (cipher_enabled === 'true') {
-                      //ecrypt
-                      clipContent = await encrypt(clipContent);
-                    }
+                    const envelope = await wrapOutbound({
+                      payload: String(clipContent),
+                      type: type_,
+                      cipherEnabled: cipher_enabled === 'true',
+                      hashedPassword: await getDataFromAsyncStorage(
+                        'hashed_password',
+                      ),
+                      store: protocolStore,
+                    });
+                    await setDataInAsyncStorage(
+                      'send_counter',
+                      String(protocolStore.send_counter),
+                    );
+                    const wire = JSON.stringify(envelope);
 
-                    // fragment payload
+                    // fragment wire envelope
                     const fragments = await fragmentString(
-                      clipContent,
+                      wire,
                       FRAGMENT_SIZE,
                     );
 
                     const metadata = {
                       id: await generateUuid(),
+                      stream: true,
                       isFragmented: fragments.length > 1,
                       index: 0,
                       totalFragments: fragments.length,
                       combinedRawPayloadSizeInBytes: rawPayloadSizeInBytes,
+                      wireSizeInBytes: textEncoder.encode(wire).length,
                     };
 
                     let loopBroken = false;
@@ -929,7 +1018,8 @@ module.exports = async (inputData = null) => {
                       const messageJson = JSON.stringify({
                         payload: fragment,
                         type: type_,
-                        metadata: metadata,
+                        metadata: {...metadata},
+                        v: envelope.v,
                       });
                       metadata.index += 1;
 
@@ -1026,11 +1116,11 @@ module.exports = async (inputData = null) => {
                 return;
               }
 
-              await clearFiles((expensiveCall = true));
+              await clearFiles(true);
               await resetSendingFragmentId();
 
               let cb = String(message.payload);
-              const type_ = message.type ?? 'text';
+              let type_ = message.type ?? 'text';
               const metadata = message.metadata;
 
               // Check if the payload exceeds the maximum size: first layer protection
@@ -1046,6 +1136,15 @@ module.exports = async (inputData = null) => {
                 return;
               }
 
+              // Reject peer-supplied metadata before it indexes anything or
+              // sizes an allocation.
+              if (metadata != null && !isValidFragmentMetadata(metadata, cb)) {
+                await resetReceivingFragments();
+                p2pMsg = '⚠️ Rejected invalid P2P fragment metadata';
+                await p2pStatusMessageChanged();
+                return;
+              }
+
               // Fragmented message handling
               if (metadata != null && metadata.isFragmented) {
                 receivingFragmentStats = `${metadata.index + 1}/${
@@ -1053,7 +1152,7 @@ module.exports = async (inputData = null) => {
                 }`;
                 await p2pStatusMessageChanged();
 
-                if (metadata.id in receivingFragments) {
+                if (Object.prototype.hasOwnProperty.call(receivingFragments, metadata.id)) {
                   receivingFragments[metadata.id][metadata.index] = cb;
 
                   // If this is the last fragment, try to combine
@@ -1088,15 +1187,38 @@ module.exports = async (inputData = null) => {
 
               await clearFiles();
 
-              // decrypt
-              if (cipher_enabled === 'true') {
-                try {
-                  cb = await decrypt(JSON.parse(cb));
-                } catch (error) {
-                  throw new Error(
-                    `Encryption must be enabled on all devices if enabled. JSON parsing failed: ${error.message}`,
-                  );
+              // Reassembled wire is a v2 envelope JSON (or legacy)
+              try {
+                if (typeof cb === 'string' && cb.startsWith('{')) {
+                  const envelope = JSON.parse(cb);
+                  if (envelope && envelope.payload !== undefined) {
+                    const unwrapped = await unwrapInbound({
+                      body: envelope,
+                      cipherEnabled: cipher_enabled === 'true',
+                      hashedPassword: await getDataFromAsyncStorage(
+                        'hashed_password',
+                      ),
+                      replayCache,
+                      localDeviceId: protocolStore.device_id,
+                      // Explicit: never inherit this from anywhere.
+                      allowLegacyV1: false,
+                    });
+                    cb = unwrapped.payload;
+                    type_ = unwrapped.type;
+                  } else if (cipher_enabled === 'true') {
+                    // Bare {nonce,ciphertext,tag} from a pre-3.2.0 peer. It has
+                    // no envelope, so none of the v2 checks apply: no replay
+                    // cache, no counter, no timestamp, no metadata binding.
+                    // Accepting it would reopen everything v2 closes.
+                    throw new Error(LEGACY_CIPHERTEXT_REJECTED);
+                  }
+                } else if (cipher_enabled === 'true') {
+                  throw new Error(LEGACY_CIPHERTEXT_REJECTED);
                 }
+              } catch (error) {
+                throw new Error(
+                  `Inbound P2P message rejected: ${error.message}`,
+                );
               }
 
               // hash clipboard content
@@ -1558,6 +1680,7 @@ module.exports = async (inputData = null) => {
     // Display a notification to start the foreground service
     await notifee.displayNotification({
       title: 'ClipCascade',
+      body: 'Sync running — use action to share clipboard',
       android: {
         channelId,
         asForegroundService: true,
@@ -1567,6 +1690,15 @@ module.exports = async (inputData = null) => {
           id: 'default',
           launchActivity: 'default',
         },
+        actions: [
+          {
+            title: 'Share clipboard now',
+            pressAction: {
+              id: 'capture_clipboard_now',
+              launchActivity: 'default',
+            },
+          },
+        ],
       },
     });
 

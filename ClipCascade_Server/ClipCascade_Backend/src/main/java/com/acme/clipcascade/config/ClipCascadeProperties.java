@@ -3,6 +3,8 @@ package com.acme.clipcascade.config;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 
+import jakarta.annotation.PostConstruct;
+
 @Configuration
 public class ClipCascadeProperties {
 
@@ -21,8 +23,8 @@ public class ClipCascadeProperties {
     @Value("${CC_MAX_MESSAGE_SIZE_IN_BYTES:0}")
     private long maxMessageSizeInBytes;
 
-    // Allowed origins for WebSocket connections (default: all origins '*')
-    @Value("${CC_ALLOWED_ORIGINS:*}")
+    // Allowed origins for WebSocket connections
+    @Value("${CC_ALLOWED_ORIGINS:http://localhost:8080}")
     private String allowedOrigins;
 
     // Flag to enable or disable signup form (default: false)
@@ -188,13 +190,13 @@ public class ClipCascadeProperties {
     private String serverDbUsername;
 
     /*
-     * Server database host (default: QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky)
+     * Server database password.
      * note: Ensure configuration is included in the application.properties file as
      * well.
      * 
      * <file password> and <user password> are for h2 file database
      */
-    @Value("${CC_SERVER_DB_PASSWORD:QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky}")
+    @Value("${CC_SERVER_DB_PASSWORD:}")
     private String serverDbPassword;
 
     /*
@@ -231,11 +233,11 @@ public class ClipCascadeProperties {
     private int port;
 
     /*
-     * Server Session timeout (default: 525960m)
+     * Server Session timeout (default: 1440m)
      * note: Ensure configuration is included in the application.properties file as
      * well.
      */
-    @Value("${CC_SESSION_TIMEOUT:525960m}")
+    @Value("${CC_SESSION_TIMEOUT:1440m}")
     private String sessionTimeout;
 
     /*
@@ -277,6 +279,68 @@ public class ClipCascadeProperties {
     @Value("${CC_DONATIONS_ENABLED:false}")
     private boolean donationsEnabled;
 
+    @Value("${CC_INITIAL_ADMIN_USERNAME:admin}")
+    private String initialAdminUsername;
+
+    @Value("${CC_INITIAL_ADMIN_PASSWORD:}")
+    private String initialAdminPassword;
+
+    @Value("${CC_UPDATE_CHECK_ENABLED:true}")
+    private boolean updateCheckEnabled;
+
+    @PostConstruct
+    void validateRequiredSecrets() {
+        if (isH2FileDatabase() && !isServerDbPasswordConfigured()) {
+            throw new IllegalStateException(
+                    "Set CC_SERVER_DB_PASSWORD before starting an H2 file database.");
+        }
+        if (isWildcardOrigin()) {
+            throw new IllegalStateException(
+                    "CC_ALLOWED_ORIGINS=* is not supported. A wildcard origin lets any website "
+                            + "open an authenticated WebSocket to this server using the visitor's "
+                            + "session cookie and read their clipboard. Set exact origins instead, "
+                            + "comma separated, e.g. "
+                            + "CC_ALLOWED_ORIGINS=http://10.0.0.5:8080,https://host.example.ts.net");
+        }
+    }
+
+    /**
+     * A wildcard is rejected outright rather than narrowed, because it is
+     * applied verbatim to both WebSocket endpoints and cannot be made safe
+     * while credentials are in play.
+     */
+    private boolean isWildcardOrigin() {
+        if (allowedOrigins == null) {
+            return false;
+        }
+        return java.util.Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .anyMatch(origin -> "*".equals(origin));
+    }
+
+    private boolean isServerDbPasswordConfigured() {
+        return serverDbPassword != null && !serverDbPassword.isBlank();
+    }
+
+    /**
+     * True for any on-disk H2 database.
+     *
+     * Detected by exclusion rather than by matching "jdbc:h2:file:": H2 also
+     * accepts jdbc:h2:~/x, jdbc:h2:./x and jdbc:h2:/abs, which are equally
+     * persistent. A prefix match let those boot with an empty password — and
+     * since the shipped URL carries CIPHER=AES, an empty password also means
+     * the file is not meaningfully encrypted.
+     */
+    private boolean isH2FileDatabase() {
+        String url = serverDbUrl == null ? "" : serverDbUrl.trim().toLowerCase();
+        String driver = serverDbDriver == null ? "" : serverDbDriver.trim().toLowerCase();
+        if (!driver.contains("h2") || !url.startsWith("jdbc:h2:")) {
+            return false;
+        }
+        // In-memory databases are ephemeral and used by the test suite.
+        return !url.startsWith("jdbc:h2:mem:");
+    }
+
     private long getMessageSizeInBytes() {
         /*
          * Note: Ensure that the same logic is applied in the activemq.xml file as well.
@@ -305,6 +369,21 @@ public class ClipCascadeProperties {
 
     public String getAllowedOrigins() {
         return allowedOrigins;
+    }
+
+    public String[] getAllowedOriginsArray() {
+        if (allowedOrigins == null || allowedOrigins.isBlank()) {
+            return new String[] { "http://localhost:8080" };
+        }
+
+        // Defence in depth: validateRequiredSecrets() already fails startup on a
+        // wildcard, but this method is also reachable from tests and any future
+        // caller that builds the properties directly.
+        return java.util.Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isBlank())
+                .filter(origin -> !"*".equals(origin))
+                .toArray(String[]::new);
     }
 
     public boolean isSignupEnabled() {
@@ -459,6 +538,26 @@ public class ClipCascadeProperties {
         return donationsEnabled;
     }
 
+    public String getInitialAdminUsername() {
+        return initialAdminUsername;
+    }
+
+    public String getInitialAdminPassword() {
+        return initialAdminPassword;
+    }
+
+    public boolean isInitialAdminPasswordConfigured() {
+        return initialAdminPassword != null && !initialAdminPassword.isBlank();
+    }
+
+    public boolean isUpdateCheckEnabled() {
+        return updateCheckEnabled;
+    }
+
+    public boolean getUpdateCheckEnabled() {
+        return updateCheckEnabled;
+    }
+
     @Override
     public String toString() {
         return "{\n" +
@@ -492,6 +591,7 @@ public class ClipCascadeProperties {
                 ",\n p2pStunUrl='" + getP2pStunUrl() + "'" +
                 ",\n maxWsGlobalConnections='" + getMaxWsGlobalConnections() + "'" +
                 ",\n maxWsConnectionsPerUser='" + getMaxWsConnectionsPerUser() + "'" +
+                ",\n updateCheckEnabled='" + isUpdateCheckEnabled() + "'" +
                 "\n}";
     }
 

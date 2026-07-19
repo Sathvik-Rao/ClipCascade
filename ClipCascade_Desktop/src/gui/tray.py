@@ -366,11 +366,18 @@ class TaskbarPanel:
                     timeout=5000,
                 ).mainloop()
 
-            # Save each file to the chosen directory
+            # Save each file to the chosen directory (hard byte cap before write)
+            size_limit = self._download_size_limit()
+            total_written = 0
             for filename, file_obj in files.items():
-                file_path = os.path.join(target_directory, filename)
-                with open(file_path, "wb") as f:
-                    f.write(file_obj.getvalue())
+                data = file_obj.getvalue()
+                total_written += len(data)
+                if total_written > size_limit:
+                    raise ValueError(
+                        f"Download aborted: total size exceeds limit of {size_limit} bytes"
+                    )
+                file_path = self._unique_download_path(target_directory, filename)
+                self._write_download_file(file_path, data)
                 logging.debug(f"Saved: {file_path}")
 
         except Exception as e:
@@ -380,6 +387,33 @@ class TaskbarPanel:
                 msg,
                 msg_type="error",
             ).mainloop()
+
+    def _download_size_limit(self) -> int:
+        local_limit = self.config.data.get("max_clipboard_size_local_limit_bytes")
+        server_limit = self.config.data.get("maxsize")
+        if local_limit is not None and local_limit > 0:
+            return int(local_limit)
+        if server_limit is not None and server_limit > 0:
+            return int(server_limit)
+        return MAX_SIZE
+
+    @staticmethod
+    def _unique_download_path(target_directory, filename):
+        safe_name = os.path.basename(str(filename).replace("\\", "/"))
+        root, ext = os.path.splitext(safe_name)
+        candidate = os.path.join(target_directory, safe_name)
+        counter = 1
+        while os.path.exists(candidate):
+            candidate = os.path.join(target_directory, f"{root}_{counter}{ext}")
+            counter += 1
+        return candidate
+
+    @staticmethod
+    def _write_download_file(file_path, data):
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        fd = os.open(file_path, flags, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
 
     def _on_logoff(self, icon, item):
         try:

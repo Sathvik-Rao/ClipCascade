@@ -14,6 +14,21 @@ from clipboard.clipboard_manager import ClipboardManager
 from utils.notification_manager import NotificationManager
 from utils.request_manager import RequestManager
 from utils.ssl_helper import websocket_sslopt_for_config
+from utils.protocol_v2 import (
+    ReplayCache,
+    decrypt_legacy_blob,
+    ensure_device_id,
+    wrap_outbound,
+    unwrap_inbound,
+)
+from utils.stream_transfer import fragment_utf8_string
+from utils.device_trust import (
+    load_or_create_identity,
+    sign_signaling,
+    verify_signaling,
+    PeerTrustStore,
+    trust_store_path_for_data_file,
+)
 from core.constants import *
 from aiortc import (
     RTCPeerConnection,
@@ -30,11 +45,15 @@ else:
     from gui.tray import TaskbarPanel
 
 class P2PManager(WSInterface):
+    MAX_RECEIVING_FRAGMENTS = 4096
+    MAX_FRAGMENT_ID_LENGTH = 64
+
     def __init__(self, config: Config, is_login_phase=True):
         self.config = config
         self.clipboard_manager = ClipboardManager(self.config)
         self.cipher_manager = CipherManager(self.config)
         self.notification_manager = NotificationManager(self.config)
+        self.replay_cache = ReplayCache()
         self.sys_tray: TaskbarPanel = None
         self.first_conn_lost = True
         self.is_login_phase = is_login_phase
@@ -50,6 +69,15 @@ class P2PManager(WSInterface):
         self.receiving_fragments: dict = {}  # Mapping: fragmentid:str -> fragment:list[str]
         self.sending_fragment_stats: str = None
         self.receiving_fragment_stats: str = None
+        self._stream_received_bytes: dict = {}  # stream_id -> assembled byte count
+
+        # Device identity + trust (signed signaling)
+        self._identity = None
+        self._trust_store = PeerTrustStore(
+            trust_store_path_for_data_file(self.config.file_name)
+        )
+        self._peer_id_to_device: dict[str, str] = {}
+        self._pending_public_keys: dict[str, str] = {}  # device_id -> public_pem
 
         # p2p variables
         self.my_peer_id: str = None  # Own peer id assigned by the server
@@ -235,6 +263,96 @@ class P2PManager(WSInterface):
     def _on_ws_message(self, ws, message):
         self.schedule_task(self._on_ws_message_async(message))
 
+    def _ensure_identity(self):
+        if self._identity is not None:
+            return self._identity
+        ensure_device_id(self.config.data)
+        keyring = self.config._keyring()
+        account = f"{self.config._secret_account('device_identity')}"
+        self._identity = load_or_create_identity(
+            keyring, Config.KEYRING_SERVICE, account
+        )
+        # Align config device_id with signing identity when possible.
+        if self._identity.device_id:
+            self.config.data["device_id"] = self._identity.device_id
+        return self._identity
+
+    def _announce_device(self):
+        identity = self._ensure_identity()
+        msg = {
+            "type": "DEVICE_ANNOUNCE",
+            "peerId": self.my_peer_id,
+            "publicKey": identity.public_pem,
+            "fingerprint": identity.fingerprint,
+        }
+        self.ws_send(sign_signaling(identity, msg))
+
+    def _is_signed_peer_allowed(self, data: dict) -> bool:
+        """Verify signature and trust for signaling messages from peers."""
+        msg_type = data.get("type")
+        if msg_type in {"ASSIGNED_ID", "PEER_LIST"}:
+            return True
+
+        device_id = data.get("deviceId")
+
+        if msg_type == "DEVICE_ANNOUNCE":
+            if not device_id or not data.get("publicKey"):
+                logging.warning("Rejecting DEVICE_ANNOUNCE without identity")
+                return False
+            announced_pem = data["publicKey"]
+            if self._trust_store.is_trusted(device_id):
+                stored = self._trust_store.get_public_pem(device_id)
+                if stored != announced_pem:
+                    logging.warning(
+                        "Rejecting DEVICE_ANNOUNCE key change for trusted device %s",
+                        device_id,
+                    )
+                    return False
+                if not verify_signaling(data, stored):
+                    logging.warning("Rejecting DEVICE_ANNOUNCE with bad signature")
+                    return False
+            else:
+                if not verify_signaling(data, announced_pem):
+                    logging.warning("Rejecting DEVICE_ANNOUNCE with bad signature")
+                    return False
+                # TOFU: first valid announce is trusted (same logged-in account room).
+                self._trust_store.trust(device_id, announced_pem, label="tofu")
+                logging.info(
+                    "Trusted new P2P device %s (fp=%s)",
+                    device_id,
+                    data.get("fingerprint"),
+                )
+            self._pending_public_keys[device_id] = announced_pem
+            peer_id = data.get("peerId") or data.get("fromPeerId")
+            if peer_id:
+                self._peer_id_to_device[peer_id] = device_id
+            return True
+
+        # OFFER/ANSWER/ICE/PAIR_*: pin verification to trusted/pending store PEM only.
+        # Never trust publicKey from the message body (prevents key-injection spoofing).
+        public_pem = None
+        if device_id:
+            public_pem = self._trust_store.get_public_pem(device_id) or self._pending_public_keys.get(
+                device_id
+            )
+        if not device_id or not public_pem:
+            logging.warning(
+                "Rejecting unsigned/untrusted signaling message type=%s", msg_type
+            )
+            return False
+        if not verify_signaling(data, public_pem):
+            logging.warning(
+                "Rejecting signaling with invalid signature type=%s", msg_type
+            )
+            return False
+        if not self._trust_store.is_trusted(device_id):
+            logging.warning("Rejecting signaling from untrusted device %s", device_id)
+            return False
+        from_peer = data.get("fromPeerId")
+        if from_peer:
+            self._peer_id_to_device[from_peer] = device_id
+        return True
+
     async def _on_ws_message_async(self, message):
         try:
             logging.debug("\n<<< " + str(message))
@@ -245,20 +363,48 @@ class P2PManager(WSInterface):
                 if self.my_peer_id is not None and self.my_peer_id != data["peerId"]:
                     await self._cleanup_peer_connections()
                 self.my_peer_id = data["peerId"]
+                self._announce_device()
                 if self._pending_peer_list is not None:
                     pending = self._pending_peer_list
                     self._pending_peer_list = None
                     await self._handle_peer_list(pending)
             elif msg_type == "PEER_LIST":
                 await self._handle_peer_list(data["peers"])
-            elif msg_type == "OFFER":
-                await self._handle_offer(data["fromPeerId"], data["offer"])
-
-            elif msg_type == "ANSWER":
-                await self._handle_answer(data["fromPeerId"], data["answer"])
-
-            elif msg_type == "ICE_CANDIDATE":
-                await self._handle_ice_candidate(data["fromPeerId"], data["candidate"])
+            elif msg_type in {
+                "OFFER",
+                "ANSWER",
+                "ICE_CANDIDATE",
+                "DEVICE_ANNOUNCE",
+                "PAIR_REQUEST",
+                "PAIR_ACCEPT",
+            }:
+                if not self._is_signed_peer_allowed(data):
+                    return
+                if msg_type == "DEVICE_ANNOUNCE":
+                    return
+                if msg_type == "OFFER":
+                    await self._handle_offer(data["fromPeerId"], data["offer"])
+                elif msg_type == "ANSWER":
+                    await self._handle_answer(data["fromPeerId"], data["answer"])
+                elif msg_type == "ICE_CANDIDATE":
+                    await self._handle_ice_candidate(
+                        data["fromPeerId"], data["candidate"]
+                    )
+                elif msg_type == "PAIR_REQUEST":
+                    # Auto-accept pair requests that already verified above.
+                    identity = self._ensure_identity()
+                    accept = {
+                        "type": "PAIR_ACCEPT",
+                        "toPeerId": data.get("fromPeerId"),
+                        "fromPeerId": self.my_peer_id,
+                        "publicKey": identity.public_pem,
+                    }
+                    self.ws_send(sign_signaling(identity, accept))
+                elif msg_type == "PAIR_ACCEPT":
+                    device_id = data.get("deviceId")
+                    pem = data.get("publicKey")
+                    if device_id and pem:
+                        self._trust_store.trust(device_id, pem, label="paired")
 
         except Exception as e:
             logging.error(f"Failed to handle websocket message: {e}")
@@ -311,6 +457,20 @@ class P2PManager(WSInterface):
         try:
             if self.ws_client is None or not self.is_connected:
                 return
+
+            # Sign peer-originated signaling (not server-only types).
+            if data.get("type") in {
+                "OFFER",
+                "ANSWER",
+                "ICE_CANDIDATE",
+                "DEVICE_ANNOUNCE",
+                "PAIR_REQUEST",
+                "PAIR_ACCEPT",
+            } and "sig" not in data:
+                identity = self._ensure_identity()
+                if data.get("type") == "DEVICE_ANNOUNCE" and "publicKey" not in data:
+                    data["publicKey"] = identity.public_pem
+                data = sign_signaling(identity, data)
 
             message = json.dumps(data)
             logging.debug("\n>>> " + message)
@@ -720,20 +880,34 @@ class P2PManager(WSInterface):
                 self.reset_sending_fragment_id()
                 self.reset_receiving_fragments()
 
+                max_size = self._incoming_size_limit()
                 raw_payload_size_in_bytes = len(payload.encode("utf-8"))
-
-                if self.config.data["cipher_enabled"]:
-                    payload = CipherManager.encode_to_json_string(
-                        **self.cipher_manager.encrypt(payload)
+                if raw_payload_size_in_bytes > max_size:
+                    logging.warning(
+                        "Outbound payload %s bytes exceeds limit %s",
+                        raw_payload_size_in_bytes,
+                        max_size,
                     )
+                    return
 
-                fragments = P2PManager.fragment_string(payload)
+                envelope = wrap_outbound(
+                    payload=payload,
+                    payload_type=payload_type,
+                    config_data=self.config.data,
+                    cipher_manager=self.cipher_manager,
+                    cipher_enabled=bool(self.config.data["cipher_enabled"]),
+                )
+                self.config.save()
+                wire = json.dumps(envelope)
+                fragments = fragment_utf8_string(wire, FRAGMENT_SIZE)
                 metadata = {
                     "id": str(uuid.uuid4()),
+                    "stream": True,
                     "isFragmented": len(fragments) > 1,
                     "index": 0,
                     "totalFragments": len(fragments),
                     "combinedRawPayloadSizeInBytes": raw_payload_size_in_bytes,
+                    "wireSizeInBytes": len(wire.encode("utf-8")),
                 }
 
                 self.sending_fragment_id = metadata["id"]
@@ -745,7 +919,8 @@ class P2PManager(WSInterface):
                         {
                             "payload": fragment,
                             "type": payload_type,
-                            "metadata": metadata,
+                            "metadata": dict(metadata),
+                            "v": envelope.get("v", 2),
                         }
                     )
                     metadata["index"] += 1
@@ -765,9 +940,40 @@ class P2PManager(WSInterface):
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
 
-    def reset_receiving_fragments(self):
-        self.receiving_fragments = {}
-        self.receiving_fragment_stats = None
+    def _incoming_size_limit(self) -> int:
+        local_limit = self.config.data.get("max_clipboard_size_local_limit_bytes")
+        if local_limit is not None and local_limit > 0:
+            return int(local_limit)
+        return MAX_SIZE
+
+    def _is_valid_fragment_metadata(self, metadata: dict, payload: str) -> bool:
+        if not isinstance(metadata, dict):
+            return False
+        fragment_id = metadata.get("id")
+        is_fragmented = metadata.get("isFragmented")
+        index = metadata.get("index")
+        total_fragments = metadata.get("totalFragments")
+        raw_size = metadata.get("combinedRawPayloadSizeInBytes", 0)
+        if not isinstance(fragment_id, str) or len(fragment_id) > self.MAX_FRAGMENT_ID_LENGTH:
+            return False
+        try:
+            uuid.UUID(fragment_id)
+        except ValueError:
+            return False
+        if not isinstance(is_fragmented, bool):
+            return False
+        if not isinstance(index, int) or not isinstance(total_fragments, int):
+            return False
+        if total_fragments < 1 or total_fragments > self.MAX_RECEIVING_FRAGMENTS:
+            return False
+        if index < 0 or index >= total_fragments:
+            return False
+        if not isinstance(raw_size, int) or raw_size < 0:
+            return False
+        local_limit = self.config.data.get("max_clipboard_size_local_limit_bytes")
+        if local_limit is not None and local_limit > 0 and raw_size > local_limit:
+            return False
+        return isinstance(payload, str) and len(payload.encode("utf-8")) <= FRAGMENT_SIZE * 2
 
     def _receive(self, frame: any) -> str:
         try:
@@ -778,19 +984,43 @@ class P2PManager(WSInterface):
             payload = body["payload"]
             payload_type = body.get("type", "text")
             metadata = body.get("metadata")
+            if metadata is not None and not self._is_valid_fragment_metadata(metadata, payload):
+                self.reset_receiving_fragments()
+                logging.warning("Rejected invalid P2P fragment metadata")
+                return
 
             # Check if the payload exceeds the maximum size: first layer protection
+            limit = self._incoming_size_limit()
             if (
                 metadata is not None
-                and self.config.data["max_clipboard_size_local_limit_bytes"] is not None
-                and metadata["combinedRawPayloadSizeInBytes"]
-                > self.config.data["max_clipboard_size_local_limit_bytes"]
+                and metadata.get("combinedRawPayloadSizeInBytes", 0) > limit
             ):
                 self.reset_receiving_fragments()
                 logging.debug(
-                    f"Payload size limit exceeded: {metadata['combinedRawPayloadSizeInBytes']} bytes exceeds {self.config.data['max_clipboard_size_local_limit_bytes']} bytes"
+                    f"Payload size limit exceeded: {metadata['combinedRawPayloadSizeInBytes']} bytes exceeds {limit} bytes"
                 )
                 return
+
+            # Track assembled wire size for stream caps
+            if metadata is not None:
+                stream_id = metadata.get("id")
+                chunk_bytes = len(payload.encode("utf-8")) if isinstance(payload, str) else 0
+                prev = self._stream_received_bytes.get(stream_id, 0)
+                new_total = prev + chunk_bytes
+                # The declared wire size is peer-supplied, so it can only ever
+                # lower the cap, never raise it. Trusting it outright let a
+                # sender set the very limit that was meant to bound it.
+                declared = metadata.get("wireSizeInBytes")
+                hard_limit = limit * 4
+                if isinstance(declared, int) and not isinstance(declared, bool) and declared > 0:
+                    wire_limit = min(declared, hard_limit)
+                else:
+                    wire_limit = hard_limit
+                if new_total > max(wire_limit, limit):
+                    self.reset_receiving_fragments()
+                    logging.warning("Stream wire size cap exceeded for %s", stream_id)
+                    return
+                self._stream_received_bytes[stream_id] = new_total
 
             # Fragmented message handling
             if metadata is not None and metadata["isFragmented"]:
@@ -802,6 +1032,7 @@ class P2PManager(WSInterface):
                     if metadata["index"] == metadata["totalFragments"] - 1:
                         if all(s != "" for s in self.receiving_fragments[metadata["id"]]):
                             payload = "".join(self.receiving_fragments[metadata["id"]])
+                            self._stream_received_bytes.pop(metadata["id"], None)
                         else:
                             self.reset_receiving_fragments()
                             logging.error(
@@ -816,10 +1047,37 @@ class P2PManager(WSInterface):
                     self.receiving_fragments[metadata["id"]][metadata["index"]] = payload
                     return
 
-            if self.config.data["cipher_enabled"]:
-                payload = self.cipher_manager.decrypt(
-                    **CipherManager.decode_from_json_string(payload)
-                )
+            # Reassembled payload is either a v2 envelope JSON or legacy ciphertext/plain.
+            allow_legacy = bool(self.config.data.get("allow_legacy_v1"))
+            try:
+                if isinstance(payload, str) and payload.startswith("{"):
+                    envelope = json.loads(payload)
+                    if isinstance(envelope, dict) and "payload" in envelope:
+                        payload, payload_type = unwrap_inbound(
+                            envelope,
+                            cipher_manager=self.cipher_manager,
+                            cipher_enabled=bool(self.config.data["cipher_enabled"]),
+                            replay_cache=self.replay_cache,
+                            local_device_id=self.config.data.get("device_id") or None,
+                            allow_legacy_v1=allow_legacy,
+                        )
+                    elif self.config.data["cipher_enabled"]:
+                        # Bare {nonce,ciphertext,tag} from a pre-3.2.0 peer: no
+                        # envelope, so none of the v2 checks above apply.
+                        payload = decrypt_legacy_blob(
+                            payload,
+                            cipher_manager=self.cipher_manager,
+                            allow_legacy_v1=allow_legacy,
+                        )
+                elif self.config.data["cipher_enabled"]:
+                    payload = decrypt_legacy_blob(
+                        payload,
+                        cipher_manager=self.cipher_manager,
+                        allow_legacy_v1=allow_legacy,
+                    )
+            except ValueError as e:
+                logging.warning(f"Rejected inbound P2P message: {e}")
+                return
 
             if self.clipboard_manager.has_clipboard_changed(payload):
                 self.reset_receiving_fragments()
@@ -833,23 +1091,13 @@ class P2PManager(WSInterface):
 
     @staticmethod
     def fragment_string(s: str, fragment_size: int = FRAGMENT_SIZE) -> list[str]:
-        """
-        Splits a string into a list of fragments, each with a maximum size of `fragment_size` bytes.
+        """Byte-safe UTF-8 fragmentation (no mid-codepoint corruption)."""
+        return fragment_utf8_string(s, fragment_size)
 
-        Args:
-            s (str): The string to fragment.
-            fragment_size (int): The maximum size of each fragment in bytes.
-
-        Returns:
-            list[str]: A list of string fragments.
-        """
-        # Encode the string to bytes to accurately split by byte size
-        s_bytes = s.encode("utf-8")
-        fragments = [
-            s_bytes[i : i + fragment_size].decode("utf-8", errors="ignore")
-            for i in range(0, len(s_bytes), fragment_size)
-        ]
-        return fragments
+    def reset_receiving_fragments(self):
+        self.receiving_fragments = {}
+        self.receiving_fragment_stats = None
+        self._stream_received_bytes = {}
 
     @staticmethod
     def parse_ice_candidate_line(candidate_line: str) -> dict:

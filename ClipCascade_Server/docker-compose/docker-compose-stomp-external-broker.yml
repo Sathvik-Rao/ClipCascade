@@ -1,34 +1,38 @@
-version: '3.8'
-
 services:
   clipcascade:
-    image: sathvikrao/clipcascade:latest
+    image: ${CLIPCASCADE_IMAGE:?Set a pinned ClipCascade image tag or digest}
     container_name: clipcascade
     ports:
-      - 8080:8080
+      - "${CC_BIND_ADDRESS:-127.0.0.1}:8080:8080"
     restart: always
     volumes:
-      - ./cc_users:/database
-      # - ./logs:/logs
+      - clipcascade_database:/database
+      - clipcascade_logs:/logs
     depends_on:
       - activemq
     environment:
       - CC_MAX_MESSAGE_SIZE_IN_MiB=1
-      # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com
+      - CC_INITIAL_ADMIN_PASSWORD=${CC_INITIAL_ADMIN_PASSWORD:?Set a strong initial admin password}
+      - CC_ALLOWED_ORIGINS=${CC_ALLOWED_ORIGINS:-http://localhost:8080}
+      - CC_SERVER_DB_PASSWORD=${CC_SERVER_DB_PASSWORD:?Set '<file password> <user password>' for H2}
       - CC_EXTERNAL_BROKER_ENABLED=true
       - CC_BROKER_HOST=activemq
       - CC_BROKER_PORT=61613
-      - CC_BROKER_USERNAME=admin # Should match activemq credentials 
-      - CC_BROKER_PASSWORD=admin # Should match activemq credentials
+      - CC_BROKER_USERNAME=${ACTIVEMQ_ADMIN_LOGIN:?Set ActiveMQ admin username}
+      - CC_BROKER_PASSWORD=${ACTIVEMQ_ADMIN_PASSWORD:?Set ActiveMQ admin password}
 
   activemq:
-    image: apache/activemq-classic:latest
+    image: ${ACTIVEMQ_IMAGE:?Set a pinned ActiveMQ image tag or digest}
     container_name: activemq
-    ports:
-      - 8161:8161 # Web Console
-      - 61613:61613 # STOMP Protocol Port
-      # - 61616:61616 # OpenWire Protocol Port
+    # Broker ports stay on the internal Docker network by default.
+    # If you need console access for troubleshooting, bind it to localhost only:
+    # ports:
+    #   - "127.0.0.1:8161:8161"
     restart: always
     environment:
-      - ACTIVEMQ_ADMIN_LOGIN=admin
-      - ACTIVEMQ_ADMIN_PASSWORD=admin
+      - ACTIVEMQ_ADMIN_LOGIN=${ACTIVEMQ_ADMIN_LOGIN:?Set ActiveMQ admin username}
+      - ACTIVEMQ_ADMIN_PASSWORD=${ACTIVEMQ_ADMIN_PASSWORD:?Set ActiveMQ admin password}
+
+volumes:
+  clipcascade_database:
+  clipcascade_logs:

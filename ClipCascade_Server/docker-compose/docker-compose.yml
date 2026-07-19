@@ -1,36 +1,36 @@
-version: '3.8'
-
 # # 🌐 GitHub Repository: https://github.com/Sathvik-Rao/ClipCascade
 # # 🐳 Docker Compose configuration for deploying ClipCascade Server.
-# # ⚠️ IMPORTANT: Update the default admin credentials after the first login.
-# # 🔑 Default admin credentials:
-# #       Username: admin
-# #       Password: admin123
+# # ⚠️ IMPORTANT: Set CC_INITIAL_ADMIN_PASSWORD before first startup.
+# # 🔑 Initial admin username defaults to admin.
 # # Health check endpoint is available at http://localhost:8080/health
 
 services:
   clipcascade:
-    image: sathvikrao/clipcascade:0.7.0
+    image: ${CLIPCASCADE_IMAGE:?Set a pinned ClipCascade image tag or digest}
     # # 🚀 If you want to always use the latest version of ClipCascade Server, uncomment the line below and comment out the line above.
-    # # Note: If using 'latest', make sure all client devices are updated regularly to maintain compatibility.
-    # image: sathvikrao/clipcascade:latest
+    # # Use a pinned tag or digest. Avoid 'latest' in production.
 
     # # 🏷️ Assign a name to the container
     container_name: clipcascade
 
-    # # 🌐 Map port 8080 on the host to port 8080 inside the container.
+    # # 🌐 Map port 8080 to port 8080 inside the container, on ONE host address.
+    # # Defaults to loopback. Set CC_BIND_ADDRESS to expose it further:
+    # #   - a Tailscale IP (tailscale ip -4) to serve only the tailnet
+    # #   - a LAN IP to serve only that LAN
+    # #   - 0.0.0.0 to publish on every interface (only behind a firewall/proxy)
+    # # This must be set here rather than in an overlay file: Compose merges
+    # # `ports` lists by appending, so an overlay adds a second binding instead
+    # # of replacing this one, leaving the original exposed.
     ports:
-      - 8080:8080
+      - "${CC_BIND_ADDRESS:-127.0.0.1}:8080:8080"
 
     # # 🔄 Automatically restart the container if it stops unexpectedly.
     restart: always
 
     volumes:
-      # # 📂 Bind mount the database folder for portability
-      # # This maps the './cc_users' folder on the host machine to '/database' inside the container.
-      - ./cc_users:/database
-      # # This maps the './logs' folder on the host machine to '/logs' inside the container.
-      # - ./logs:/logs
+      # # 📂 Named volumes avoid host permission problems with the non-root container user.
+      - clipcascade_database:/database
+      - clipcascade_logs:/logs
 
     environment:
       # # ⚙️ Sets the maximum message size (in MiB) that the server can handle.
@@ -41,6 +41,8 @@ services:
       # # Note: Individual clients can have their own limits, configurable via the "Extra Config" on the login page.
       # # Default: 1 (adjust as needed for your use case)
       - CC_MAX_MESSAGE_SIZE_IN_MiB=1
+      # # Required on first boot. Use a strong one-time admin password, then change it after login.
+      - CC_INITIAL_ADMIN_PASSWORD=${CC_INITIAL_ADMIN_PASSWORD:?Set a strong initial admin password}
       # #
       # # ⚙️ Sets the maximum message size (in bytes) that the server can handle.
       # # If set and greater than zero, it overwrites the 'CC_MAX_MESSAGE_SIZE_IN_MiB' value.
@@ -61,8 +63,8 @@ services:
 
       # # ⚙️ Specifies which domains are allowed to connect to the WebSocket (CORS policy).
       # # Replace the URL with your ClipCascade server's domain.
-      # # If not set, all origins are allowed by default, which may be less secure.
-      # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com
+      # # Default: http://localhost:8080
+      - CC_ALLOWED_ORIGINS=${CC_ALLOWED_ORIGINS:-http://localhost:8080}
 
       # # ⚙️ Toggle to enable or disable the signup feature/page for public users.
       # # Default: false
@@ -87,8 +89,8 @@ services:
 
       # # ⚙️ Configure the server session timeout.
       # # Note: On restart, the session will be logged out.
-      # # Default: 525960m  (1 year)
-      # - CC_SESSION_TIMEOUT=525960m
+      # # Default: 1440m  (1 day)
+      # - CC_SESSION_TIMEOUT=1440m
 
       # # ⚙️ Maximum number of global WebSocket connections allowed (default: -1 for unlimited).
       # # Supported only in P2P mode.
@@ -159,7 +161,7 @@ services:
       # # Replace `<file password>` and `<user password>` with secure values.
       # # Once set, you must use the same password whenever you migrate the database.
       # # Default password: `QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky`
-      # - CC_SERVER_DB_PASSWORD=QjuGlhE3uwylBBANMkX1 o2MdEoFgbU5XkFvTftky
+      - CC_SERVER_DB_PASSWORD=${CC_SERVER_DB_PASSWORD:?Set '<file password> <user password>' for H2}
 
       # # ⚙️ Configures the database URL. Default uses H2 file mode.
       # # Example for PostgreSQL: jdbc:postgresql://localhost:5432/clipcascade
@@ -225,3 +227,7 @@ services:
       # # ⚙️ Enables or disables the donations feature (internal feature).
       # # Default: false
       # - CC_DONATIONS_ENABLED=false
+
+volumes:
+  clipcascade_database:
+  clipcascade_logs:

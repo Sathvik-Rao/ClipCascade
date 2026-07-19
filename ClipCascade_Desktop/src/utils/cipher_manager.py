@@ -3,8 +3,16 @@ import json
 import hashlib
 
 from Crypto.Cipher import AES
+from Crypto.Random import get_random_bytes
 from core.constants import *
 from core.config import Config
+
+# 96 bits, the size GCM is specified around (NIST SP 800-38D) and the only size
+# Apple's CryptoKit accepts: AES.GCM.Nonce(data:) rejects anything else, so a
+# 16-byte nonce is undecryptable on iOS. PyCryptodome defaults to 16 when no
+# nonce is passed; Android's GCMParameterSpec accepts any length. 12 is
+# therefore the one value every client can read.
+GCM_NONCE_SIZE_BYTES = 12
 
 
 class CipherManager:
@@ -29,16 +37,26 @@ class CipherManager:
             dklen=self.dklen,
         )
 
-    def encrypt(self, plaintext: str) -> dict:
+    def encrypt(self, plaintext: str, aad: bytes | None = None) -> dict:
         key = self.config.data["hashed_password"]
         plaintext_bytes = plaintext.encode("utf-8")
-        cipher = AES.new(key, self.mode)
+        cipher = AES.new(key, self.mode, nonce=get_random_bytes(GCM_NONCE_SIZE_BYTES))
+        if aad:
+            cipher.update(aad)
         ciphertext, tag = cipher.encrypt_and_digest(plaintext_bytes)
         return {"nonce": cipher.nonce, "ciphertext": ciphertext, "tag": tag}
 
-    def decrypt(self, nonce: bytes, ciphertext: bytes, tag: bytes) -> str:
+    def decrypt(
+        self,
+        nonce: bytes,
+        ciphertext: bytes,
+        tag: bytes,
+        aad: bytes | None = None,
+    ) -> str:
         key = self.config.data["hashed_password"]
         cipher = AES.new(key, self.mode, nonce=nonce)
+        if aad:
+            cipher.update(aad)
         return cipher.decrypt_and_verify(ciphertext, tag).decode()
 
     @staticmethod
@@ -84,8 +102,10 @@ class CipherManager:
         json_data = json.loads(json_string)
         decoded_data = {}
 
-        # Decode each Base64-encoded value back to bytes
+        # Decode known ciphertext fields; ignore non-crypto flags like bound:true.
         for key, value in json_data.items():
+            if key not in {"nonce", "ciphertext", "tag"}:
+                continue
             if isinstance(value, str):
                 decoded_data[key] = base64.b64decode(value)
             else:
@@ -93,6 +113,8 @@ class CipherManager:
                     f"Unsupported value type for key '{key}': {type(value)}. "
                     + f"Expected 'str' for Base64 decoding."
                 )
+        if not {"nonce", "ciphertext", "tag"}.issubset(decoded_data):
+            raise ValueError("Encrypted payload missing nonce/ciphertext/tag")
         return decoded_data
 
     @staticmethod

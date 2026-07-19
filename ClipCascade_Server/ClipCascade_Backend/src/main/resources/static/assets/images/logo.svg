@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ClipCascade">
+  <rect width="64" height="64" rx="14" fill="#1f6feb"/>
+  <path fill="#ffffff" d="M22 12h20a6 6 0 0 1 6 6v34a6 6 0 0 1-6 6H22a6 6 0 0 1-6-6V18a6 6 0 0 1 6-6Zm0 8v30h20V20H22Z"/>
+  <path fill="#8bd5ff" d="M26 8h12a4 4 0 0 1 4 4v6H22v-6a4 4 0 0 1 4-4Z"/>
+  <path fill="#8bd5ff" d="M27 29h10a3 3 0 0 1 0 6H27a3 3 0 0 1 0-6Zm0 10h7a3 3 0 0 1 0 6h-7a3 3 0 0 1 0-6Z"/>
+</svg>

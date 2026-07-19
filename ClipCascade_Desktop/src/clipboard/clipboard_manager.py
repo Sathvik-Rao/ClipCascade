@@ -10,6 +10,8 @@ from PIL import Image
 from core.constants import *
 from core.config import Config
 
+Image.MAX_IMAGE_PIXELS = 25_000_000
+
 if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     from cli.tray import TaskbarPanel
 else:
@@ -178,10 +180,14 @@ class ClipboardManager:
                 if self.is_clipboard_size_within_limit(txt, type_):
                     self.paste(txt, type_)
             elif type_ == "image":
+                if not self.is_inbound_base64_size_within_limit(base64_string):
+                    return
                 img = ClipboardManager.convert_base64_to_image(base64_img=base64_string)
                 if self.is_clipboard_size_within_limit(img, type_):
                     self.paste(img, type_)
             elif type_ == "files":
+                if not self.is_inbound_files_size_within_limit(base64_string):
+                    return
                 file_objects = ClipboardManager.convert_base64_to_files(
                     base64_json=base64_string
                 )
@@ -189,6 +195,29 @@ class ClipboardManager:
                     self.paste(file_objects, type_)
         except Exception as e:
             logging.error(f"Failed to convert base64 data to clipboard: {e}")
+
+    def _incoming_size_limit(self) -> int:
+        local_limit = self.config.data.get("max_clipboard_size_local_limit_bytes")
+        server_limit = self.config.data.get("maxsize")
+        if local_limit is not None and local_limit > 0:
+            return int(local_limit)
+        if server_limit is not None and server_limit > 0:
+            return int(server_limit)
+        return MAX_SIZE
+
+    def is_inbound_base64_size_within_limit(self, base64_string: str) -> bool:
+        return ClipboardManager.calculate_base64_decoded_length(base64_string) <= self._incoming_size_limit()
+
+    def is_inbound_files_size_within_limit(self, base64_json: str) -> bool:
+        try:
+            total_size = 0
+            for encoded_content in json.loads(base64_json).values():
+                total_size += ClipboardManager.calculate_base64_decoded_length(encoded_content)
+                if total_size > self._incoming_size_limit():
+                    return False
+            return True
+        except Exception:
+            return False
 
     @staticmethod
     def execute_command(*args, input_data):
@@ -358,6 +387,30 @@ class ClipboardManager:
         return json.dumps(base64_encoded_files)
 
     @staticmethod
+    def calculate_base64_decoded_length(base64_str: str) -> int:
+        if not isinstance(base64_str, str):
+            return 0
+        padding = len(base64_str) - len(base64_str.rstrip("="))
+        return max(0, (len(base64_str) * 3) // 4 - padding)
+
+    @staticmethod
+    def sanitize_received_filename(file_name: str, used_names: set) -> str:
+        safe_name = os.path.basename(str(file_name).replace("\\", "/")).strip()
+        if not safe_name or safe_name in {".", ".."}:
+            raise ValueError("Invalid received filename")
+        if any(ord(char) < 32 for char in safe_name):
+            raise ValueError("Received filename contains control characters")
+
+        root, ext = os.path.splitext(safe_name)
+        candidate = safe_name
+        counter = 1
+        while candidate in used_names:
+            candidate = f"{root}_{counter}{ext}"
+            counter += 1
+        used_names.add(candidate)
+        return candidate
+
+    @staticmethod
     def convert_base64_to_files(base64_json: dict) -> dict:
         """
         Converts a JSON string with base64-encoded file content to a dictionary of file-like objects.
@@ -371,9 +424,13 @@ class ClipboardManager:
         file_objects = {}
         try:
             base64_data = json.loads(base64_json)
+            used_names = set()
             for file_name, encoded_content in base64_data.items():
+                safe_name = ClipboardManager.sanitize_received_filename(
+                    file_name, used_names
+                )
                 decoded_content = base64.b64decode(encoded_content)
-                file_objects[file_name] = io.BytesIO(decoded_content)
+                file_objects[safe_name] = io.BytesIO(decoded_content)
         except Exception as e:
             raise IOError(f"Error processing base64 JSON. {e}") from e
 

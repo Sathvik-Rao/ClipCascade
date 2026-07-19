@@ -3,6 +3,7 @@ package com.acme.clipcascade.service;
 import java.util.Map;
 
 import org.slf4j.LoggerFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -14,6 +15,9 @@ import ch.qos.logback.classic.Logger;
 
 @Service
 public class DonationService {
+    private static final int OUTBOUND_CONNECT_TIMEOUT_MS = 3000;
+    private static final int OUTBOUND_READ_TIMEOUT_MS = 5000;
+
     private final ClipCascadeProperties clipCascadeProperties;
     private final ObjectMapper objectMapper;
     private final Logger logger;
@@ -33,7 +37,7 @@ public class DonationService {
             return;
 
         try {
-            String response = new RestTemplate()
+            String response = restTemplateWithTimeouts()
                     .getForObject(ServerConstants.METADATA_URL, String.class);
 
             donationUrl = (String) objectMapper.readValue(response, Map.class).get("funding");
@@ -45,5 +49,12 @@ public class DonationService {
 
     public String getDonationUrl() {
         return donationUrl;
+    }
+
+    private RestTemplate restTemplateWithTimeouts() {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(OUTBOUND_CONNECT_TIMEOUT_MS);
+        requestFactory.setReadTimeout(OUTBOUND_READ_TIMEOUT_MS);
+        return new RestTemplate(requestFactory);
     }
 }

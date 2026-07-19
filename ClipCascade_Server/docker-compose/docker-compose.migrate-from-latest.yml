@@ -1,0 +1,63 @@
+# Drop-in replacement for a typical self-host that used:
+#   image: sathvikrao/clipcascade:latest
+#   volume: clipcascade-data:/database
+#   Tailscale bind: 100.x.x.x:8080:8080
+#
+# BEFORE first start with the hardened image:
+# 1. Stop the old container.
+# 2. Fix ownership (new image runs as uid 10001, old image was root):
+#      docker run --rm -v clipcascade-data:/database alpine chown -R 10001:10001 /database
+# 3. Set env in .env (see .env.migrate.example).
+# 4. Use the SAME H2 password as before (upstream default if you never set one):
+#      CC_SERVER_DB_PASSWORD=<file-password> <user-password>
+# 5. Do NOT use CC_ALLOWED_ORIGINS=* — set exact Tailscale origins.
+#
+# Start:
+#   docker compose -f docker-compose.migrate-from-latest.yml --env-file .env up -d
+
+services:
+  clipcascade:
+    # Build from this repo, or replace with your pushed image once CI/publish is ready.
+    image: ${CLIPCASCADE_IMAGE:-clipcascade:hardening}
+    build:
+      context: ../ClipCascade_Backend
+      dockerfile: Dockerfile
+    container_name: clipcascade
+    restart: unless-stopped
+    ports:
+      # Bind only on the host's Tailscale IP (tailscale ip -4). Required, so
+      # that a missing .env fails loudly instead of silently publishing on
+      # 0.0.0.0 / every interface.
+      - "${CC_BIND_ADDRESS:?Set CC_BIND_ADDRESS to this host's Tailscale IP, e.g. tailscale ip -4}:8080:8080"
+    volumes:
+      # Keep the existing named volume so users / settings survive.
+      - clipcascade-data:/database
+      - clipcascade-logs:/logs
+    environment:
+      - CC_PORT=8080
+      - CC_MAX_MESSAGE_SIZE_IN_MiB=${CC_MAX_MESSAGE_SIZE_IN_MiB:-100}
+      - CC_P2P_ENABLED=${CC_P2P_ENABLED:-false}
+      - CC_SIGNUP_ENABLED=${CC_SIGNUP_ENABLED:-false}
+      # Exact origins only (comma-separated). The server refuses to start on *.
+      - CC_ALLOWED_ORIGINS=${CC_ALLOWED_ORIGINS:?Set exact origins e.g. http://100.64.0.1:8080,https://host.example.ts.net}
+      # REQUIRED even for existing DBs — must match the password used to create the H2 files.
+      - CC_SERVER_DB_PASSWORD=${CC_SERVER_DB_PASSWORD:?Set H2 file+user password (space-separated)}
+      # Only used if the user table is empty (fresh DB). Safe to set on migrate.
+      - CC_INITIAL_ADMIN_PASSWORD=${CC_INITIAL_ADMIN_PASSWORD:-}
+      - CC_UPDATE_CHECK_ENABLED=${CC_UPDATE_CHECK_ENABLED:-false}
+      - TZ=${TZ:-UTC}
+      - JAVA_TOOL_OPTIONS=${JAVA_TOOL_OPTIONS:--Xmx4g -Xms512m}
+    mem_limit: ${CC_MEM_LIMIT:-5g}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
+volumes:
+  clipcascade-data:
+    name: clipcascade-data
+    external: true
+  clipcascade-logs:
+    name: clipcascade-logs

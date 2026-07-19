@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Self-host / Tailscale.
+
+  Cleartext:
+  - Permitted, because the server address is user-supplied and is normally a
+    literal Tailscale CGNAT address (http://100.x.y.z:8080). Android's network
+    security config can only scope cleartext by domain, not by IP range, so
+    100.64.0.0/10 and RFC1918 cannot be expressed here. The real gate is
+    networkPolicy.js, which rejects cleartext to anything outside loopback,
+    RFC1918, 100.64/10, and *.ts.net before a request is made.
+  - Prefer HTTPS for any server exposed outside Tailscale/LAN.
+
+  Trust anchors:
+  - System CAs only. Do NOT add <certificates src="user" /> to base-config: it
+    applies to every domain, so any user-, MDM-, or malware-installed CA could
+    intercept HTTPS to a public server. If you need a private CA for a
+    specific host, add a <domain-config> scoped to that host with its own
+    <trust-anchors>, rather than widening the base config.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">ts.net</domain>
+    </domain-config>
+</network-security-config>

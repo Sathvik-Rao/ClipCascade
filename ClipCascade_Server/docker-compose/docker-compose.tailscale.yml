@@ -1,0 +1,31 @@
+# Overlay for Tailscale self-host.
+#
+# Usage:
+#   export CLIPCASCADE_IMAGE=... CC_INITIAL_ADMIN_PASSWORD=... CC_SERVER_DB_PASSWORD='file user'
+#   export CC_ALLOWED_ORIGINS="http://YOUR_NODE.tail-XXXX.ts.net:8080,http://100.x.y.z:8080"
+#   docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d
+#
+# Prerequisites:
+#   - Tailscale installed and up on the host (or use a Tailscale sidecar — advanced).
+#   - Clients join the same tailnet and use the 100.x or *.ts.net URL.
+#
+# Optional HTTPS on the tailnet:
+#   sudo tailscale serve --bg 8080
+#   then set CC_ALLOWED_ORIGINS=https://YOUR_NODE.tail-XXXX.ts.net
+
+services:
+  clipcascade:
+    # No `ports:` override here on purpose. Compose merges `ports` by appending,
+    # so an override would ADD a binding rather than replace the base file's,
+    # leaving that one live as well. The bind address is therefore owned by
+    # docker-compose.yml: set CC_BIND_ADDRESS to this host's Tailscale address
+    # (tailscale ip -4) so the server is reachable on the tailnet and nowhere
+    # else.
+    environment:
+      # Comma-separated. Must match browser/client origins exactly.
+      - CC_ALLOWED_ORIGINS=${CC_ALLOWED_ORIGINS:?Set Tailscale MagicDNS and/or 100.x origins}
+      # Prefer P2S over the tailnet mesh.
+      - CC_P2P_ENABLED=${CC_P2P_ENABLED:-false}
+      - CC_SIGNUP_ENABLED=${CC_SIGNUP_ENABLED:-false}
+      # Quiet noise when admin never needs GitHub version checks on airgapped nodes.
+      - CC_UPDATE_CHECK_ENABLED=${CC_UPDATE_CHECK_ENABLED:-false}

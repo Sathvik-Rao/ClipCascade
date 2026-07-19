@@ -2,3 +2,13 @@ private/
 screenshots/
 .DS_Store
 .vscode/
+.cursor/
+.env
+*.env
+!*.env.example
+ClipCascade_Server/ClipCascade_Backend/database/
+ClipCascade_Server/ClipCascade_Backend/logs/
+ClipCascade_Server/docker-compose/cc_users/
+ClipCascade_Server/docker-compose/logs/
+.venv-ci/
+.venv*/

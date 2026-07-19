@@ -1,0 +1,31 @@
+# Copy to gradle.properties before building:
+#   cp gradle.properties.example gradle.properties
+#
+# The real gradle.properties is gitignored because release builds keep the
+# upload-key passwords in it (MYAPP_UPLOAD_* below). Without the file the build
+# fails at configuration time with:
+#   Could not get unknown property 'hermesEnabled'
+# because app/build.gradle reads these properties while evaluating.
+
+# Gradle daemon heap. Raise if you hit OOM during dex/kotlin compilation.
+org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m
+
+# AndroidX is required by the dependencies this app already uses.
+android.useAndroidX=true
+
+# Use the Hermes JS engine.
+hermesEnabled=true
+
+# React Native new architecture (Fabric/TurboModules).
+newArchEnabled=false
+
+# Note: ProGuard for release builds is NOT set here — app/build.gradle declares
+# `def enableProguardInReleaseBuilds` as a local variable, so a property of that
+# name would have no effect. Change it in app/build.gradle instead.
+
+# --- Release signing only; not needed for assembleDebug ---
+# Never commit real values. See docs/SIGNING.md.
+# MYAPP_UPLOAD_STORE_FILE=my-upload-key.keystore
+# MYAPP_UPLOAD_KEY_ALIAS=my-key-alias
+# MYAPP_UPLOAD_STORE_PASSWORD=*****
+# MYAPP_UPLOAD_KEY_PASSWORD=*****

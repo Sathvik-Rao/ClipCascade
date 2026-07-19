@@ -4,6 +4,14 @@
 # -------------------------
 FROM eclipse-temurin:21-jre-jammy
 
+RUN groupadd --system --gid 10001 clipcascade \
+    && useradd --system --uid 10001 --gid clipcascade --home-dir /nonexistent --shell /usr/sbin/nologin clipcascade \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /database /logs \
+    && chown -R clipcascade:clipcascade /database /logs
+
 
 # # -------------------------
 # # 1) Install prerequisites
@@ -32,7 +40,7 @@ FROM eclipse-temurin:21-jre-jammy
 # -------------------------
 # 4) Copy and expose clipcascade app
 # -------------------------
-COPY target/*.jar app.jar
+COPY --chown=clipcascade:clipcascade target/*.jar /app.jar
 EXPOSE 8080
 
 # # -------------------------
@@ -42,4 +50,9 @@ EXPOSE 8080
 #     if [ \"${CC_EXTERNAL_BROKER_ENABLED:-false}\" = \"true\" ]; then \
 #     /opt/activemq/bin/activemq start; \
 #     fi && exec java -jar /app.jar"]
-ENTRYPOINT ["java", "-jar", "app.jar"]
+USER 10001:10001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:8080/health | grep -q OK || exit 1
+
+ENTRYPOINT ["java", "-jar", "/app.jar"]

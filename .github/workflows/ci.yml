@@ -1,0 +1,195 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - hardening/**
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python scripts/check-versions.py
+
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ClipCascade_Server/ClipCascade_Backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: sh ./mvnw test
+      - run: sh ./mvnw -DskipTests package
+      - run: docker build -t clipcascade-server:test .
+      # Pinned action rather than `curl .../main/install.sh | sh`: that piped an
+      # unpinned script from a moving branch straight into a shell with repo
+      # checkout on disk.
+      - name: Generate CycloneDX SBOM (server JAR)
+        uses: anchore/sbom-action@v0
+        with:
+          path: ClipCascade_Server/ClipCascade_Backend
+          format: cyclonedx-json
+          artifact-name: sbom-server.cdx.json
+          output-file: sbom-server.cdx.json
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-server
+          path: sbom-server.cdx.json
+
+  compose:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ClipCascade_Server/docker-compose
+    steps:
+      - uses: actions/checkout@v4
+      - run: CLIPCASCADE_IMAGE=clipcascade:test CC_INITIAL_ADMIN_PASSWORD=dummy CC_SERVER_DB_PASSWORD="dummy-file dummy-user" docker compose -f docker-compose.yml config --quiet
+      - run: CLIPCASCADE_IMAGE=clipcascade:test CC_INITIAL_ADMIN_PASSWORD=dummy CC_SERVER_DB_PASSWORD="dummy-file dummy-user" docker compose -f docker-compose-limitless-data-transfer.yml config --quiet
+      - run: CLIPCASCADE_IMAGE=clipcascade:test CC_INITIAL_ADMIN_PASSWORD=dummy CC_SERVER_DB_PASSWORD="dummy-file dummy-user" ACTIVEMQ_IMAGE=apache/activemq-classic:6.1.4 ACTIVEMQ_ADMIN_LOGIN=dummy ACTIVEMQ_ADMIN_PASSWORD=dummy docker compose -f docker-compose-stomp-external-broker.yml config --quiet
+      - run: CLIPCASCADE_IMAGE=clipcascade:test POSTGRES_IMAGE=postgres:16 POSTGRES_PASSWORD=dummy CC_INITIAL_ADMIN_PASSWORD=dummy docker compose -f docker-compose-multi-users.yml config --quiet
+      # The two files an operator actually follows during migration. Previously
+      # unvalidated, so a typo in either only surfaced on the live server.
+      - run: docker compose -f docker-compose.migrate-from-latest.yml --env-file .env.migrate.example config --quiet
+      - run: CLIPCASCADE_IMAGE=clipcascade:test CC_INITIAL_ADMIN_PASSWORD=dummy CC_SERVER_DB_PASSWORD="dummy-file dummy-user" CC_ALLOWED_ORIGINS=http://100.64.0.1:8080 CC_BIND_ADDRESS=100.64.0.1 docker compose -f docker-compose.yml -f docker-compose.tailscale.yml config --quiet
+      # Compose merges `ports` by appending, so an overlay that re-declares a
+      # port leaves the base binding live too. Assert exactly one binding, on
+      # the address we asked for.
+      - name: Tailscale overlay must publish only on the Tailscale address
+        run: |
+          rendered=$(CLIPCASCADE_IMAGE=clipcascade:test CC_INITIAL_ADMIN_PASSWORD=dummy \
+            CC_SERVER_DB_PASSWORD="dummy-file dummy-user" \
+            CC_ALLOWED_ORIGINS=http://100.64.0.1:8080 CC_BIND_ADDRESS=100.64.0.1 \
+            docker compose -f docker-compose.yml -f docker-compose.tailscale.yml config)
+          bindings=$(echo "$rendered" | grep -c 'target: 8080')
+          echo "$rendered" | grep -q 'host_ip: 100.64.0.1' \
+            || { echo "expected a bind on 100.64.0.1"; exit 1; }
+          [ "$bindings" -eq 1 ] \
+            || { echo "expected exactly 1 published port, got $bindings"; echo "$rendered"; exit 1; }
+      # Every shipped topology, not just the two that were checked before —
+      # three siblings kept publishing on 0.0.0.0 while this guard stayed green.
+      - name: No compose file may publish on every interface
+        run: |
+          export CLIPCASCADE_IMAGE=clipcascade:test CC_INITIAL_ADMIN_PASSWORD=dummy \
+                 CC_SERVER_DB_PASSWORD="dummy-file dummy-user" \
+                 ACTIVEMQ_IMAGE=apache/activemq-classic:6.1.4 ACTIVEMQ_ADMIN_LOGIN=dummy \
+                 ACTIVEMQ_ADMIN_PASSWORD=dummy POSTGRES_IMAGE=postgres:16 POSTGRES_PASSWORD=dummy
+          status=0
+          for f in docker-compose.yml docker-compose-multi-users.yml \
+                   docker-compose-limitless-data-transfer.yml \
+                   docker-compose-stomp-external-broker.yml; do
+            rendered=$(docker compose -f "$f" config) || { echo "$f: config failed"; status=1; continue; }
+            if ! echo "$rendered" | grep -q 'host_ip: 127.0.0.1'; then
+              echo "$f: does not default to a loopback bind"
+              echo "$rendered" | grep -A4 'ports:'
+              status=1
+            fi
+          done
+          exit $status
+
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ClipCascade_Mobile/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ClipCascade_Mobile/src/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --watchAll=false
+      - run: npm audit --omit=dev --audit-level=high
+
+  mobile-android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ClipCascade_Mobile/src/android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ClipCascade_Mobile/src/package-lock.json
+      - name: Install JS deps (autolinking)
+        working-directory: ClipCascade_Mobile/src
+        run: npm ci
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      # gradle.properties is gitignored (it holds the upload-key passwords for
+      # release builds), so a fresh checkout has none and app/build.gradle fails
+      # at configuration time on `hermesEnabled`. Debug builds need no secrets.
+      - name: Provide gradle.properties
+        run: cp gradle.properties.example gradle.properties
+      - name: Assemble debug APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+
+  desktop:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ClipCascade_Desktop/src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip build
+      - run: python -m pip install keyring pycryptodome
+      - run: python -m compileall .
+      - run: python -m unittest discover -s tests -v
+      - run: python -m build
+      - name: Dependency audit (pip)
+        run: |
+          python -m pip install pip-audit
+          python -m pip_audit -r requirements_linux.txt || true
+
+  container-scan:
+    runs-on: ubuntu-latest
+    needs: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      # `needs: server` only orders the jobs; it does not share a workspace, so
+      # the jar the Dockerfile COPYs has to be built here too.
+      - name: Build server image
+        working-directory: ClipCascade_Server/ClipCascade_Backend
+        run: |
+          sh ./mvnw -q -B -DskipTests package
+          docker build -t clipcascade-server:test .
+      # 0.28.0 does not exist; the tags are v-prefixed. The job failed at
+      # "Set up job" on every run, so the scan never actually ran.
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: clipcascade-server:test
+          format: table
+          exit-code: "0"
+          severity: CRITICAL,HIGH

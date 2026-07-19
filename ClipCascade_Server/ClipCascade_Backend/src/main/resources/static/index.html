@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/assets/css/bootstrap@3.3.7.min.css" />
 
     <!-- Favicon -->
-    <link rel="icon" type="image/png" href="/assets/images/logo.png" />
+    <link rel="icon" type="image/svg+xml" href="/assets/images/logo.svg" />
 
     <!-- Your custom CSS (external) -->
     <link rel="stylesheet" href="/assets/css/style.css" />
@@ -228,7 +228,7 @@
     <!-- ==========  Modal for Adding a New User  ========== -->
     <div id="add-user-modal" class="modal">
       <div class="modal-content">
-        <span class="modal-close" onclick="hideAddUserModal()">&times;</span>
+        <span class="modal-close" id="add-user-modal-close">&times;</span>
         <h3>Add New User</h3>
         <form id="add-user-form">
           <div class="form-group">
@@ -270,7 +270,7 @@
     <!-- ==========  Modal for Editing a User  ========== -->
     <div id="edit-user-modal" class="modal">
       <div class="modal-content">
-        <span class="modal-close" onclick="hideEditUserModal()">&times;</span>
+        <span class="modal-close" id="edit-user-modal-close">&times;</span>
         <h3>Edit User</h3>
         <form id="edit-user-form">
           <input type="hidden" id="edit-user-old-username" />
@@ -303,6 +303,56 @@
             style="margin-top: 10px"
           >
             Save
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- ==========  Modal for Change Password  ========== -->
+    <div id="change-password-modal" class="modal" aria-hidden="true">
+      <div class="modal-content" role="dialog" aria-labelledby="change-password-title">
+        <span class="modal-close" id="change-password-close">&times;</span>
+        <h3 id="change-password-title">Change Password</h3>
+        <form id="change-password-form">
+          <div class="form-group">
+            <label for="change-password-current">Current password</label>
+            <input
+              type="password"
+              class="form-control"
+              id="change-password-current"
+              autocomplete="current-password"
+              required
+            />
+          </div>
+          <div class="form-group">
+            <label for="change-password-new">New password</label>
+            <input
+              type="password"
+              class="form-control"
+              id="change-password-new"
+              autocomplete="new-password"
+              minlength="12"
+              required
+            />
+          </div>
+          <div class="form-group">
+            <label for="change-password-confirm">Confirm new password</label>
+            <input
+              type="password"
+              class="form-control"
+              id="change-password-confirm"
+              autocomplete="new-password"
+              minlength="12"
+              required
+            />
+          </div>
+          <p id="change-password-error" class="text-danger" style="display: none"></p>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            style="margin-top: 10px"
+          >
+            Update password
           </button>
         </form>
       </div>

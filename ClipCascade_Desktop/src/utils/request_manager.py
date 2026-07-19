@@ -8,6 +8,8 @@ from utils.ssl_helper import requests_verify_arg
 
 
 class RequestManager:
+    DEFAULT_TIMEOUT_SECONDS = (5, 15)
+
     def __init__(self, config: Config):
         self.config = config
 
@@ -23,12 +25,14 @@ class RequestManager:
 
     def login(self) -> tuple[bool, str, dict]:
         try:
+            Config.validate_server_url(self.config.data["server_url"])
             session = requests.Session()
 
             # Fetch the login page to get the CSRF token
             response = session.get(
                 self.config.data["server_url"] + LOGIN_URL,
                 verify=self._verify(),
+                timeout=self.DEFAULT_TIMEOUT_SECONDS,
             )
 
             if response.status_code != 200:
@@ -49,6 +53,7 @@ class RequestManager:
                 self.config.data["server_url"] + LOGIN_URL,
                 data=form_data,
                 verify=self._verify(),
+                timeout=self.DEFAULT_TIMEOUT_SECONDS,
             )
             if (
                 response.status_code == 200
@@ -128,9 +133,6 @@ class RequestManager:
         try:
             response = RequestManager.get(
                 url=METADATA_URL,
-                headers={
-                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
-                },
                 verify=True,
             )
             if response.status_code == 200:
@@ -178,7 +180,16 @@ class RequestManager:
         A generic GET mapper for handling GET requests.
         """
         try:
-            response = requests.get(url, headers=headers, verify=verify)
+            response = requests.get(
+                url,
+                headers=headers,
+                verify=verify,
+                timeout=RequestManager.DEFAULT_TIMEOUT_SECONDS,
+                # The private/mesh HTTP policy is checked against the configured
+                # server URL, not against wherever a redirect points. Following
+                # one would silently carry the session to an unchecked host.
+                allow_redirects=False,
+            )
             response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
             return response
         except Exception as e:
@@ -193,7 +204,14 @@ class RequestManager:
         A generic POST mapper for handling POST requests.
         """
         try:
-            response = requests.post(url, data=data, headers=headers, verify=verify)
+            response = requests.post(
+                url,
+                data=data,
+                headers=headers,
+                verify=verify,
+                timeout=RequestManager.DEFAULT_TIMEOUT_SECONDS,
+                allow_redirects=False,
+            )
             response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
             return response
         except Exception as e:

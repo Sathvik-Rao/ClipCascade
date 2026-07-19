@@ -7,6 +7,14 @@ from interfaces.ws_interface import WSInterface
 from stomp_ws.client import Client
 from core.config import Config
 from utils.cipher_manager import CipherManager
+from utils.protocol_v2 import (
+    ReplayCache,
+    build_transport_frame,
+    ensure_device_id,
+    extract_transport_envelope,
+    unwrap_inbound,
+    wrap_outbound,
+)
 from clipboard.clipboard_manager import ClipboardManager
 from utils.notification_manager import NotificationManager
 from utils.request_manager import RequestManager
@@ -25,6 +33,9 @@ class STOMPManager(WSInterface):
         self.clipboard_manager = ClipboardManager(self.config)
         self.cipher_manager = CipherManager(self.config)
         self.notification_manager = NotificationManager(self.config)
+        self.replay_cache = ReplayCache()
+        # One rejection notification per process; see _notify_rejection_once.
+        self._rejection_notified = False
         self.sys_tray: TaskbarPanel = None
         self.first_conn_lost = True
         self.is_login_phase = is_login_phase
@@ -52,6 +63,7 @@ class STOMPManager(WSInterface):
         try:
             if self.is_connected:
                 return True, ""
+            ensure_device_id(self.config.data)
             self.client = Client(
                 self.config.data["websocket_url"],
                 headers={
@@ -109,12 +121,21 @@ class STOMPManager(WSInterface):
         try:
             if self.is_connected:
                 if self.clipboard_manager.has_clipboard_changed(payload):
-                    if self.config.data["cipher_enabled"]:
-                        payload = CipherManager.encode_to_json_string(
-                            **self.cipher_manager.encrypt(payload)
-                        )
-                    body = json.dumps({"payload": payload, "type": payload_type})
-                    self.client.send(destination=SEND_DESTINATION, body=body)
+                    body = wrap_outbound(
+                        payload=payload,
+                        payload_type=payload_type,
+                        config_data=self.config.data,
+                        cipher_manager=self.cipher_manager,
+                        cipher_enabled=bool(self.config.data["cipher_enabled"]),
+                    )
+                    # Persist device_id / send_counter for durable replay resistance.
+                    self.config.save()
+                    # The server relays only {payload, type, metadata}, so the
+                    # envelope travels inside payload or it does not arrive.
+                    frame = build_transport_frame(body, payload_type=payload_type)
+                    self.client.send(
+                        destination=SEND_DESTINATION, body=json.dumps(frame)
+                    )
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
 
@@ -122,12 +143,15 @@ class STOMPManager(WSInterface):
         try:
             if self.is_connected:
                 body = json.loads(frame.body)
-                payload = body["payload"]
-                payload_type = body.get("type", "text")
-                if self.config.data["cipher_enabled"]:
-                    payload = self.cipher_manager.decrypt(
-                        **CipherManager.decode_from_json_string(payload)
-                    )
+                envelope = extract_transport_envelope(body)
+                payload, payload_type = unwrap_inbound(
+                    envelope,
+                    cipher_manager=self.cipher_manager,
+                    cipher_enabled=bool(self.config.data["cipher_enabled"]),
+                    replay_cache=self.replay_cache,
+                    local_device_id=self.config.data.get("device_id") or None,
+                    allow_legacy_v1=bool(self.config.data.get("allow_legacy_v1")),
+                )
 
                 if self.clipboard_manager.has_clipboard_changed(payload):
                     self.clipboard_manager.base64_to_clipboard(
@@ -137,8 +161,35 @@ class STOMPManager(WSInterface):
             logging.error(
                 "If cipher is enabled, please make sure it is enabled on all devices"
             )
+        except ValueError as e:
+            logging.warning(f"Rejected inbound clipboard message: {e}")
+            self._notify_rejection_once(e)
         except Exception as e:
             logging.error(f"Failed to receive data: {e}")
+
+    def _notify_rejection_once(self, error: ValueError) -> None:
+        """
+        Surface a rejected-message reason to the user, once per connection.
+
+        Every inbound message being refused looks exactly like "sync is quietly
+        broken", which is how an envelope-stripping relay went unnoticed. A
+        warning in a log file nobody reads is not enough for a failure that
+        stops the product working.
+        """
+        if self._rejection_notified:
+            return
+        reason = str(error)
+        if "legacy v1" not in reason and "un-bound" not in reason:
+            return
+        self._rejection_notified = True
+        self.notification_manager.notify(
+            title=f"{APP_NAME}: Incoming Clipboard Rejected ⚠️",
+            message=(
+                "Messages are arriving without protocol v2 metadata. Either a "
+                "device is still below 3.2.0, or the server is dropping the "
+                "envelope. Update every device, then reconnect."
+            ),
+        )
 
     def manual_reconnect(self):
         if not self.is_auto_reconnecting:

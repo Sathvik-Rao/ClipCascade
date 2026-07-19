@@ -24,17 +24,45 @@ public class SecurityConfiguration {
 	private final BCryptPasswordEncoder bCryptPasswordEncoder;
 	private final BruteForceProtectionService bruteForceProtectionService;
 	private final FacadeUserService facadeUserService;
+	private final ClipCascadeProperties clipCascadeProperties;
 
 	SecurityConfiguration(
 			UserDetailsService userDetailsService,
 			BCryptPasswordEncoder bCryptPasswordEncoder,
 			BruteForceProtectionService bruteForceProtectionService,
-			FacadeUserService facadeUserService) {
+			FacadeUserService facadeUserService,
+			ClipCascadeProperties clipCascadeProperties) {
 
 		this.userDetailsService = userDetailsService;
 		this.bCryptPasswordEncoder = bCryptPasswordEncoder;
 		this.bruteForceProtectionService = bruteForceProtectionService;
 		this.facadeUserService = facadeUserService;
+		this.clipCascadeProperties = clipCascadeProperties;
+	}
+
+	/**
+	 * connect-src value: 'self' plus every configured origin.
+	 *
+	 * The WebSocket lives on the same origins the operator already lists in
+	 * CC_ALLOWED_ORIGINS, so naming them keeps the socket working while leaving
+	 * CSP able to block a connection to anywhere else. Bare "ws: wss:" allowed
+	 * any host at all.
+	 */
+	private String connectSrcOrigins() {
+		StringBuilder value = new StringBuilder("'self'");
+		for (String origin : clipCascadeProperties.getAllowedOriginsArray()) {
+			if (origin == null || origin.isBlank()) {
+				continue;
+			}
+			value.append(' ').append(origin.trim());
+			// The socket uses the ws(s) scheme against the same host.
+			if (origin.startsWith("https://")) {
+				value.append(' ').append("wss://").append(origin.substring("https://".length()));
+			} else if (origin.startsWith("http://")) {
+				value.append(' ').append("ws://").append(origin.substring("http://".length()));
+			}
+		}
+		return value.toString();
 	}
 
 	// SessionRegistry bean to store session information
@@ -75,6 +103,17 @@ public class SecurityConfiguration {
 				.logout(logout -> logout
 						.logoutUrl("/logout") // The URL to submit a logout request
 						.logoutSuccessUrl("/login?logout")) // Where to go after successful logout
+				.headers(headers -> headers
+						.contentSecurityPolicy(csp -> csp.policyDirectives(
+								// Scripts are external-only (no unsafe-inline). Inline styles remain for legacy templates.
+								// connect-src names the configured origins rather than bare ws:/wss:,
+								// which would have allowed a socket to any host and removed CSP as an
+								// exfiltration backstop.
+								"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src "
+										+ connectSrcOrigins()
+										+ "; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"))
+						.referrerPolicy(referrer -> referrer.policy(
+								org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
 				.sessionManagement(session -> session
 						.sessionCreationPolicy(SessionCreationPolicy.ALWAYS) // Always create a new session
 						.maximumSessions(-1) // Allow unlimited sessions

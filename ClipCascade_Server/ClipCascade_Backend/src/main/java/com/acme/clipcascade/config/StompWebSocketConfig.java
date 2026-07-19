@@ -71,7 +71,7 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void registerStompEndpoints(@NonNull StompEndpointRegistry registry) {
         // Clients will connect to this endpoint for WebSocket communication.
         registry.addEndpoint("/clipsocket")
-                .setAllowedOrigins(clipCascadeProperties.getAllowedOrigins());
+                .setAllowedOrigins(clipCascadeProperties.getAllowedOriginsArray());
     }
 
     // Scheduler for WebSocket heartbeats

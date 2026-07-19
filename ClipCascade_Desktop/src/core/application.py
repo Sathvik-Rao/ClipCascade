@@ -123,10 +123,23 @@ class Application:
     def authenticate_and_connect(self):
         # Attempt to connect with existing cookie
         if self.config.data.get("cookie"):
-            ws_conn_successful, msg = self._get_ws_manager().connect()
-            if ws_conn_successful:
-                self._get_ws_manager().is_login_phase = False
-                return
+            try:
+                Config.validate_server_url(self.config.data["server_url"])
+                expected_endpoint = (
+                    WEBSOCKET_ENDPOINT_P2P
+                    if self.config.data["server_mode"] == "P2P"
+                    else WEBSOCKET_ENDPOINT
+                )
+                self.config.data["websocket_url"] = Config.convert_to_websocket_url(
+                    self.config.data["server_url"], expected_endpoint
+                )
+                ws_conn_successful, msg = self._get_ws_manager().connect()
+                if ws_conn_successful:
+                    self._get_ws_manager().is_login_phase = False
+                    return
+            except Exception as e:
+                logging.warning(f"Saved session rejected: {e}")
+                self.config.data["cookie"] = None
 
         # enable login form
         used_saved_credentials = False
@@ -170,6 +183,8 @@ class Application:
                 if self.config.data["server_mode"] == "P2P":
                     self.config.data["stun_url"] = self.request_manager.get_stun_url()
                     self.config.data["maxsize"] = -1
+                    if self.config.data["max_clipboard_size_local_limit_bytes"] is None:
+                        self.config.data["max_clipboard_size_local_limit_bytes"] = MAX_SIZE
                     self.config.data["websocket_url"] = Config.convert_to_websocket_url(
                         self.config.data["server_url"], WEBSOCKET_ENDPOINT_P2P
                     )
@@ -254,11 +269,8 @@ class Application:
         try:
             self._get_ws_manager().disconnect()
             self.request_manager.logout()
-            self.config.data["hashed_password"] = None
-            self.config.data["cookie"] = None
             self.config.data["maxsize"] = None
-            self.config.data["password"] = ""
-            self.config.data["csrf_token"] = ""
+            self.config.clear_secrets()
             self.config.save()
         except Exception as e:
             raise Exception(f"Error during logging off: {e}")

@@ -51,11 +51,14 @@ import jakarta.transaction.Transactional;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.bind.annotation.PutMapping;
 
 @Controller
 public class ClipCascadeController {
+    private static final int OUTBOUND_CONNECT_TIMEOUT_MS = 3000;
+    private static final int OUTBOUND_READ_TIMEOUT_MS = 5000;
 
     private final ClipCascadeProperties clipCascadeProperties;
     private final UserService userService;
@@ -330,9 +333,13 @@ public class ClipCascadeController {
                 userPrincipal.isAdmin(),
                 () -> ResponseEntityUtil.executeWithResponse(
                         () -> {
+                            if (!clipCascadeProperties.isUpdateCheckEnabled()) {
+                                return Collections.singletonMap("server", ServerConstants.APP_VERSION);
+                            }
+
                             try {
                                 // get latest version
-                                RestTemplate restTemplate = new RestTemplate();
+                                RestTemplate restTemplate = restTemplateWithTimeouts();
                                 String versionJson = restTemplate.getForObject(
                                         ServerConstants.VERSION_URL,
                                         String.class);
@@ -345,6 +352,13 @@ public class ClipCascadeController {
                             }
                         }),
                 "Forbidden");
+    }
+
+    private RestTemplate restTemplateWithTimeouts() {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(OUTBOUND_CONNECT_TIMEOUT_MS);
+        requestFactory.setReadTimeout(OUTBOUND_READ_TIMEOUT_MS);
+        return new RestTemplate(requestFactory);
     }
 
     @GetMapping("/admin/websocket-stats")
@@ -542,9 +556,11 @@ public class ClipCascadeController {
             @RequestBody Map<String, String> payload) {
 
         return ResponseEntityUtil.buildResponse(
-                facadeUserService.updatePassword(
+                facadeUserService.updateOwnPassword(
                         userPrincipal.getUsername(),
-                        payload.get("newPassword")) != null,
+                        payload.get("currentPassword"),
+                        payload.get("newPassword"),
+                        sessionService) != null,
                 "Password updated successfully",
                 "Invalid user or password");
     }
@@ -560,7 +576,8 @@ public class ClipCascadeController {
                 () -> ResponseEntityUtil.buildResponse(
                         facadeUserService.updatePassword(
                                 payload.get("username"),
-                                payload.get("newPassword")) != null,
+                                payload.get("newPassword"),
+                                sessionService) != null,
                         "Password updated successfully",
                         "Invalid user or password"),
                 "Forbidden");

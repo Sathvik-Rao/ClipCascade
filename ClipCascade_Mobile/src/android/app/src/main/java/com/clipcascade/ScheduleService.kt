@@ -100,6 +100,8 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
                 putExtra("action", "foreground_service_stopped_running")
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             }
+            // MainActivity ignores this action unless it can prove we sent it.
+            InternalIntents.stamp(applicationContext, intent)
 
             val pendingIntent = PendingIntent.getActivity(
                 applicationContext, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

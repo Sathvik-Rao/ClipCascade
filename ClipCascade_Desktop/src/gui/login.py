@@ -151,9 +151,12 @@ class LoginForm(tk.Tk):
             [server_label, self.server_url_entry],
             "Address of your ClipCascade server.\n\n"
             "Examples:\n"
-            "- Local server: http://localhost:8080\n"
-            "- LAN server: http://192.168.1.50:8080\n"
-            "- Reverse proxy/domain: https://clipcascade.example.com\n\n"
+            "- Local: http://localhost:8080\n"
+            "- LAN: http://192.168.1.50:8080\n"
+            "- Tailscale IP: http://100.x.y.z:8080\n"
+            "- Tailscale MagicDNS: http://clipcascade.tail-xxxx.ts.net:8080\n"
+            "- Public: https://clipcascade.example.com\n\n"
+            "HTTP is allowed for localhost, LAN, and Tailscale; use HTTPS on the public internet.\n"
             "Include protocol (http/https). Do not add /login or /clipsocket.",
         )
 

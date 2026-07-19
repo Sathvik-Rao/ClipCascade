@@ -2,6 +2,7 @@ package com.acme.clipcascade.utils;
 
 import java.util.function.Supplier;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 public class ResponseEntityUtil {
@@ -14,7 +15,7 @@ public class ResponseEntityUtil {
         try {
             return ResponseEntity.ok(action.get());
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body((T) e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body((T) "Internal server error");
         }
     }
 
@@ -25,6 +26,13 @@ public class ResponseEntityUtil {
 
         return condition
                 ? successAction.get()
-                : ResponseEntity.badRequest().body((T) errorMessage);
+                : ResponseEntity.status(resolveErrorStatus(errorMessage)).body((T) errorMessage);
+    }
+
+    private static HttpStatus resolveErrorStatus(String errorMessage) {
+        if ("Forbidden".equalsIgnoreCase(errorMessage)) {
+            return HttpStatus.FORBIDDEN;
+        }
+        return HttpStatus.BAD_REQUEST;
     }
 }

@@ -1,0 +1,7 @@
+database/
+logs/
+.git/
+.mvn/wrapper/maven-wrapper.jar
+*.db
+*.log
+*.env

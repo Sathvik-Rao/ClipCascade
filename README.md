@@ -138,24 +138,28 @@ To deploy the ClipCascade server on any operating system that supports Java 21 o
 
     Obtain the latest release of `ClipCascade-Server-JRE_21.jar` from the [release page](https://github.com/Sathvik-Rao/ClipCascade/releases).
 
-2. **Configure Environment Variables (Optional)**  
+2. **Configure Required Environment Variables**
 
-    The ClipCascade server supports various environment variables for customization. None of these variables are mandatory, but they can be configured as needed.  
+    A fresh server requires explicit secrets before first startup. Generate strong values and keep them outside source control.
 
     For a comprehensive list of available environment variables, refer to the [Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details) section.
 
     | Variable                     | Description                                                                                          | Default Value     | Example                           |
     |------------------------------|------------------------------------------------------------------------------------------------------|-------------------|-----------------------------------|
     | `CC_MAX_MESSAGE_SIZE_IN_MiB` | Defines the maximum allowed message size in MiB. Ignored if `CC_P2P_ENABLED` is set to `true`.       | `1`               | `3`                               |
-    | `CC_ALLOWED_ORIGINS`         | Specifies the allowed CORS origins for secure cross-origin access.                                   | `*`               | `https://clipcascade.example.com` |
+    | `CC_ALLOWED_ORIGINS`         | Specifies the allowed WebSocket origins for secure cross-origin access.                              | `http://localhost:8080` | `https://clipcascade.example.com` |
     | `CC_P2P_ENABLED`             | Enables or disables peer-to-peer mode. When enabled, `CC_MAX_MESSAGE_SIZE_IN_MiB` is ignored.        | `false`           | `true`                            |
     | `CC_SIGNUP_ENABLED`          | Allows or restricts user self-registration.                                                          | `false`           | `false`                           |
     | `CC_PORT`                    | Specifies the port on which the server listens for incoming connections.                             | `8080`            | `1234`                            |
+    | `CC_INITIAL_ADMIN_PASSWORD`  | Initial admin password used only when the user database is empty.                                    | required          | generated secret                  |
+    | `CC_SERVER_DB_PASSWORD`      | H2 file database password: `<file password> <user password>`.                                        | required          | generated pair                    |
    
 3. **Start the Server**  
     Run the following command in the terminal to launch the ClipCascade server:
 
     ```bash
+    CC_INITIAL_ADMIN_PASSWORD="replace-with-strong-password" \
+    CC_SERVER_DB_PASSWORD="<file password> <user password>" \
     java -jar ClipCascade-Server-JRE_21.jar
     ```
    
@@ -166,11 +170,11 @@ To deploy the ClipCascade server on any operating system that supports Java 21 o
     http://localhost:8080
     ```
 
-    - **Default Credentials:**  
-      - **Username:** `admin`  
-      - **Password:** `admin123`  
+    - **Initial Admin Credentials:**
+      - **Username:** `admin` by default, configurable with `CC_INITIAL_ADMIN_USERNAME`
+      - **Password:** set `CC_INITIAL_ADMIN_PASSWORD` before first startup
 
-> **Important:** It is strongly recommended to change the default credentials immediately after the initial login.
+> **Important:** A new server will refuse to start until `CC_INITIAL_ADMIN_PASSWORD` is set. Change the initial admin password immediately after the first login.
 
 For guidance on setting up a **reverse proxy**, refer to the [Reverse Proxy Setup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-reverse-proxy-setup) section.
 
@@ -182,10 +186,18 @@ For guidance on setting up a **reverse proxy**, refer to the [Reverse Proxy Setu
 
 #### Quick Installation (Single Command)
 
-For users who prefer a one-liner, you can deploy ClipCascade instantly using:
+For users who prefer a one-liner, set the required secrets first:
 
-```yaml
-docker run -d --name clipcascade -p 8080:8080 -e CC_MAX_MESSAGE_SIZE_IN_MiB=1 -v ./cc_users:/database sathvikrao/clipcascade
+```bash
+docker volume create clipcascade_database
+docker run -d --name clipcascade \
+  -p 8080:8080 \
+  -e CC_MAX_MESSAGE_SIZE_IN_MiB=1 \
+  -e CC_ALLOWED_ORIGINS=http://localhost:8080 \
+  -e CC_INITIAL_ADMIN_PASSWORD="replace-with-strong-password" \
+  -e CC_SERVER_DB_PASSWORD="<file password> <user password>" \
+  -v clipcascade_database:/database \
+  your-registry/clipcascade:3.2.0
 ```
 
 #### Detailed Installation Steps
@@ -199,17 +211,23 @@ To host ClipCascade on your server using Docker, follow these steps:
     ```yaml
     services:
       clipcascade:
-        image: sathvikrao/clipcascade:latest
+        image: your-registry/clipcascade:3.2.0
         ports:
           - "8080:8080"  # Expose the ClipCascade server on port 8080
         restart: always  # Automatically restart the container if it stops
         volumes:
-          - ./cc_users:/database  # Persistent storage for user data
+          - clipcascade_database:/database  # Persistent storage for user data
+          - clipcascade_logs:/logs
         environment:
           - CC_MAX_MESSAGE_SIZE_IN_MiB=1   # Maximum message size in MiB (ignored if P2P mode is enabled)
           - CC_P2P_ENABLED=false  # Enables or disables peer-to-peer(P2P) mode
-          # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com  # Defines allowed CORS origins for security
+          - CC_ALLOWED_ORIGINS=https://clipcascade.example.com  # Defines allowed WebSocket origins for security
+          - CC_INITIAL_ADMIN_PASSWORD=change-this-before-first-start
+          - CC_SERVER_DB_PASSWORD="<file password> <user password>"
           # - CC_SIGNUP_ENABLED=false  # Enables or disables user self-registration
+    volumes:
+      clipcascade_database:
+      clipcascade_logs:
    ```
     
    For additional `.yml` configuration files, visit [ClipCascade Server Docker Configuration](https://github.com/Sathvik-Rao/ClipCascade/tree/main/ClipCascade_Server/docker-compose).
@@ -229,12 +247,14 @@ To host ClipCascade on your server using Docker, follow these steps:
     http://localhost:8080
     ```
 
-    - **Default Credentials:**  
-      - **Username:** `admin`  
-      - **Password:** `admin123`  
+    Use HTTPS/WSS before connecting mobile release clients or exposing the server beyond loopback.
+
+      - **Initial Admin Credentials:**
+      - **Username:** `admin` by default, configurable with `CC_INITIAL_ADMIN_USERNAME`
+      - **Password:** set `CC_INITIAL_ADMIN_PASSWORD` before first startup
 
 
-> **Important:** It is strongly recommended to change the default credentials immediately after the initial login.
+> **Important:** A new server will refuse to start until `CC_INITIAL_ADMIN_PASSWORD` is set. Change the initial admin password immediately after the first login.
 
 For guidance on setting up a **reverse proxy**, refer to the [Reverse Proxy Setup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#-reverse-proxy-setup) section.
 
@@ -377,7 +397,9 @@ Before proceeding, make sure ADB is installed on your system. Follow the instruc
 
 ##### ADB Commands
 
-1. **Grant the `READ_LOGS` permission:**
+1. **(Deprecated / removed)** Historical `READ_LOGS` grant — **no longer used** by current builds. Prefer Share / tile / notification capture. Legacy command only for old APKs:
+
+   ~~Grant the `READ_LOGS` permission:~~
    ```bash
    adb -d shell pm grant com.clipcascade android.permission.READ_LOGS
    ```
@@ -636,11 +658,11 @@ cd /path/to/clipcascade/src/ && sudo python3 main.py
 ### 🗄️ Server Configuration
 
 #### Important Security Notice:
-**Change the default admin credentials immediately after logging in** to prevent unauthorized access.  
+**Set a strong initial admin password before first startup, then change it immediately after logging in** to prevent unauthorized access.
 
-#### Default Admin Credentials:  
-- **Username:** `admin`  
-- **Password:** `admin123`  
+#### Initial Admin Credentials:
+- **Username:** `admin` by default, configurable with `CC_INITIAL_ADMIN_USERNAME`
+- **Password:** set `CC_INITIAL_ADMIN_PASSWORD` before first startup
 
 #### Health Check Endpoint  
 - **Purpose:** Verifies if the server is running and operational.  
@@ -730,10 +752,10 @@ You can use a public STUN server or host your own.
 Specifies which domain is permitted to access the WebSocket server (CORS policy).
 <br><br>
 <strong>Security Note:</strong><br>
-- Leaving this unset allows all origins (not recommended for security-sensitive deployments).<br>
-- To restrict access, specify your domain (e.g., <code>https://clipcascade.example.com</code>).
+- Set this to the exact origin that serves the web app (for example, <code>https://clipcascade.example.com</code>).<br>
+- Avoid <code>*</code> for browser-accessible deployments.
 </td>
-<td>*</td>
+<td>http://localhost:8080</td>
 </tr>
 
 <!-- 6 -->
@@ -749,6 +771,26 @@ Determines whether new users can sign up.
 
 <!-- 7 -->
 <tr>
+<td>CC_INITIAL_ADMIN_USERNAME</td>
+<td>
+Sets the initial administrator username used only when the user database is empty.
+</td>
+<td>admin</td>
+</tr>
+
+<!-- 8 -->
+<tr>
+<td>CC_INITIAL_ADMIN_PASSWORD</td>
+<td>
+Sets the initial administrator password used only when the user database is empty.
+<br><br>
+<strong>Required:</strong> A new server refuses to start until this value is set.
+</td>
+<td>(required)</td>
+</tr>
+
+<!-- 9 -->
+<tr>
 <td>CC_MAX_USER_ACCOUNTS</td>
 <td>
 Defines the maximum number of user accounts allowed on the server.
@@ -758,7 +800,7 @@ Defines the maximum number of user accounts allowed on the server.
 <td>-1</td>
 </tr>
 
-<!-- 8 -->
+<!-- 10 -->
 <tr>
 <td>CC_ACCOUNT_PURGE_TIMEOUT_SECONDS</td>
 <td>
@@ -770,7 +812,7 @@ Specifies the duration (in seconds) after which inactive accounts are deleted.
 <td>-1</td>
 </tr>
 
-<!-- 9 -->
+<!-- 11 -->
 <tr>
 <td>CC_PORT</td>
 <td>
@@ -781,15 +823,15 @@ Defines the internal port where the ClipCascade server listens for connections.
 <td>8080</td>
 </tr>
 
-<!-- 10 -->
+<!-- 12 -->
 <tr>
 <td>CC_SESSION_TIMEOUT</td>
 <td>
 Specifies the duration before user sessions expire, using minute-based formatting (<code>[number]m</code>).
 <br><br>
-<strong>Default:</strong> <code>525960m</code> (~1 year).
+<strong>Default:</strong> <code>1440m</code> (1 day).
 </td>
-<td>525960m</td>
+<td>1440m</td>
 </tr>
 
 <!-- 11 -->
@@ -1086,7 +1128,7 @@ Defines the STOMP broker password for external message handling.
   - **SSL CA bundle**: Path to a PEM file containing your root CA (or full chain) used for HTTPS/WSS verification. Leave it empty to use default public CA/OS trust. Use this field when your ClipCascade server certificate is signed by a private/internal CA (for example, corporate PKI).
   
   #### Android (Specific):
-  - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
+  - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. Prefer Share sheet / Quick Settings tile / notification "Share clipboard now" for capture (READ_LOGS overlay capture was removed).
   - **Enable WebSocket Status Notification**: Receive alerts when the WebSocket connection is lost or restored, ensuring you're informed about any connection disruptions.
     
     <img src="https://github.com/user-attachments/assets/6a8b903c-ee52-444c-a14e-bed70e31dcee" alt="periodic_check_notification" width="250" />

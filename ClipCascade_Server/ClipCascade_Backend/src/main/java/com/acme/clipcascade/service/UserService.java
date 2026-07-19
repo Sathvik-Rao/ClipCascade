@@ -56,6 +56,15 @@ public class UserService {
         return userRepo.findByUsernameIgnoreCase(username) != null;
     }
 
+    public boolean passwordMatches(String username, String password) {
+        if (!UserValidator.isValidUsername(username) || !UserValidator.isValidPassword(password)) {
+            return false;
+        }
+
+        Users user = userRepo.findById(username).orElse(null);
+        return user != null && bCryptPasswordEncoder.matches(password, user.getPassword());
+    }
+
     public List<Users> getUsers(String role) {
         List<Users> users = userRepo.findByRoleOrderByUsernameAsc(role);
         users.forEach(user -> {

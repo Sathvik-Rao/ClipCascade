@@ -3,9 +3,11 @@ package com.acme.clipcascade.service;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Service;
 
 import com.acme.clipcascade.config.ClipCascadeProperties;
+import com.acme.clipcascade.config.P2PWebSocketHandler;
 import com.acme.clipcascade.constants.RoleConstants;
 import com.acme.clipcascade.model.IpAttemptDetails;
 import com.acme.clipcascade.model.UserInfo;
@@ -20,26 +22,42 @@ public class FacadeUserService {
     private final UserService userService;
     private final UserInfoService userInfoService;
     private final ClipCascadeProperties clipCascadeProperties;
+    private final P2PWebSocketHandler p2pWebSocketHandler;
 
     public FacadeUserService(
             UserService userService,
             UserInfoService userInfoService,
-            ClipCascadeProperties clipCascadeProperties) {
+            ClipCascadeProperties clipCascadeProperties,
+            @Nullable P2PWebSocketHandler p2pWebSocketHandler) {
 
         this.userService = userService;
         this.userInfoService = userInfoService;
         this.clipCascadeProperties = clipCascadeProperties;
+        this.p2pWebSocketHandler = p2pWebSocketHandler;
     }
 
     public void insertDefaultAdminUserIfEmpty() {
         if (userService.isTableEmpty()) {
+            if (!clipCascadeProperties.isInitialAdminPasswordConfigured()) {
+                throw new IllegalStateException(
+                        "Empty user database. Set CC_INITIAL_ADMIN_PASSWORD before first startup.");
+            }
+            if (!UserValidator.isValidPassword(clipCascadeProperties.getInitialAdminPassword())) {
+                throw new IllegalStateException("CC_INITIAL_ADMIN_PASSWORD is too weak.");
+            }
+
+            String initialAdminUsername = clipCascadeProperties.getInitialAdminUsername();
+            if (!UserValidator.isValidUsername(initialAdminUsername)) {
+                throw new IllegalStateException("CC_INITIAL_ADMIN_USERNAME is invalid.");
+            }
+
             userService.doubleHashAndCreateUser(
-                    "admin",
-                    "admin123",
+                    initialAdminUsername,
+                    clipCascadeProperties.getInitialAdminPassword(),
                     RoleConstants.ADMIN,
                     true);
 
-            userInfoService.registerNewUser("admin");
+            userInfoService.registerNewUser(initialAdminUsername);
         }
     }
 
@@ -76,7 +94,7 @@ public class FacadeUserService {
             return null;
         }
 
-        sessionService.logoutAllSessions(oldUsername);
+        revokeSessions(oldUsername, sessionService);
 
         UserInfo userInfo = userInfoService.markUserForDeletion(oldUsername);
         if (userInfo == null) {
@@ -96,14 +114,14 @@ public class FacadeUserService {
             return false;
         }
 
-        sessionService.logoutAllSessions(username);
+        revokeSessions(username, sessionService);
 
         userInfoService.markUserForDeletion(username);
 
         return userService.deleteUser(username);
     }
 
-    public Users updatePassword(String username, String newPassword) {
+    public Users updatePassword(String username, String newPassword, SessionService sessionService) {
         if (!UserValidator.isValidUsername(username)
                 || !UserValidator.isValidPassword(newPassword)) {
 
@@ -112,7 +130,25 @@ public class FacadeUserService {
 
         userInfoService.setPasswordChangeTime(username, TimeUtility.getCurrentTimeInSeconds());
 
-        return userService.updatePassword(username, newPassword);
+        Users updatedUser = userService.updatePassword(username, newPassword);
+        if (updatedUser != null) {
+            revokeSessions(username, sessionService);
+        }
+
+        return updatedUser;
+    }
+
+    public Users updateOwnPassword(
+            String username,
+            String currentPassword,
+            String newPassword,
+            SessionService sessionService) {
+
+        if (!userService.passwordMatches(username, currentPassword)) {
+            return null;
+        }
+
+        return updatePassword(username, newPassword, sessionService);
     }
 
     public Users updateUserStatus(
@@ -126,7 +162,7 @@ public class FacadeUserService {
             return null;
         }
 
-        sessionService.logoutAllSessions(username);
+        revokeSessions(username, sessionService);
 
         return userService.updateUserStatus(username, enable);
     }
@@ -165,6 +201,13 @@ public class FacadeUserService {
 
         for (String inactiveUser : inactiveUsers) {
             deleteUser(inactiveUser, sessionService);
+        }
+    }
+
+    private void revokeSessions(String username, SessionService sessionService) {
+        sessionService.logoutAllSessions(username);
+        if (p2pWebSocketHandler != null) {
+            p2pWebSocketHandler.closeSessionsForUser(username);
         }
     }
 }

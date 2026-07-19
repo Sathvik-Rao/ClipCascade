@@ -26,6 +26,6 @@ public class P2PWebSocketConfig implements WebSocketConfigurer {
     @Override
     public void registerWebSocketHandlers(@NonNull WebSocketHandlerRegistry registry) {
         registry.addHandler(p2pWebSocketHandler, "/p2psignaling")
-                .setAllowedOrigins(clipCascadeProperties.getAllowedOrigins());
+                .setAllowedOrigins(clipCascadeProperties.getAllowedOriginsArray());
     }
 }

@@ -28,6 +28,7 @@ import com.acme.clipcascade.utils.MapUtility;
 import com.acme.clipcascade.utils.TimeUtility;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import ch.qos.logback.classic.Logger;
 import jakarta.annotation.PreDestroy;
@@ -35,6 +36,7 @@ import jakarta.annotation.PreDestroy;
 @Component
 @ConditionalOnProperty(prefix = "app.p2p", name = "enabled", havingValue = "true", matchIfMissing = false)
 public class P2PWebSocketHandler extends AbstractWebSocketHandler {
+    private static final int MAX_PEER_ID_LENGTH = 64;
 
     private final ObjectMapper objectMapper;
     private final Logger logger;
@@ -250,16 +252,49 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
 
             String type = json.has("type") ? json.get("type").asText() : "";
             String toPeerId = json.has("toPeerId") ? json.get("toPeerId").asText() : null;
+            String fromPeerId = userSessionsUUID.get(session.getId());
 
-            if ("OFFER".equals(type) || "ANSWER".equals(type) || "ICE_CANDIDATE".equals(type)) {
-                // Forward to the correct session within this user's room
-                if (toPeerId != null) {
-                    String targetSessionId = MapUtility.getKeyByValue(userSessionsUUID, toPeerId);
-                    if (targetSessionId != null) {
-                        WebSocketSession targetSession = userSessions.get(targetSessionId);
-                        sendMessage(targetSession, message);
+            // Room-wide device announce / pairing (signed by clients; server only relays).
+            if ("DEVICE_ANNOUNCE".equals(type) || "PAIR_REQUEST".equals(type)
+                    || "PAIR_ACCEPT".equals(type) || "PAIR_REJECT".equals(type)) {
+                // Server-assigned identity only. If this session has no peer id
+                // yet (it can be racing registration), drop the message rather
+                // than relaying the sender's own fromPeerId/peerId, which would
+                // let it announce itself as another device.
+                if (!isValidPeerId(fromPeerId)) {
+                    return;
+                }
+                ObjectNode outbound = json.deepCopy();
+                outbound.put("fromPeerId", fromPeerId);
+                outbound.put("peerId", fromPeerId);
+                TextMessage broadcast = new TextMessage(objectMapper.writeValueAsString(outbound));
+                for (Map.Entry<String, WebSocketSession> entry : userSessions.entrySet()) {
+                    if (!entry.getKey().equals(session.getId())) {
+                        sendMessage(entry.getValue(), broadcast);
                     }
                 }
+                return;
+            }
+
+            if ("OFFER".equals(type) || "ANSWER".equals(type) || "ICE_CANDIDATE".equals(type)) {
+                if (!isValidPeerId(toPeerId) || !isValidPeerId(fromPeerId)) {
+                    return;
+                }
+
+                String targetSessionId = MapUtility.getKeyByValue(userSessionsUUID, toPeerId);
+                if (targetSessionId == null || targetSessionId.equals(session.getId())) {
+                    return;
+                }
+
+                WebSocketSession targetSession = userSessions.get(targetSessionId);
+                if (targetSession == null) {
+                    return;
+                }
+
+                ObjectNode outbound = json.deepCopy();
+                outbound.put("fromPeerId", fromPeerId);
+                outbound.put("toPeerId", toPeerId);
+                sendMessage(targetSession, new TextMessage(objectMapper.writeValueAsString(outbound)));
             }
         } finally {
             lock.unlock(); // release the lock
@@ -290,6 +325,40 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
                     logger.debug("Failed to close WebSocket session(P2P): ", e);
                 }
             }
+        }
+    }
+
+    public void closeSessionsForUser(String username) {
+        if (username == null || username.isBlank()) {
+            return;
+        }
+
+        Map<String, WebSocketSession> userSessions = sessions.get(username);
+        if (userSessions == null) {
+            return;
+        }
+
+        for (WebSocketSession session : userSessions.values()) {
+            try {
+                if (session != null && session.isOpen()) {
+                    session.close(CloseStatus.POLICY_VIOLATION);
+                }
+            } catch (Exception e) {
+                logger.debug("Failed to close WebSocket session(P2P) for user {}: {}", username, e.getMessage());
+            }
+        }
+    }
+
+    private boolean isValidPeerId(String peerId) {
+        if (peerId == null || peerId.isBlank() || peerId.length() > MAX_PEER_ID_LENGTH) {
+            return false;
+        }
+
+        try {
+            UUID.fromString(peerId);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
         }
     }
 

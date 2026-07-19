@@ -137,6 +137,20 @@ class MainActivity : ReactActivity() {
             }
         }
 
+        // Internal actions below. This activity is exported (LAUNCHER + share
+        // target), and an exported activity accepts any explicit intent no
+        // matter what its intent-filters say, so require proof the intent came
+        // from us. Without this, any installed app could start MainActivity
+        // with ACTION_CAPTURE_CLIPBOARD and have ClipCascade read the clipboard
+        // and transmit it on demand.
+        val isInternalAction =
+            "com.clipcascade.NOTIFICATION_ACTION" == intent.action ||
+                ClipboardTileService.ACTION_CAPTURE_CLIPBOARD == intent.action
+        if (isInternalAction && !InternalIntents.isInternal(applicationContext, intent)) {
+            Log.w(TAG, "Ignoring internal action from an external caller: ${intent.action}")
+            return
+        }
+
         // custom notification action
         if ("com.clipcascade.NOTIFICATION_ACTION" == intent.action) {
             val action = intent.getStringExtra("action")
@@ -148,6 +162,11 @@ class MainActivity : ReactActivity() {
                     Log.e(TAG, "Error connecting/initializing values to AsyncStorageBridge", e)
                 }
             }
+        }
+
+        // Quick Settings tile / explicit capture intent
+        if (ClipboardTileService.ACTION_CAPTURE_CLIPBOARD == intent.action) {
+            sendToReactNative("CAPTURE_CLIPBOARD_NOW", "trigger", "true")
         }
     }
 

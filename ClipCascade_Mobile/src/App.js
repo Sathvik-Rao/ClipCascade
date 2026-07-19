@@ -31,8 +31,10 @@ import {
   getDataFromAsyncStorage,
   getMultipleDataFromAsyncStorage,
   clearAsyncStorage,
+  clearSecrets,
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
+import {validateServerUrl} from './networkPolicy';
 
 /*
  * These files are part of the ClipCascade project.
@@ -260,7 +262,7 @@ export default function App() {
           await setDataInAsyncStorage('p2pStatusMessage', '');
           //validate session
           setLoadingPageMessage('Verifying Session...');
-          validResult = await validateSession(data_s);
+          const validResult = await validateSession(data_s);
           setEnableLoadingPage(false);
           if (validResult[0]) {
             //enable websocket page
@@ -346,31 +348,21 @@ export default function App() {
       };
       clearWSStatusMessage();
     };
+    // Initialization intentionally runs once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Function to convert a server URL to a WebSocket URL
   const convertToWebSocketUrl = async (inputUrl, endpoint) => {
-    if (!inputUrl || typeof inputUrl !== 'string') {
-      throw new Error('Invalid URL provided');
-    }
-
-    inputUrl = inputUrl.trim().replace(/\/+$/, '').toLowerCase(); // Remove trailing slashes and convert to lowercase
-
-    let wsUrl;
-
-    if (inputUrl.startsWith('https://')) {
-      wsUrl = inputUrl.replace('https://', 'wss://');
-    } else if (inputUrl.startsWith('http://')) {
-      wsUrl = inputUrl.replace('http://', 'ws://');
-    } else {
-      throw new Error(`Unsupported protocol in URL: ${inputUrl}`);
-    }
-
+    // Preserve MagicDNS / hostname case; only normalize scheme via URL parse.
+    const cleaned = validateServerUrl(inputUrl);
+    const parsed = new URL(cleaned);
+    const scheme = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+    let wsUrl = `${scheme}//${parsed.host}`;
     if (endpoint != null) {
       wsUrl += endpoint;
       wsUrl = wsUrl.replace(/\/+$/, '');
     }
-
     return wsUrl;
   };
 
@@ -410,6 +402,14 @@ export default function App() {
   // Function to validate session
   const validateSession = async data_s => {
     try {
+      // Re-check the stored URL before contacting it. The cleartext policy is
+      // applied when a server is saved at login, but a cold start restores the
+      // URL straight from storage — so a value written by an older build (or
+      // tampered with on a rooted device) would otherwise reach the network
+      // without ever passing the gate. Android permits cleartext app-wide, so
+      // this check is the only thing standing in front of it.
+      validateServerUrl(data_s.server_url);
+
       const response = await fetchTimeout(data_s.server_url + VALIDATE_URL, {
         method: 'GET',
       });
@@ -573,7 +573,7 @@ export default function App() {
 
         // Hash the password for encryption
         if (data_s.cipher_enabled === 'true') {
-          hashResult = await hash(data_s, password);
+          const hashResult = await hash(data_s, password);
           data_s = hashResult[2];
           if (!hashResult[0]) {
             return [
@@ -613,46 +613,69 @@ export default function App() {
     }
   };
 
-  // Logout
+  // Logout — fail-closed: only leave the session UI after secrets are wiped.
   const logout = async () => {
+    let secretsCleared = false;
     try {
       setWsPageMessage('⌛ Please wait...');
-      await setDataInAsyncStorage('password', '');
+      const csrf = await getDataFromAsyncStorage('csrf_token');
+
       if (wsIsRunning === 'true') {
         await setDataInAsyncStorage('wsIsRunning', 'false');
         setWsIsRunning('false');
       }
 
-      const formData = new URLSearchParams();
-      formData.append('_csrf', await getDataFromAsyncStorage('csrf_token'));
+      try {
+        const formData = new URLSearchParams();
+        formData.append('_csrf', csrf || '');
 
-      const response = await fetchTimeout(data.server_url + LOGOUT_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formData.toString(),
-      });
+        const response = await fetchTimeout(data.server_url + LOGOUT_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: formData.toString(),
+        });
 
-      if (response.status == 204) {
-        setWsPageMessage('✅ Logout successful: ' + response.status);
-      } else {
-        setWsPageMessage('❌ Logout failed: ' + response.status);
+        if (response.status == 204) {
+          setWsPageMessage('✅ Logout successful: ' + response.status);
+        } else {
+          setWsPageMessage('❌ Logout failed: ' + response.status);
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          setWsPageMessage('❌ Error: Request timed out');
+        } else {
+          setWsPageMessage('❌ Error: ' + error);
+        }
       }
 
-      await setDataInAsyncStorage('csrf_token', '');
+      await clearSecrets();
+      secretsCleared = true;
+    } catch (error) {
+      setWsPageMessage(
+        '❌ Logout incomplete: could not wipe local secrets. ' + error,
+      );
+    } finally {
+      if (!secretsCleared) {
+        try {
+          await clearSecrets();
+          secretsCleared = true;
+        } catch (error) {
+          // Fail-closed: keep session UI so the user retries wipe/logout.
+          setWsPageMessage(
+            '❌ Logout blocked: secrets still present. Retry logout. ' + error,
+          );
+          return;
+        }
+      }
+
+      await setDataInAsyncStorage('wsIsRunning', 'false');
+      setWsIsRunning('false');
       setEnableWSPage(false);
       setEnableLoginPage(true);
       setLoginStatusMessage('');
-
-      // clear cookies if any
       NativeBridgeModule.clearCookies();
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        setWsPageMessage('❌ Error: Request timed out');
-      } else {
-        setWsPageMessage('❌ Error: ' + error);
-      }
     }
   };
 
@@ -706,7 +729,7 @@ export default function App() {
         setWsPageMessage('');
         setWsPageP2PMessage('');
         await clearFiles();
-        wsIsRunning_s = wsIsRunning === 'true' ? 'false' : 'true'; // toggle
+        const wsIsRunning_s = wsIsRunning === 'true' ? 'false' : 'true'; // toggle
         await setDataInAsyncStorage('wsForegroundServiceTerminated', 'false');
         await setDataInAsyncStorage('wsIsRunning', wsIsRunning_s);
         if (wsIsRunning_s === 'true') {
@@ -795,8 +818,8 @@ export default function App() {
         data_s = { ...data };
       }
 
-      // remove trailing slashes in server_url
-      data_s.server_url = data_s.server_url.replace(/\/+$/, '');
+      // normalize + enforce private/mesh HTTP policy (Tailscale / LAN)
+      data_s.server_url = validateServerUrl(data_s.server_url);
 
       let iteration = 0;
       let loginResult;
@@ -1039,8 +1062,7 @@ export default function App() {
               </View>
               <View style={styles.row}>
                 <Text style={styles.label}>
-                  Run on system startup (disable if the READ_LOGS permission is
-                  granted):
+                  Run on system startup:
                 </Text>
                 <CheckBox
                   value={data.relaunch_on_boot === 'true' ? true : false}
@@ -1157,6 +1179,24 @@ export default function App() {
             {wsPageP2PMessage !== '' && (
               <Text style={styles.message}>{wsPageP2PMessage}</Text>
             )}
+            {/* Explicit capture (no READ_LOGS/overlay) */}
+            <TouchableOpacity
+              style={[styles.loginButton, { backgroundColor: '#1565c0' }]}
+              onPress={() => {
+                try {
+                  const {ClipboardListener} = NativeModules;
+                  if (ClipboardListener?.captureNow) {
+                    ClipboardListener.captureNow();
+                  }
+                } catch (e) {
+                  setWsPageMessage('❌ Capture failed: ' + e);
+                }
+              }}
+            >
+              <Text style={styles.loginButtonText}>
+                📋 Share clipboard now
+              </Text>
+            </TouchableOpacity>
             {/* File download button */}
             {enableFilesDownloadButton &&
               enableFilesDownloadButton === true && (
@@ -1229,8 +1269,9 @@ export default function App() {
                     { marginTop: 5, fontSize: 15, fontStyle: 'italic' },
                   ]}
                 >
-                  There's also a workaround to enable clipboard sharing in the
-                  background. Scroll down for setup instructions.
+                  Prefer Share sheet, Quick Settings tile, notification action,
+                  or the in-app "Share clipboard now" button. Background
+                  auto-capture is limited by Android privacy rules.
                 </Text>
               </View>
 
@@ -1284,7 +1325,7 @@ export default function App() {
                 </Text>
               </TouchableOpacity>
 
-              {/* ADB Commands Section */}
+              {/* Explicit capture (no READ_LOGS / overlay) */}
               <View style={{ marginTop: 20 }}>
                 <Text
                   style={[
@@ -1292,51 +1333,24 @@ export default function App() {
                     { fontWeight: 'bold', marginBottom: 5 },
                   ]}
                 >
-                  Automatic Clipboard Monitoring Setup:
+                  Share clipboard explicitly:
                 </Text>
                 <Text style={styles.label}>
-                  On rooted/non-rooted devices, to enable automatic clipboard
-                  monitoring you need to execute these 3 ADB commands:
+                  ClipCascade no longer uses READ_LOGS or draw-over-apps
+                  overlay capture. Use one of:
                 </Text>
                 <View style={{ marginTop: 10, marginLeft: 15 }}>
                   <Text style={styles.label}>
-                    1. Enable the READ_LOGS permission:
+                    1. Android Share sheet → ClipCascade (text, images, files)
                   </Text>
-                  <Text
-                    selectable
-                    style={[
-                      styles.label,
-                      { fontWeight: 'bold', marginLeft: 15 },
-                    ]}
-                  >
-                    {`> adb -d shell pm grant com.clipcascade android.permission.READ_LOGS`}
-                  </Text>
-
                   <Text style={styles.label}>
-                    2. Allow "Drawing over other apps", also accessible from
-                    Settings:
+                    2. Quick Settings tile "ClipCascade" → Share clipboard now
                   </Text>
-                  <Text
-                    selectable
-                    style={[
-                      styles.label,
-                      { fontWeight: 'bold', marginLeft: 15 },
-                    ]}
-                  >
-                    {`> adb -d shell appops set com.clipcascade SYSTEM_ALERT_WINDOW allow`}
-                  </Text>
-
                   <Text style={styles.label}>
-                    3. Kill the app for the new permissions to take effect:
+                    3. Foreground notification action while sync is running
                   </Text>
-                  <Text
-                    selectable
-                    style={[
-                      styles.label,
-                      { fontWeight: 'bold', marginLeft: 15 },
-                    ]}
-                  >
-                    {`> adb -d shell am force-stop com.clipcascade`}
+                  <Text style={styles.label}>
+                    4. In-app button when the session is connected
                   </Text>
                 </View>
               </View>

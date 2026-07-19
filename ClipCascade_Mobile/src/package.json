@@ -1,6 +1,6 @@
 {
   "name": "ClipCascade",
-  "version": "0.0.1",
+  "version": "3.2.0",
   "private": true,
   "scripts": {
     "android": "react-native run-android",
@@ -24,6 +24,7 @@
     "react-native": "0.80.2",
     "react-native-aes-gcm-crypto": "^0.2.2",
     "react-native-html-parser": "^0.1.0",
+    "react-native-keychain": "^10.0.0",
     "react-native-webrtc": "^124.0.6",
     "text-encoding": "^0.7.0"
   },
@@ -31,9 +32,9 @@
     "@babel/core": "^7.25.2",
     "@babel/preset-env": "^7.25.3",
     "@babel/runtime": "^7.25.0",
-    "@react-native-community/cli": "19.1.1",
-    "@react-native-community/cli-platform-android": "19.1.1",
-    "@react-native-community/cli-platform-ios": "19.1.1",
+    "@react-native-community/cli": "^19.1.2",
+    "@react-native-community/cli-platform-android": "^19.1.2",
+    "@react-native-community/cli-platform-ios": "^19.1.2",
     "@react-native/babel-preset": "0.80.2",
     "@react-native/eslint-config": "0.80.2",
     "@react-native/metro-config": "0.80.2",

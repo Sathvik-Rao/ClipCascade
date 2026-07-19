@@ -1,15 +1,19 @@
-version: '3.8'
-
 services:
   clipcascade:
-    image: sathvikrao/clipcascade:latest
+    image: ${CLIPCASCADE_IMAGE:?Set a pinned ClipCascade image tag or digest}
     container_name: clipcascade
     ports:
-      - 8080:8080
+      - "${CC_BIND_ADDRESS:-127.0.0.1}:8080:8080"
     restart: always
     volumes:
-      - ./cc_users:/database
-      # - ./logs:/logs
+      - clipcascade_database:/database
+      - clipcascade_logs:/logs
     environment:
-      # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com
+      - CC_INITIAL_ADMIN_PASSWORD=${CC_INITIAL_ADMIN_PASSWORD:?Set a strong initial admin password}
+      - CC_ALLOWED_ORIGINS=${CC_ALLOWED_ORIGINS:-http://localhost:8080}
+      - CC_SERVER_DB_PASSWORD=${CC_SERVER_DB_PASSWORD:?Set '<file password> <user password>' for H2}
       - CC_P2P_ENABLED=true
+
+volumes:
+  clipcascade_database:
+  clipcascade_logs:

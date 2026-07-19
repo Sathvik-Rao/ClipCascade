@@ -1,0 +1,234 @@
+{
+  "_comment": [
+    "Shared accept/reject corpus for protocol v2, driven through BOTH",
+    "protocol_v2.py and protocolV2.js. Desktop and mobile are supposed to be",
+    "behaviourally identical; that was asserted for three review rounds and",
+    "never measured, and when someone finally measured it the two disagreed on",
+    "4 of 34 envelopes. The differences were not in the visible logic but in",
+    "the host runtimes: json.loads keeps int/float apart where JSON.parse does",
+    "not, and dict.get(k, d) returns a present null where `??` returns the",
+    "default.",
+    "",
+    "Envelopes here are cipher-off so the corpus needs no key material and both",
+    "suites can read it directly. 'expect' is 'accept' or 'reject'."
+  ],
+  "cases": [
+    {
+      "name": "well_formed",
+      "expect": "accept",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": 1,
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "counter_float_whole",
+      "expect": "accept",
+      "why": "JSON 5.0 and 5 are the same JS number after JSON.parse, so mobile cannot tell them apart. Desktop normalises a whole-valued float to the integer it denotes so both runtimes admit the same envelopes; anything with a fractional part is still rejected on both.",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": 5.0,
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "counter_fractional",
+      "expect": "reject",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": 1.5,
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "counter_zero",
+      "expect": "reject",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": 0,
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "counter_negative",
+      "expect": "reject",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": -1,
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "counter_bool",
+      "expect": "reject",
+      "why": "Python bool is a subclass of int, so isinstance(True, int) is True.",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": true,
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "counter_string",
+      "expect": "reject",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": "1",
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "counter_above_safe_integer",
+      "expect": "reject",
+      "why": "Python ints are unbounded; JS stops being exact past 2^53-1.",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": 9007199254740993,
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "ts_float_whole",
+      "expect": "accept",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": 1,
+        "ts": 0.0,
+        "payload": "hello"
+      },
+      "why": "JSON 5.0 and 5 are the same JS number after JSON.parse, so mobile cannot tell them apart. Desktop normalises a whole-valued float to the integer it denotes so both runtimes admit the same envelopes; anything with a fractional part is still rejected on both."
+    },
+    {
+      "name": "ts_bool",
+      "expect": "reject",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": 1,
+        "ts": true,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "ts_string",
+      "expect": "reject",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": 1,
+        "ts": "0",
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "sender_missing",
+      "expect": "reject",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "counter": 1,
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "sender_empty",
+      "expect": "reject",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "",
+        "counter": 1,
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "sender_not_a_string",
+      "expect": "reject",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": 5,
+        "counter": 1,
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "version_1_absent",
+      "expect": "reject",
+      "why": "Stripping v must not be a way around the v2 checks.",
+      "envelope": {
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": 1,
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "version_unknown",
+      "expect": "reject",
+      "envelope": {
+        "v": 99,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": 1,
+        "ts": 0,
+        "payload": "hello"
+      }
+    },
+    {
+      "name": "payload_missing",
+      "expect": "reject",
+      "envelope": {
+        "v": 2,
+        "type": "text",
+        "senderDeviceId": "A",
+        "counter": 1,
+        "ts": 0
+      }
+    },
+    {
+      "name": "type_absent_defaults_to_text",
+      "expect": "accept",
+      "envelope": {
+        "v": 2,
+        "senderDeviceId": "A",
+        "counter": 1,
+        "ts": 0,
+        "payload": "hello"
+      }
+    }
+  ]
+}
