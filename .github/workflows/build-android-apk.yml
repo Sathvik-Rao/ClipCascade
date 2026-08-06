@@ -1,0 +1,148 @@
+name: Build Android APK
+
+# Publishing a release builds the APK and attaches it to that release. The manual
+# trigger builds the same APK on demand; pass a tag to also attach it to an existing
+# release, or leave it empty to just keep the build artifact.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to attach the APK to (optional)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-android-apk-${{ github.event.release.tag_name || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ClipCascade_Mobile/src/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # android/build.gradle pins these exact versions, and the runner image ships a
+      # different NDK. sdkmanager is a no-op for anything already present.
+      - name: Install pinned Android SDK components
+        run: |
+          sdkmanager --install \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;27.1.12297006"
+
+      - name: Install JS dependencies
+        working-directory: ClipCascade_Mobile/src
+        run: npm ci --no-audit --no-fund
+
+      # Without the keystore secrets the build still runs, it just produces an
+      # unsigned APK. That keeps the workflow usable on a fresh fork before any
+      # secrets are configured, rather than failing with a signing error.
+      - name: Decode signing keystore
+        id: keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::RELEASE_KEYSTORE_BASE64 is not set - building an UNSIGNED APK. It cannot be installed as an update over a signed build."
+          else
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build release APK
+        working-directory: ClipCascade_Mobile/src/android
+        env:
+          SIGNED: ${{ steps.keystore.outputs.signed }}
+          STORE_PASS: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+        run: |
+          # gradlew is tracked with mode 0644, so it is not executable on checkout.
+          chmod +x gradlew
+          if [ "$SIGNED" = "true" ]; then
+            ./gradlew --no-daemon assembleRelease \
+              -PMYAPP_UPLOAD_STORE_FILE="$RUNNER_TEMP/release.keystore" \
+              -PMYAPP_UPLOAD_STORE_PASSWORD="$STORE_PASS" \
+              -PMYAPP_UPLOAD_KEY_ALIAS="$KEY_ALIAS" \
+              -PMYAPP_UPLOAD_KEY_PASSWORD="$KEY_PASS"
+          else
+            ./gradlew --no-daemon assembleRelease
+          fi
+
+      # Tag names reach this step as environment variables rather than as ${{ }}
+      # interpolated into the script, so a tag containing shell metacharacters is
+      # data instead of code.
+      - name: Collect and name the APK
+        id: apk
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          OUT=ClipCascade_Mobile/src/android/app/build/outputs/apk/release
+          # An unsigned build emits app-release-unsigned.apk instead.
+          APK=$(find "$OUT" -maxdepth 1 -name '*.apk' | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "::error::No APK produced in $OUT"
+            exit 1
+          fi
+
+          TAG="${RELEASE_TAG:-$INPUT_TAG}"
+          if [ -z "$TAG" ]; then
+            TAG="v$(jq -r .android version.json)"
+            ATTACH=false
+          else
+            ATTACH=true
+          fi
+
+          # Keep the tag usable as a file name component.
+          SAFE_TAG=$(printf '%s' "$TAG" | tr -c 'A-Za-z0-9._-' '_')
+          NAME="ClipCascade-${SAFE_TAG}-android.apk"
+          cp "$APK" "$NAME"
+          echo "path=$NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "attach=$ATTACH" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the APK signature
+        if: steps.keystore.outputs.signed == 'true'
+        env:
+          APK_PATH: ${{ steps.apk.outputs.path }}
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -r | head -n 1)
+          "$APKSIGNER" verify --print-certs "$APK_PATH"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clipcascade-android-apk
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+
+      - name: Attach the APK to the release
+        if: steps.apk.outputs.attach == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.apk.outputs.tag }}
+          APK_PATH: ${{ steps.apk.outputs.path }}
+        run: gh release upload "$TAG" "$APK_PATH" --clobber
