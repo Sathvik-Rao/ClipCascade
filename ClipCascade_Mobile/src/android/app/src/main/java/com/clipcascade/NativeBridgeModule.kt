@@ -1,10 +1,12 @@
 // android\app\src\main\java\com\clipcascade\NativeBridgeModule.kt
 package com.clipcascade
 
+import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
+import com.facebook.react.bridge.WritableMap
 import com.facebook.react.bridge.Promise
 import androidx.work.WorkManager
 import android.webkit.CookieManager
@@ -24,6 +26,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.cert.X509Certificate
 
 
 class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
@@ -257,6 +260,92 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         }
 
         return candidate
+    }
+
+
+    /**
+     * Imports the CA certificate the user picked on the login screen, so a server
+     * using a private/internal PKI can be verified. Accepts PEM (single certificate
+     * or chain) and DER; anything else is rejected here rather than silently stored
+     * and failing later as an unexplained handshake error.
+     */
+    @ReactMethod
+    fun importCaCertificate(contentUri: String, promise: Promise) {
+        try {
+            val uri = Uri.parse(contentUri.trim())
+            val bytes = reactApplicationContext.contentResolver.openInputStream(uri)?.use {
+                it.readBytes()
+            }
+            if (bytes == null) {
+                promise.reject("ERROR", "Failed to open the selected file.")
+                return
+            }
+
+            val certificates = try {
+                ClipCascadeTrustManager.readCertificates(bytes.inputStream())
+            } catch (e: Exception) {
+                promise.reject(
+                    "INVALID_CERTIFICATE",
+                    "The selected file is not a certificate. Pick a .pem, .crt, .cer or .der file holding the CA certificate."
+                )
+                return
+            }
+            if (certificates.isEmpty()) {
+                promise.reject("INVALID_CERTIFICATE", "The selected file contains no certificate.")
+                return
+            }
+
+            ClipCascadeTrustManager.caFile(reactApplicationContext).writeBytes(bytes)
+            ClipCascadeTrustManager.reload(reactApplicationContext)
+
+            promise.resolve(certificateInfo(certificates))
+        } catch (e: Exception) {
+            promise.reject("ERROR", "Failed to import certificate: ${e.message}")
+        }
+    }
+
+    @ReactMethod
+    fun removeCaCertificate(promise: Promise) {
+        try {
+            ClipCascadeTrustManager.caFile(reactApplicationContext).delete()
+            ClipCascadeTrustManager.reload(reactApplicationContext)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("ERROR", "Failed to remove certificate: ${e.message}")
+        }
+    }
+
+    /** Resolves with details of the imported CA certificate, or null if there is none. */
+    @ReactMethod
+    fun getCaCertificateInfo(promise: Promise) {
+        try {
+            val file = ClipCascadeTrustManager.caFile(reactApplicationContext)
+            if (!file.isFile) {
+                promise.resolve(null)
+                return
+            }
+            val certificates = file.inputStream().use {
+                ClipCascadeTrustManager.readCertificates(it)
+            }
+            if (certificates.isEmpty()) {
+                promise.resolve(null)
+                return
+            }
+            promise.resolve(certificateInfo(certificates))
+        } catch (e: Exception) {
+            promise.reject("ERROR", "Failed to read certificate: ${e.message}")
+        }
+    }
+
+    private fun certificateInfo(certificates: List<X509Certificate>): WritableMap {
+        val certificate = certificates.first()
+        return Arguments.createMap().apply {
+            putString("subject", certificate.subjectX500Principal.name)
+            putString("issuer", certificate.issuerX500Principal.name)
+            putDouble("notBefore", certificate.notBefore.time.toDouble())
+            putDouble("notAfter", certificate.notAfter.time.toDouble())
+            putInt("count", certificates.size)
+        }
     }
 
 

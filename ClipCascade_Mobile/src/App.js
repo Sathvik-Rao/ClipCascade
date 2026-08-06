@@ -33,6 +33,13 @@ import {
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
+import {
+  isCaCertificateSupported,
+  getCaCertificate,
+  importCaCertificate,
+  removeCaCertificate,
+  describeCaCertificate,
+} from './SslTrustStore';
 
 /*
  * These files are part of the ClipCascade project.
@@ -40,6 +47,7 @@ import StartForegroundService from './StartForegroundService';
  * (file) android\app\src\main\java\com\clipcascade\AsyncStorageBridge.kt
  * (file) android\app\src\main\java\com\clipcascade\BootReceiver.kt
  * (file) android\app\src\main\java\com\clipcascade\ClipboardFloatingActivity.kt
+ * (file) android\app\src\main\java\com\clipcascade\ClipCascadeTrustManager.kt
  * (file) android\app\src\main\java\com\clipcascade\ClipboardListenerModule.kt
  * (file) android\app\src\main\java\com\clipcascade\ClipboardListenerPackage.kt
  * (file) android\app\src\main\java\com\clipcascade\HeadlessTaskService.kt
@@ -56,6 +64,7 @@ import StartForegroundService from './StartForegroundService';
  * (file) AsyncStorageManagement.js
  * (file) HeadlessTask.js
  * (file) index.js
+ * (file) SslTrustStore.js
  * (file) StartForegroundService.js
  */
 
@@ -214,6 +223,9 @@ export default function App() {
         // get data from async storage and initialize data hook
         let data_s = await getAsyncStorage();
         setData(data_s);
+
+        // imported server CA certificate (if any), read from native storage
+        await refreshCaCertificate();
 
         // get foreground service status from work manager
         let foregroundServiceStoppedRunning = await getDataFromAsyncStorage(
@@ -756,6 +768,44 @@ export default function App() {
   // password
   const [password, setPassword] = useState('');
 
+  /*
+   * Imported server CA certificate, or null when the server is verified against the
+   * public/OS trust store. Held in native storage rather than in the data hook, so
+   * the trust manager can read it before any JavaScript runs; this state is only the
+   * copy the login screen renders.
+   */
+  const [caCertificate, setCaCertificate] = useState(null);
+
+  const refreshCaCertificate = async () => {
+    try {
+      setCaCertificate(await getCaCertificate());
+    } catch (e) {
+      setLoginStatusMessage('❌ Error: ' + e);
+    }
+  };
+
+  const handleImportCaCertificate = async () => {
+    try {
+      const certificate = await importCaCertificate();
+      if (certificate !== null) {
+        setCaCertificate(certificate);
+        setLoginStatusMessage('✅ Certificate imported');
+      }
+    } catch (e) {
+      setLoginStatusMessage('❌ ' + (e?.message ?? e));
+    }
+  };
+
+  const handleRemoveCaCertificate = async () => {
+    try {
+      await removeCaCertificate();
+      setCaCertificate(null);
+      setLoginStatusMessage('✅ Certificate removed');
+    } catch (e) {
+      setLoginStatusMessage('❌ ' + (e?.message ?? e));
+    }
+  };
+
   // Function to handle input changes in the login form
   const handleInputChange = (field, value) => {
     try {
@@ -1094,6 +1144,39 @@ export default function App() {
                   }
                 />
               </View>
+              {isCaCertificateSupported && (
+                <View style={styles.row}>
+                  <Text style={styles.label}>
+                    Server CA Certificate (for a private/internal CA):
+                  </Text>
+                  <View style={styles.certContainer}>
+                    <Text style={styles.certStatus}>
+                      {describeCaCertificate(caCertificate)}
+                    </Text>
+                    <View style={styles.certButtonRow}>
+                      <TouchableOpacity
+                        style={styles.certButton}
+                        onPress={handleImportCaCertificate}
+                      >
+                        <Text style={styles.certButtonText}>
+                          {caCertificate ? 'Replace' : 'Import'}
+                        </Text>
+                      </TouchableOpacity>
+                      {caCertificate && (
+                        <TouchableOpacity
+                          style={[
+                            styles.certButton,
+                            { backgroundColor: '#800020' },
+                          ]}
+                          onPress={handleRemoveCaCertificate}
+                        >
+                          <Text style={styles.certButtonText}>Remove</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              )}
             </>
           )}
           {/* Footer */}
@@ -1415,6 +1498,30 @@ const styles = StyleSheet.create({
     borderColor: '#ccc',
     padding: 8,
     borderRadius: 5,
+  },
+  certContainer: {
+    flex: 2,
+    alignItems: 'flex-end',
+  },
+  certStatus: {
+    fontSize: 13,
+    color: '#555',
+    textAlign: 'right',
+    marginBottom: 6,
+  },
+  certButtonRow: {
+    flexDirection: 'row',
+  },
+  certButton: {
+    backgroundColor: '#007BFF',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 5,
+    marginLeft: 8,
+  },
+  certButtonText: {
+    color: 'white',
+    fontSize: 14,
   },
   loginButton: {
     backgroundColor: '#007BFF',
