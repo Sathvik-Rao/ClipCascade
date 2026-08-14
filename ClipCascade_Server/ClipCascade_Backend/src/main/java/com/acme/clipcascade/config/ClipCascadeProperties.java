@@ -30,6 +30,23 @@ public class ClipCascadeProperties {
     private boolean signupEnabled;
 
     /*
+     * Flag to enable trusted-header (reverse-proxy / SSO) authentication for
+     * the web panel (default: false). When enabled, a request carrying a
+     * username in the header named by CC_TRUSTED_HEADER_NAME is authenticated
+     * as that user without the login form. ONLY enable when the server is
+     * reachable exclusively through a reverse proxy that authenticates users,
+     * STRIPS any client-supplied copy of the header, and injects its own —
+     * otherwise a spoofed header is a full authentication bypass. Native
+     * client paths (/login, /clipsocket, /p2psignaling) are unaffected.
+     */
+    @Value("${CC_TRUSTED_HEADER_AUTH:false}")
+    private boolean trustedHeaderAuth;
+
+    // Header carrying the SSO username (default: X-Remote-User)
+    @Value("${CC_TRUSTED_HEADER_NAME:X-Remote-User}")
+    private String trustedHeaderName;
+
+    /*
      * Maximum number of repeated failed attempts for unique IP addresses allowed
      * before lockout (default: 15)
      */
@@ -315,6 +332,18 @@ public class ClipCascadeProperties {
         return signupEnabled;
     }
 
+    public boolean isTrustedHeaderAuth() {
+        return trustedHeaderAuth;
+    }
+
+    public boolean getTrustedHeaderAuth() {
+        return trustedHeaderAuth;
+    }
+
+    public String getTrustedHeaderName() {
+        return trustedHeaderName;
+    }
+
     public int getMaxUniqueIpAttempts() {
         return maxUniqueIpAttempts;
     }
@@ -466,6 +495,8 @@ public class ClipCascadeProperties {
                 ",\n maxMessageSizeInBytes='" + getMaxMessageSizeInBytes() + "'" +
                 ",\n allowedOrigins='" + getAllowedOrigins() + "'" +
                 ",\n signupEnabled='" + isSignupEnabled() + "'" +
+                ",\n trustedHeaderAuth='" + isTrustedHeaderAuth() + "'" +
+                ",\n trustedHeaderName='" + getTrustedHeaderName() + "'" +
                 ",\n maxUniqueIpAttempts='" + getMaxUniqueIpAttempts() + "'" +
                 ",\n maxAttemptsPerIp='" + getMaxAttemptsPerIp() + "'" +
                 ",\n lockTimeoutSeconds='" + getLockTimeoutSeconds() + "'" +
