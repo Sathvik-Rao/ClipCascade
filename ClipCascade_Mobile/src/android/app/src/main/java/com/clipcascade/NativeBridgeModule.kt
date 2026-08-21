@@ -38,9 +38,10 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     fun clearCookies(promise: Promise) {
         try {
             val cookieManager = CookieManager.getInstance()
-            cookieManager.removeAllCookies(null)
-            cookieManager.flush()
-            promise.resolve("Cookies cleared successfully!")
+            cookieManager.removeAllCookies {
+                cookieManager.flush()
+                promise.resolve("Cookies cleared successfully!")
+            }
         } catch (e: Exception) {
             promise.reject("COOKIE_ERROR", "Failed to clear cookies", e)
         }
