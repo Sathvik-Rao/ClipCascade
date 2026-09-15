@@ -49,8 +49,9 @@ class Client:
             time.sleep(0.25)
             total_ms += 250
             if 0 < timeout < total_ms:
+                # detach only; ws.close() here nulls self.sock under the live run_forever
+                # thread -> spurious "'NoneType' object has no attribute 'sock'"
                 self.ws.on_close = None
-                self.ws.close()
                 raise TimeoutError(f"Connection to {self.url} timed out")
 
     def _on_open(self, ws_app, *args):
