@@ -79,7 +79,7 @@ class STOMPManager(WSInterface):
                 self.disconnect()
                 return False, "Websocket disconnected"
 
-            logging.info("Websocket connected")
+            logging.info("STOMP client connected")
             self.is_connected = True
             self.is_auto_reconnecting = False
             if not self.first_conn_lost:
