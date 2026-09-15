@@ -177,7 +177,10 @@ elif PLATFORM.startswith(LINUX):
 
 # core constants
 RECONNECT_WS_TIMER = 10  # seconds
+RECONNECT_WS_MAX_TIMER = 60  # seconds; reconnect backoff cap
 WEBSOCKET_TIMEOUT = 3000  # milliseconds
+WEBSOCKET_PING_INTERVAL = 30  # seconds; WS-level keepalive to detect dead sockets
+WEBSOCKET_PING_TIMEOUT = 10  # seconds; must be < WEBSOCKET_PING_INTERVAL
 
 # P2P signaling WebSocket keepalive (RFC 6455 ping/pong).
 P2P_WS_PING_INTERVAL_SEC = 25

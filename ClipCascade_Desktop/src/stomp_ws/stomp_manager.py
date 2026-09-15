@@ -1,6 +1,8 @@
 import json
 import logging
+import threading
 import time
+import websocket
 
 
 from interfaces.ws_interface import WSInterface
@@ -32,6 +34,8 @@ class STOMPManager(WSInterface):
         self.is_connected = False
         self.disconnected = False
         self.is_auto_reconnecting = False
+        self._reconnect_lock = threading.Lock()
+        self._reconnect_wakeup = threading.Event()
 
     def set_tray_ref(self, sys_tray: TaskbarPanel):
         """
@@ -50,6 +54,8 @@ class STOMPManager(WSInterface):
 
     def connect(self) -> tuple[bool, str]:
         try:
+            if self.disconnected:
+                return False, "Websocket disconnected"
             if self.is_connected:
                 return True, ""
             self.client = Client(
@@ -73,7 +79,7 @@ class STOMPManager(WSInterface):
                 self.disconnect()
                 return False, "Websocket disconnected"
 
-            # logging.info("Websocket connected")
+            logging.info("Websocket connected")
             self.is_connected = True
             self.is_auto_reconnecting = False
             if not self.first_conn_lost:
@@ -93,17 +99,42 @@ class STOMPManager(WSInterface):
 
     def _on_close(self):
         self.is_connected = False
-        # Auto Reconnect
-        if not self.is_login_phase and not self.disconnected:
-            self.is_auto_reconnecting = True
-            if self.first_conn_lost:
-                self.notification_manager.notify(
-                    title=f"{APP_NAME}: WebSocket Connection Lost ⛓️‍💥",
-                    message="Check your internet connection. Retrying...",
-                )
-                self.first_conn_lost = False
-            time.sleep(RECONNECT_WS_TIMER)  # seconds
-            self.connect()
+        if self.is_login_phase or self.disconnected:
+            return
+        if not self._reconnect_lock.acquire(blocking=False):
+            return  # a reconnect loop is already running on another socket's thread
+        try:
+            self._reconnect_loop()
+        finally:
+            self._reconnect_lock.release()
+
+    def _reconnect_loop(self):
+        self.is_auto_reconnecting = True
+        if self.first_conn_lost:
+            self.notification_manager.notify(
+                title=f"{APP_NAME}: WebSocket Connection Lost ⛓️‍💥",
+                message="Check your internet connection. Retrying...",
+            )
+            self.first_conn_lost = False
+        backoff = RECONNECT_WS_TIMER
+        self._reconnect_wakeup.clear()
+        while not self.disconnected and not self.is_connected:
+            logging.info(f"Websocket connection lost, reconnecting in {backoff}s")
+            if self._reconnect_wakeup.wait(backoff):
+                break  # disconnect() requested
+            connected, msg = self.connect()
+            if connected:
+                return
+            logging.info(f"Reconnect attempt failed: {msg}")
+            backoff = min(backoff * 2, RECONNECT_WS_MAX_TIMER)
+        self.is_auto_reconnecting = False
+
+    def _drop_connection(self):
+        """Close the socket so the on_close path drives a reconnect."""
+        try:
+            self.client.ws.close()
+        except Exception:
+            pass
 
     def send(self, payload: str, payload_type: str = "text"):
         try:
@@ -117,6 +148,8 @@ class STOMPManager(WSInterface):
                     self.client.send(destination=SEND_DESTINATION, body=body)
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
+            if isinstance(e, (websocket.WebSocketException, OSError)):
+                self._drop_connection()
 
     def _receive(self, frame: any) -> str:
         try:
@@ -150,6 +183,7 @@ class STOMPManager(WSInterface):
             self.clipboard_manager.previous_clipboard_hash = 0
             self.disconnected = True
             self.first_conn_lost = True
+            self._reconnect_wakeup.set()
             try:
                 self.client.disconnect()
                 self.is_connected = False

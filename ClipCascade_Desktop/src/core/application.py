@@ -1,4 +1,5 @@
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
 
 
@@ -68,12 +69,10 @@ class Application:
 
     def setup_logging(self):
         LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
-        logging.basicConfig(
-            level=LOG_LEVEL,
-            format=LOG_FORMAT,
-            filename=self.log_file_path,
-            filemode="w",
+        handler = RotatingFileHandler(
+            self.log_file_path, maxBytes=1_000_000, backupCount=3
         )
+        logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT, handlers=[handler])
 
     def ensure_single_instance(self):
         if PLATFORM == WINDOWS:
