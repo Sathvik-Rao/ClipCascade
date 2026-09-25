@@ -75,8 +75,10 @@ def _usable(family, size, weight, slant, underline, overstrike, master):
     if candidate.metrics("fixed") and resolved != family.lower():
         # A bitmap font stood in for a proportional family.
         return None
-    if isinstance(size, int) and int(actual.get("size", size)) != size:
+    if isinstance(size, int) and size > 0 and int(actual.get("size", size)) != size:
         # The requested size was ignored, so this is not the family asked for.
+        # Only positive (point) sizes are comparable: Tk reports a pixel size
+        # back in points, so those cannot be checked this way.
         return None
     return candidate
 
