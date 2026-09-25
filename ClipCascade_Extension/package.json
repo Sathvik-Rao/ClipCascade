@@ -1,0 +1,27 @@
+{
+  "name": "clipcascade-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ClipCascade client for Chromium browsers",
+  "license": "GPL-3.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build && vite build --config vite.content.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "node tests/e2e/extension.e2e.mjs dist"
+  },
+  "dependencies": {
+    "@stomp/stompjs": "^7.3.0",
+    "js-sha3": "^0.13.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.0",
+    "@types/node": "^26.6.2",
+    "playwright": "^1.55.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.1",
+    "ws": "^8.21.3"
+  }
+}
