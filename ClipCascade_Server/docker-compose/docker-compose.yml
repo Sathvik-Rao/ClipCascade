@@ -86,9 +86,16 @@ services:
       # - CC_PORT=8080
 
       # # ⚙️ Configure the server session timeout.
-      # # Note: On restart, the session will be logged out.
+      # # Note: On restart, the session will be logged out (unless CC_PERSIST_SESSIONS is true).
       # # Default: 525960m  (1 year)
       # - CC_SESSION_TIMEOUT=525960m
+
+      # # ⚙️ Keep users logged in across server restarts.
+      # # Sessions are saved to CC_SESSION_STORE_DIR on a graceful shutdown and restored on startup.
+      # # Default: false
+      # - CC_PERSIST_SESSIONS=false
+      # # Default: ./database/sessions  (inside the mounted /database volume)
+      # - CC_SESSION_STORE_DIR=./database/sessions
 
       # # ⚙️ Maximum number of global WebSocket connections allowed (default: -1 for unlimited).
       # # Supported only in P2P mode.
