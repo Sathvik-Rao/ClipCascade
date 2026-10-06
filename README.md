@@ -792,6 +792,28 @@ Specifies the duration before user sessions expire, using minute-based formattin
 <td>525960m</td>
 </tr>
 
+<!-- 10.1 -->
+<tr>
+<td>CC_PERSIST_SESSIONS</td>
+<td>
+Keeps users logged in across server restarts. Sessions are saved to <code>CC_SESSION_STORE_DIR</code> on a graceful shutdown and restored on startup, so clients reconnect without logging in again.
+<br><br>
+<strong>Default:</strong> <code>false</code> (all users are logged out on restart).
+</td>
+<td>false</td>
+</tr>
+
+<!-- 10.2 -->
+<tr>
+<td>CC_SESSION_STORE_DIR</td>
+<td>
+Directory where sessions are saved when <code>CC_PERSIST_SESSIONS</code> is <code>true</code>. The file contains session IDs, so keep it inside the private database volume.
+<br><br>
+<strong>Default:</strong> <code>./database/sessions</code>
+</td>
+<td>./database/sessions</td>
+</tr>
+
 <!-- 11 -->
 <tr>
 <td>CC_MAX_UNIQUE_IP_ATTEMPTS</td>

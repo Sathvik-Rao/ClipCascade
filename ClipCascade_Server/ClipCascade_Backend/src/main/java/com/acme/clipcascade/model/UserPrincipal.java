@@ -14,7 +14,8 @@ public class UserPrincipal implements UserDetails {
 
     private Users user;
 
-    private final BruteForceProtectionService bruteForceProtectionService;
+    // transient: a Spring bean can't be serialized; null after a session is restored from disk
+    private final transient BruteForceProtectionService bruteForceProtectionService;
 
     public UserPrincipal(
             Users user,
@@ -26,6 +27,11 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
+
+        // restored session: already authenticated, the check only runs at login with a fresh principal
+        if (bruteForceProtectionService == null) {
+            return true;
+        }
 
         // validate attempt using brute force protection
         return bruteForceProtectionService.recordAndValidateAttempt(user.getUsername());

@@ -1,5 +1,7 @@
 package com.acme.clipcascade.model;
 
+import java.io.Serializable;
+
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -8,7 +10,7 @@ import jakarta.validation.constraints.NotNull;
 
 @Entity
 @Table(name = "users")
-public class Users {
+public class Users implements Serializable {
 
     @Id
     @NotNull(message = "Username is required") // Validation constraint at application level
