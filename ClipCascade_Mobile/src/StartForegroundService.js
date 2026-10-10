@@ -24,6 +24,7 @@ import {
   getMultipleDataFromAsyncStorage,
   clearAsyncStorage,
 } from './AsyncStorageManagement';
+import { createSignalingHeartbeat } from './SignalingHeartbeat';
 
 function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
@@ -60,6 +61,8 @@ module.exports = async (inputData = null) => {
 
         let stompClient = null;
         let wsSignalingClient = null;
+        const signalingHeartbeat = createSignalingHeartbeat();
+        let invalidateP2PSignaling = null;
         let signalingReconnectInProgress = false;
         let nextSignalingReconnectAt = 0;
         let reconnectP2PSignaling = null;
@@ -113,10 +116,8 @@ module.exports = async (inputData = null) => {
             if (!server_url) {
               return false;
             }
-            const { username, password } = await getMultipleDataFromAsyncStorage([
-              'username',
-              'password',
-            ]);
+            const { username, password } =
+              await getMultipleDataFromAsyncStorage(['username', 'password']);
             if (!username || !password) {
               return false;
             }
@@ -902,6 +903,7 @@ module.exports = async (inputData = null) => {
 
               socket.onopen = async () => {
                 clearTimeout(connectTimer);
+                signalingHeartbeat.connected();
                 if (wsSignalingClient !== socket) {
                   return;
                 }
@@ -928,6 +930,9 @@ module.exports = async (inputData = null) => {
                 try {
                   const data = JSON.parse(event.data);
                   switch (data.type) {
+                    case 'PONG':
+                      signalingHeartbeat.pong();
+                      break;
                     case 'ASSIGNED_ID':
                       if (myPeerId && myPeerId !== data.peerId) {
                         await cleanupPeerConnections();
@@ -969,11 +974,36 @@ module.exports = async (inputData = null) => {
                 }
               };
 
-              socket.onerror = async event => {
+              const invalidateSignalingSocket = async statusMessage => {
+                if (wsSignalingClient !== socket) {
+                  return;
+                }
+                wsSignalingClient = null;
+                signalingHeartbeat.reset();
+                socket.onopen = null;
+                socket.onmessage = null;
+                socket.onerror = null;
+                socket.onclose = null;
+                try {
+                  socket.close();
+                } catch (e) {
+                  // Closing an already-dead socket may fail.
+                }
                 block_image_once = false;
-                await setDataInAsyncStorage(
-                  'wsStatusMessage',
-                  '❌ WebSocket Error: ' + JSON.stringify(event, null, 2),
+                nextSignalingReconnectAt = Date.now() + RECONNECT_WS_TIMER;
+                await cleanupPeerConnections();
+                await setDataInAsyncStorage('wsStatusMessage', statusMessage);
+                await setDataInAsyncStorage('p2pStatusMessage', '');
+              };
+
+              invalidateP2PSignaling = () =>
+                invalidateSignalingSocket(
+                  '⚠️ Signaling heartbeat timed out; reconnecting',
+                );
+
+              socket.onerror = async () => {
+                await invalidateSignalingSocket(
+                  '⚠️ Signaling error; reconnecting',
                 );
               };
 
@@ -1001,6 +1031,7 @@ module.exports = async (inputData = null) => {
                 }
 
                 wsSignalingClient = null;
+                signalingHeartbeat.reset();
                 nextSignalingReconnectAt = Date.now() + RECONNECT_WS_TIMER;
               };
             }
@@ -1146,6 +1177,8 @@ module.exports = async (inputData = null) => {
               }
             }
             wsSignalingClient = null;
+            invalidateP2PSignaling = null;
+            signalingHeartbeat.reset();
 
             // 3) Close all DataChannels and RTCPeerConnections
             await cleanupPeerConnections();
@@ -1639,6 +1672,24 @@ module.exports = async (inputData = null) => {
               break;
             }
 
+            if (
+              server_mode === 'P2P' &&
+              wsSignalingClient?.readyState === WebSocket.OPEN
+            ) {
+              signalingHeartbeat.polled();
+              if (signalingHeartbeat.isStale() && invalidateP2PSignaling) {
+                await invalidateP2PSignaling();
+              } else if (signalingHeartbeat.shouldPing()) {
+                try {
+                  wsSignalingClient.send(JSON.stringify({ type: 'PING' }));
+                  signalingHeartbeat.markPingSent();
+                } catch (e) {
+                  if (invalidateP2PSignaling) {
+                    await invalidateP2PSignaling();
+                  }
+                }
+              }
+            }
             if (
               server_mode === 'P2P' &&
               reconnectP2PSignaling &&

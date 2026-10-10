@@ -251,7 +251,9 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
             String type = json.has("type") ? json.get("type").asText() : "";
             String toPeerId = json.has("toPeerId") ? json.get("toPeerId").asText() : null;
 
-            if ("OFFER".equals(type) || "ANSWER".equals(type) || "ICE_CANDIDATE".equals(type)) {
+            if ("PING".equals(type)) {
+                sendMessage(session, new TextMessage("{\"type\":\"PONG\"}"));
+            } else if ("OFFER".equals(type) || "ANSWER".equals(type) || "ICE_CANDIDATE".equals(type)) {
                 // Forward to the correct session within this user's room
                 if (toPeerId != null) {
                     String targetSessionId = MapUtility.getKeyByValue(userSessionsUUID, toPeerId);
