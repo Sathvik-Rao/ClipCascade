@@ -1,0 +1,228 @@
+#!/home/brandon/.local/share/clipcascade-venv/bin/python
+import logging
+import os
+import signal
+import sys
+import time
+
+SOURCE = "/home/brandon/clip-cascade/ClipCascade_Desktop/src"
+CONFIG_DIR = "/home/brandon/.config/clipcascade"
+DATA_FILE = os.path.join(CONFIG_DIR, "DATA")
+SECRET_FILE = os.path.join(CONFIG_DIR, "client-password")
+LOG_DIR = "/home/brandon/.local/state/clipcascade"
+LOG_FILE = os.path.join(LOG_DIR, "clipcascade.log")
+
+os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
+os.makedirs(LOG_DIR, mode=0o700, exist_ok=True)
+sys.path.insert(0, SOURCE)
+
+from core.config import Config
+from core.constants import WEBSOCKET_ENDPOINT_P2P
+from utils.cipher_manager import CipherManager
+from utils.request_manager import RequestManager
+from p2p.p2p_manager import P2PManager
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    filename=LOG_FILE,
+    filemode="a",
+)
+
+stop_requested = False
+SIGNALING_RECOVERY_SECONDS = 10
+DATA_CHANNEL_RECOVERY_SECONDS = 12
+
+
+def request_stop(_signum, _frame):
+    global stop_requested
+    stop_requested = True
+
+
+signal.signal(signal.SIGTERM, request_stop)
+signal.signal(signal.SIGINT, request_stop)
+
+
+def prepare_config():
+    config = Config(file_name=DATA_FILE)
+    config.load()
+    config.data.update(
+        {
+            "username": "brandon",
+            "server_url": "https://nox.presley.nz/clipcascade",
+            "save_password": True,
+            "cipher_enabled": True,
+            "notification": False,
+            "enable_image_sharing": True,
+            "enable_file_sharing": True,
+            "default_file_download_location": os.path.join(os.path.expanduser("~"), "Downloads"),
+            "ssl_ca_bundle": "",
+        }
+    )
+
+    raw_password = None
+    if not config.data.get("password"):
+        with open(SECRET_FILE, "r", encoding="utf-8") as f:
+            raw_password = f.read().strip()
+        config.data["password"] = CipherManager.string_to_sha3_512_lowercase_hex(
+            raw_password
+        )
+
+    request_manager = RequestManager(config)
+    ok, message, cookie = request_manager.login()
+    if not ok:
+        raise RuntimeError(message)
+
+    config.data["cookie"] = cookie
+    config.data["csrf_token"] = request_manager.get_csrf_token()
+    config.data["server_mode"] = request_manager.get_server_mode()
+    if config.data["server_mode"] != "P2P":
+        raise RuntimeError("Expected ClipCascade P2P server mode")
+
+    config.data["stun_url"] = request_manager.get_stun_url()
+    config.data["maxsize"] = -1
+    config.data["websocket_url"] = Config.convert_to_websocket_url(
+        config.data["server_url"], WEBSOCKET_ENDPOINT_P2P
+    )
+
+    if config.data.get("cipher_enabled"):
+        if not config.data.get("hashed_password"):
+            if raw_password is None:
+                with open(SECRET_FILE, "r", encoding="utf-8") as f:
+                    raw_password = f.read().strip()
+            config.data["hashed_password"] = CipherManager(config).hash_password(
+                raw_password
+            )
+
+    config.save()
+    os.chmod(DATA_FILE, 0o600)
+    return config
+
+
+
+
+def write_health_snapshot(manager):
+    """Publish transport health without logging clipboard contents or credentials."""
+    import json
+    from pathlib import Path
+
+    path = Path(os.environ.get("XDG_RUNTIME_DIR", "/run/user/1000")) / "clipcascade-health.json"
+    if manager is not None:
+        manager._sync_live_connections_count()
+    state = {
+        "timestamp": time.time(),
+        "pid": os.getpid(),
+        "signaling_connected": bool(manager is not None and manager.is_connected),
+        "remote_peer_count": (
+            len({peer for peer in manager.peers if peer != manager.my_peer_id})
+            if manager is not None and manager.my_peer_id is not None else 0
+        ),
+        "open_data_channels": manager.live_connections if manager is not None else 0,
+        "verified_data_channels": (
+            sum(1 for peer, channel in manager.data_channels.items()
+                if getattr(channel, "readyState", "") == "open"
+                and time.monotonic() - manager.dc_verified_at.get(peer, 0) < 65)
+            if manager is not None else 0
+        ),
+        "seconds_since_last_datachannel_proof": (
+            round(time.monotonic() - max(manager.dc_verified_at.values()), 1)
+            if manager is not None and manager.dc_verified_at else None
+        ),
+    }
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(json.dumps(state, separators=(",", ":")))
+    os.chmod(temp, 0o600)
+    temp.replace(path)
+
+def main():
+    manager = None
+    while not stop_requested:
+        try:
+            config = prepare_config()
+            manager = P2PManager(config, is_login_phase=True, auto_reconnect=False)
+            ok, message = manager.connect()
+            if not ok:
+                raise RuntimeError(message)
+            manager.is_login_phase = False
+            logging.info("ClipCascade headless connected")
+
+            disconnected_since = None
+            transport_unhealthy_since = None
+            recovery_reason = None
+            while not stop_requested:
+                now = time.monotonic()
+                write_health_snapshot(manager)
+                if manager.is_connected:
+                    disconnected_since = None
+
+                    # A signaling session can be healthy while WebRTC is stale.
+                    # Treat a known remote peer with no open data channel as a
+                    # failed transport and rebuild the whole authenticated session.
+                    manager._sync_live_connections_count()
+                    remote_peers = {
+                        peer_id
+                        for peer_id in manager.peers
+                        if peer_id != manager.my_peer_id
+                    }
+                    if remote_peers and manager.live_connections == 0:
+                        if transport_unhealthy_since is None:
+                            transport_unhealthy_since = now
+                        elif now - transport_unhealthy_since >= DATA_CHANNEL_RECOVERY_SECONDS:
+                            recovery_reason = "P2P data channel stayed unavailable"
+                            break
+                    elif remote_peers and manager.live_connections > 0:
+                        # Open RTCDataChannel is insufficient: require successful
+                        # bidirectional application-level probe delivery.
+                        last_proof = max(manager.dc_verified_at.values(), default=None)
+                        first_probe = manager.dc_first_probe_at
+                        stale_duration = (now - last_proof if last_proof is not None
+                                          else now - first_probe if first_probe is not None else 0)
+                        if stale_duration > 110:
+                            recovery_reason = "P2P application-level probe unresponsive"
+                            break
+                        transport_unhealthy_since = None
+                    else:
+                        transport_unhealthy_since = None
+                else:
+                    transport_unhealthy_since = None
+                    if disconnected_since is None:
+                        disconnected_since = now
+                    elif now - disconnected_since >= SIGNALING_RECOVERY_SECONDS:
+                        recovery_reason = "signaling session stayed disconnected"
+                        break
+                time.sleep(1)
+
+            if stop_requested:
+                break
+            if recovery_reason is not None:
+                logging.info("%s; rebuilding authenticated P2P session", recovery_reason)
+                try:
+                    manager.shutdown()
+                except Exception:
+                    pass
+                manager = None
+                continue
+            break
+        except Exception:
+            write_health_snapshot(None)
+            logging.exception("ClipCascade headless startup failed")
+            if manager is not None:
+                try:
+                    manager.shutdown()
+                except Exception:
+                    pass
+                manager = None
+            for _ in range(10):
+                if stop_requested:
+                    break
+                time.sleep(1)
+
+    if manager is not None:
+        try:
+            manager.shutdown()
+        except Exception:
+            pass
+
+
+if __name__ == "__main__":
+    main()

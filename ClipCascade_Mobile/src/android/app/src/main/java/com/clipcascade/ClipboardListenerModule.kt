@@ -23,13 +23,30 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
     private val debounceTime: Long = 0 // milliseconds (increase to debounce clipboard listener)
     private val heartbeatHandler = Handler(Looper.getMainLooper())
     private val heartbeatIntervalMs = 5_000L
+    private var lastClipboardServiceHealthy = true
     private val heartbeatRunnable = object : Runnable {
         override fun run() {
             if (!isListening) return
-            reactApplicationContext
-                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                .emit("onClipboardWatchdog", Arguments.createMap())
-            heartbeatHandler.postDelayed(this, heartbeatIntervalMs)
+            try {
+                if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+                    val healthy = shizukuClipboard.ensureListening()
+                    if (healthy != lastClipboardServiceHealthy) {
+                        if (healthy) {
+                            android.util.Log.i("ClipCascade.Clipboard", "Shizuku clipboard callback recovered")
+                        } else {
+                            android.util.Log.w("ClipCascade.Clipboard", "Shizuku clipboard callback unavailable; recovering")
+                        }
+                    }
+                    lastClipboardServiceHealthy = healthy
+                }
+                reactApplicationContext
+                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    .emit("onClipboardWatchdog", Arguments.createMap())
+            } catch (e: Exception) {
+                android.util.Log.w("ClipCascade.Clipboard", "Clipboard watchdog failed; retrying", e)
+            } finally {
+                if (isListening) heartbeatHandler.postDelayed(this, heartbeatIntervalMs)
+            }
         }
     }
     private val shizukuClipboard = ShizukuClipboardManager(reactContext) { params ->
@@ -44,6 +61,9 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
     @ReactMethod
     fun startListening() {
         if (isListening) {
+            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+                shizukuClipboard.ensureListening()
+            }
             return
         }
 

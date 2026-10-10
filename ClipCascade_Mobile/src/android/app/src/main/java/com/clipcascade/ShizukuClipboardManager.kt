@@ -31,6 +31,10 @@ class ShizukuClipboardManager(
     private var connection: ServiceConnection? = null
     @Volatile
     private var wantsListening = false
+    @Volatile
+    private var callbackRegistered = false
+    private var lastBindAttemptMs = 0L
+    private val bindTimeoutMs = 15_000L
     private val mainHandler = Handler(Looper.getMainLooper())
     private val callerToken = Binder()
     private val lock = Any()
@@ -72,6 +76,7 @@ class ShizukuClipboardManager(
         synchronized(lock) {
             service = null
             connection = null
+            callbackRegistered = false
         }
     }
 
@@ -128,11 +133,44 @@ class ShizukuClipboardManager(
         return true
     }
 
+    /** Called by the native 5-second clipboard watchdog, including after binder death. */
+    fun ensureListening(): Boolean {
+        if (!wantsListening) return true
+        if (!isAvailable() || !hasPermission()) return false
+
+        val current = service
+        if (current != null && callbackRegistered && isServiceHealthy(current)) {
+            return true
+        }
+
+        val staleConnection: ServiceConnection?
+        synchronized(lock) {
+            // A new UserService can take time to start; don't replace its bind
+            // until the attempt is genuinely stuck.
+            if (service == null && connection != null &&
+                android.os.SystemClock.elapsedRealtime() - lastBindAttemptMs < bindTimeoutMs
+            ) return false
+            staleConnection = connection
+            service = null
+            connection = null
+            callbackRegistered = false
+        }
+        if (staleConnection != null) {
+            try {
+                // Remove the unhealthy Shizuku UserService, not just its binder.
+                Shizuku.unbindUserService(userServiceArgs, staleConnection, true)
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "Failed to unbind unhealthy clipboard UserService", e)
+            }
+        }
+        bindService()
+        return false
+    }
+
     private fun bindService() {
         synchronized(lock) {
             val existing = service
-            if (existing != null && isServiceHealthy(existing)) {
-                registerClipboardCallback(existing)
+            if (existing != null && callbackRegistered && isServiceHealthy(existing)) {
                 return
             }
             if (connection != null) return
@@ -141,7 +179,9 @@ class ShizukuClipboardManager(
                 override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
                     val connected = IClipboardUserService.Stub.asInterface(binder)
                     synchronized(lock) {
+                        if (connection !== this) return
                         service = connected
+                        callbackRegistered = false
                     }
                     if (connected != null && wantsListening) {
                         registerClipboardCallback(connected)
@@ -150,12 +190,15 @@ class ShizukuClipboardManager(
 
                 override fun onServiceDisconnected(name: ComponentName?) {
                     synchronized(lock) {
+                        if (connection !== this) return
                         service = null
                         connection = null
+                        callbackRegistered = false
                     }
                 }
             }
             connection = newConnection
+            lastBindAttemptMs = android.os.SystemClock.elapsedRealtime()
             try {
                 Shizuku.bindUserService(userServiceArgs, newConnection)
             } catch (e: Exception) {
@@ -167,13 +210,21 @@ class ShizukuClipboardManager(
 
     private fun registerClipboardCallback(connected: IClipboardUserService) {
         try {
-            if (!connected.setClipboardChangedCallback(callerToken, clipboardCallback)) {
+            val registered = connected.setClipboardChangedCallback(callerToken, clipboardCallback)
+            callbackRegistered = registered
+            if (!registered) {
                 android.util.Log.w(TAG, "System clipboard listener registration failed")
+                synchronized(lock) {
+                    service = null
+                    lastBindAttemptMs = 0L
+                }
             }
         } catch (e: Exception) {
             android.util.Log.w(TAG, "Failed to register clipboard callback", e)
             synchronized(lock) {
                 service = null
+                callbackRegistered = false
+                lastBindAttemptMs = 0L
             }
         }
     }
@@ -223,6 +274,7 @@ class ShizukuClipboardManager(
 
     fun stop() {
         wantsListening = false
+        callbackRegistered = false
         synchronized(lock) {
             try {
                 service?.clearClipboardChangedCallback(callerToken)

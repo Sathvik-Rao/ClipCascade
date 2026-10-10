@@ -25,6 +25,7 @@ import {
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 import { createSignalingHeartbeat } from './SignalingHeartbeat';
+import { createDataChannelProbes } from './DataChannelProbes';
 
 function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
@@ -66,6 +67,7 @@ module.exports = async (inputData = null) => {
         let signalingReconnectInProgress = false;
         let nextSignalingReconnectAt = 0;
         let reconnectP2PSignaling = null;
+        let dataChannelProbes = null;
         let sendClipBoardP2S = null;
         let sendClipBoardP2P = null;
         let stopServicesP2S = null;
@@ -716,7 +718,7 @@ module.exports = async (inputData = null) => {
           let p2pShuttingDown = false;
           const peerOpChains = {};
           const dataChannelHeartbeatTimers = {};
-          const P2P_DC_KEEPALIVE_JSON = JSON.stringify({ _cc_keepalive: true });
+          dataChannelProbes = createDataChannelProbes();
 
           // Fragment variables
           let sendingFragmentId = '';
@@ -727,6 +729,10 @@ module.exports = async (inputData = null) => {
           getP2PStatusMessage = async () => {
             let msg = '📊';
             msg += ` Peers: ${liveConnectionsCount}`;
+            const openPeers = Object.entries(dataChannels)
+              .filter(([, channel]) => channel?.readyState === 'open')
+              .map(([peerId]) => peerId);
+            msg += ` | Verified: ${dataChannelProbes.verifiedCount(openPeers)}`;
             if (sendingFragmentStats != null) {
               msg += ` | Sending: ${sendingFragmentStats}`;
             }
@@ -778,10 +784,10 @@ module.exports = async (inputData = null) => {
             dataChannelHeartbeatTimers[remotePeerId] = setInterval(() => {
               try {
                 if (channel.readyState === 'open') {
-                  channel.send(P2P_DC_KEEPALIVE_JSON);
+                  channel.send(dataChannelProbes.ping(remotePeerId));
                 }
               } catch (e) {
-                // no-op
+                // A failed heartbeat will be retried or repaired by the watchdog.
               }
             }, HEARTBEAT_INTERVAL);
           };
@@ -793,6 +799,7 @@ module.exports = async (inputData = null) => {
                 clearInterval(dataChannelHeartbeatTimers[id]);
                 delete dataChannelHeartbeatTimers[id];
               }
+              dataChannelProbes.reset();
               for (const [, dc] of Object.entries(dataChannels)) {
                 if (dc) {
                   try {
@@ -1209,12 +1216,30 @@ module.exports = async (inputData = null) => {
           };
 
           // receive clipboard content P2P
-          const onDataChannelMessage = async messageJson => {
+          const onDataChannelMessage = async (messageJson, remotePeerId) => {
             try {
-              const message = JSON.parse(messageJson);
-              if (message && message._cc_keepalive === true) {
+              const channel = dataChannels[remotePeerId];
+              const wasVerified = dataChannelProbes.verifiedCount([
+                remotePeerId,
+              ]);
+              if (
+                dataChannelProbes.receive(
+                  remotePeerId,
+                  messageJson,
+                  response => {
+                    if (channel?.readyState === 'open') channel.send(response);
+                  },
+                )
+              ) {
+                if (
+                  !wasVerified &&
+                  dataChannelProbes.verifiedCount([remotePeerId])
+                ) {
+                  isP2PStatusMsgChanged = true;
+                }
                 return;
               }
+              const message = JSON.parse(messageJson);
 
               await clearFiles(true);
               await resetSendingFragmentId();
@@ -1364,6 +1389,7 @@ module.exports = async (inputData = null) => {
             // 2) For each stale peer, close data channel and peer connection
             for (const oldPid of stalePeerIds) {
               delete peerOpChains[oldPid];
+              dataChannelProbes.dropPeer(oldPid);
               if (dataChannelHeartbeatTimers[oldPid]) {
                 clearInterval(dataChannelHeartbeatTimers[oldPid]);
                 delete dataChannelHeartbeatTimers[oldPid];
@@ -1393,6 +1419,7 @@ module.exports = async (inputData = null) => {
           };
 
           const disposePeerConnection = async peerId => {
+            dataChannelProbes.dropPeer(peerId);
             if (dataChannelHeartbeatTimers[peerId]) {
               clearInterval(dataChannelHeartbeatTimers[peerId]);
               delete dataChannelHeartbeatTimers[peerId];
@@ -1602,7 +1629,7 @@ module.exports = async (inputData = null) => {
             };
 
             channel.onmessage = async e => {
-              await onDataChannelMessage(e.data);
+              await onDataChannelMessage(e.data, remotePeerId);
             };
 
             channel.onclose = async () => {
@@ -1705,6 +1732,14 @@ module.exports = async (inputData = null) => {
                 'p2pStatusMessage',
                 await getP2PStatusMessage(),
               );
+            }
+
+            if (server_mode === 'P2P') {
+              dataChannelProbes.poll();
+              const staleTransportPeers = dataChannelProbes.stalePeers();
+              if (staleTransportPeers.length && invalidateP2PSignaling) {
+                await invalidateP2PSignaling();
+              }
             }
 
             // check if ping initiated

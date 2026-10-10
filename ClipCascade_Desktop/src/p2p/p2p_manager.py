@@ -69,6 +69,10 @@ class P2PManager(WSInterface):
         # Serialize recover + offer handling per peer (same asyncio loop as signaling handlers).
         self._peer_recovery_locks: Dict[str, asyncio.Lock] = {}
         self._dc_heartbeat_handle: Optional[asyncio.TimerHandle] = None
+        # Successful round-trips prove data channels carry application messages.
+        self.dc_verified_at: dict[str, float] = {}
+        self.dc_probe_pending: dict[str, tuple[str, float]] = {}
+        self.dc_first_probe_at: float | None = None
 
         # Event loop for asyncio
         self.loop = asyncio.new_event_loop()
@@ -90,13 +94,18 @@ class P2PManager(WSInterface):
         self._dc_heartbeat_handle = None
         if self.disconnected or self._p2p_shutting_down or not self.is_connected:
             return
-        ping = json.dumps({"_cc_keepalive": True})
-        for ch in list(self.data_channels.values()):
+        for remote_peer_id, ch in list(self.data_channels.items()):
             try:
                 if getattr(ch, "readyState", "") == "open":
-                    ch.send(ping)
+                    pending = self.dc_probe_pending.get(remote_peer_id)
+                    probe_id = pending[0] if pending else uuid.uuid4().hex
+                    ch.send(json.dumps({"_cc_probe": "ping", "id": probe_id}))
+                    if pending is None:
+                        self.dc_probe_pending[remote_peer_id] = (probe_id, time.monotonic())
+                        if self.dc_first_probe_at is None:
+                            self.dc_first_probe_at = time.monotonic()
             except Exception:
-                pass
+                logging.warning("P2P data channel probe send failed for peer %s", remote_peer_id)
         self._schedule_next_dc_heartbeat()
 
     def _schedule_next_dc_heartbeat(self) -> None:
@@ -394,6 +403,9 @@ class P2PManager(WSInterface):
                 self.peers.clear()
                 self.peer_connections.clear()
                 self.data_channels.clear()
+                self.dc_verified_at.clear()
+                self.dc_probe_pending.clear()
+                self.dc_first_probe_at = None
                 if clear_bootstrap_state:
                     self._pending_peer_list = None
                 self._peer_recovery_locks.clear()
@@ -472,6 +484,8 @@ class P2PManager(WSInterface):
 
     async def _dispose_peer_connection(self, peer_id: str) -> None:
         """Close and drop one peer's DC/PC without changing self.peers (used by recovery and offer handling)."""
+        self.dc_verified_at.pop(peer_id, None)
+        self.dc_probe_pending.pop(peer_id, None)
         dc = self.data_channels.pop(peer_id, None)
         if dc is not None:
             try:
@@ -714,6 +728,26 @@ class P2PManager(WSInterface):
 
         @channel.on("message")
         def on_message(message):
+            # These probes contain no clipboard data. Verify application-level
+            # bidirectional transport, not just ICE/WebSocket connectivity.
+            if isinstance(message, str):
+                try:
+                    probe = json.loads(message)
+                except (json.JSONDecodeError, TypeError):
+                    probe = None
+                if isinstance(probe, dict) and probe.get("_cc_probe") == "ping":
+                    if isinstance(probe.get("id"), str):
+                        channel.send(json.dumps({"_cc_probe": "pong", "id": probe["id"]}))
+                    return
+                if isinstance(probe, dict) and probe.get("_cc_probe") == "pong":
+                    pending = self.dc_probe_pending.get(remote_peer_id)
+                    if pending and pending[0] == probe.get("id"):
+                        self.dc_probe_pending.pop(remote_peer_id, None)
+                        first = remote_peer_id not in self.dc_verified_at
+                        self.dc_verified_at[remote_peer_id] = time.monotonic()
+                        if first:
+                            logging.info("P2P application payload round-trip verified with peer %s", remote_peer_id)
+                    return
             self._receive(message)
 
         @channel.on("close")

@@ -7,8 +7,14 @@ import android.content.Intent
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent?.action == Intent.ACTION_BOOT_COMPLETED) {
-            startHeadlessTask(context)
+        when (intent.action) {
+            Intent.ACTION_BOOT_COMPLETED -> startHeadlessTask(context)
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                // Package updates terminate the previous foreground service and
+                // its native recovery supervisor. Re-arm the persisted desired
+                // state without requiring the user to open the app again.
+                RecoveryService.requestRecovery(context)
+            }
         }
     }
 
