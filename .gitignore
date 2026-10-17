@@ -1,4 +1,6 @@
 private/
 screenshots/
+/database/
+/logs/
 .DS_Store
 .vscode/
