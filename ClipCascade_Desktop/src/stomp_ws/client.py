@@ -72,6 +72,10 @@ class Client:
 
         logging.debug("\n<<< " + str(message))
         frame = Frame.unmarshall_single(message)
+        if frame is None:
+            # Malformed frame — log and continue rather than killing the receive loop.
+            logging.warning("STOMP: dropped malformed/unparseable frame")
+            return []
         _results = []
         if frame.command == "CONNECTED":
             self.connected = True
@@ -80,11 +84,14 @@ class Client:
                 _results.append(self._connectCallback(frame))
         elif frame.command == "MESSAGE":
 
-            subscription = frame.headers["subscription"]
+            subscription = frame.headers.get("subscription")
+            if subscription is None:
+                logging.warning("STOMP: MESSAGE frame missing 'subscription' header; dropping")
+                return []
 
             if subscription in self.subscriptions:
                 onreceive = self.subscriptions[subscription]
-                messageID = frame.headers["message-id"]
+                messageID = frame.headers.get("message-id", "")
 
                 def ack(headers):
                     if headers is None:

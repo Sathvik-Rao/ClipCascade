@@ -186,7 +186,7 @@
           for reuse after the server is restarted.
         </p>
 
-        <div>
+        <div class="admin-toolbar">
           <button id="load-users-btn" class="btn btn-primary">
             Load Users
           </button>
@@ -197,6 +197,13 @@
           >
             Add New User
           </button>
+          <input
+            id="admin-users-search"
+            type="text"
+            class="form-control admin-search-input"
+            placeholder="Search users..."
+            style="margin-left: 10px"
+          />
         </div>
 
         <div class="table-wrapper">
@@ -207,9 +214,9 @@
           >
             <thead>
               <tr>
-                <th>Username</th>
-                <th>Enabled</th>
-                <th>Actions</th>
+                <th data-key="username" class="sortable" style="width: 250px">Username<span class="sort-indicator"></span></th>
+                <th data-key="enabled" class="sortable" style="width: 120px">Enabled<span class="sort-indicator"></span></th>
+                <th data-key="actions" data-sortable="false" style="width: 160px">Actions</th>
               </tr>
             </thead>
             <tbody id="users-tbody">
@@ -217,6 +224,7 @@
             </tbody>
           </table>
         </div>
+        <div id="admin-users-pager" class="admin-pager"></div>
       </div>
       <!-- /#admin-section -->
     </div>

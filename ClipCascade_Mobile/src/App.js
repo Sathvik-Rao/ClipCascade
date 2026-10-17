@@ -60,7 +60,7 @@ import StartForegroundService from './StartForegroundService';
  */
 
 // App version
-const APP_VERSION = '3.2.0';
+const APP_VERSION = '3.3.0';
 
 // Main App
 export default function App() {
@@ -1122,6 +1122,7 @@ export default function App() {
               </TouchableOpacity>
             )}
           </View>
+          <Text style={styles.versionText}>v{APP_VERSION}</Text>
         </ScrollView>
       )}
 
@@ -1371,6 +1372,7 @@ export default function App() {
               <Text style={styles.footerText}>HOMEPAGE</Text>
             </TouchableOpacity>
           </View>
+          <Text style={styles.versionText}>v{APP_VERSION}</Text>
         </ScrollView>
       )}
     </SafeAreaView>
@@ -1490,5 +1492,12 @@ const styles = StyleSheet.create({
   },
   spacing: {
     marginHorizontal: 12,
+  },
+  versionText: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: '#9aa0a6',
+    marginTop: 4,
+    marginBottom: 14,
   },
 });

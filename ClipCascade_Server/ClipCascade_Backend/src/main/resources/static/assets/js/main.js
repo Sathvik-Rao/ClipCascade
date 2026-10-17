@@ -27,6 +27,9 @@ const SELECTORS = {
   adminSection: "#admin-section",
   loadUsersBtn: "#load-users-btn",
   usersTableBody: "#users-tbody",
+  usersTable: "#users-table",
+  adminUsersSearch: "#admin-users-search",
+  adminUsersPager: "#admin-users-pager",
   openAddUserModalBtn: "#open-add-user-modal-btn",
 
   // Modals: Add User
@@ -51,6 +54,7 @@ const ENDPOINTS = {
   logoutAllDevices: "/logout-session",
   csrfToken: "/csrf-token",
   adminUsers: "/admin/users",
+  adminUsersPage: "/admin/users/page",
   adminRegisterUser: "/admin/register-user",
   adminDeleteUser: "/admin/delete-user",
   adminToggleUserStatus: "/admin/toggle-user-status",
@@ -902,43 +906,234 @@ function logoutAllDevices(successCallback) {
                ============  ADMIN LOGIC  =========
                ----------------------------------------- */
 function loadAllUsers() {
-  $.ajax({
-    url: ENDPOINTS.adminUsers,
-    method: "GET",
-    success: (data) => {
-      populateUsersTable(data);
-    },
-    error: (err) => {
-      alert("Failed to load users");
-      console.error(err);
-    },
+  adminUsersTableController.reload();
+}
+
+/**
+ * Make table columns drag-resizable. Switches the table to fixed layout,
+ * locks each <th> at its current width, and adds a right-edge drag handle.
+ */
+function enableColumnResize(tableEl) {
+  if (!tableEl || tableEl.dataset.resizableInit === "1") return;
+  tableEl.dataset.resizableInit = "1";
+  tableEl.classList.add("table-resizable");
+
+  tableEl.querySelectorAll("thead th").forEach((th) => {
+    if (!th.style.width) th.style.width = th.offsetWidth + "px";
+
+    const handle = document.createElement("div");
+    handle.className = "col-resizer";
+    th.appendChild(handle);
+
+    let startX = 0;
+    let startW = 0;
+    const onMove = (e) => {
+      const dx = e.clientX - startX;
+      th.style.width = Math.max(40, startW + dx) + "px";
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.userSelect = "";
+    };
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      startX = e.clientX;
+      startW = th.offsetWidth;
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+    handle.addEventListener("click", (e) => e.stopPropagation());
   });
 }
 
-function populateUsersTable(users) {
-  const tbody = $(SELECTORS.usersTableBody);
-  tbody.empty();
-  if (!Array.isArray(users)) return;
+/**
+ * Admin Users table controller — server-driven sort/filter/paginate.
+ * Built lazily on first reload so it can attach handlers once. State is
+ * thin (no client-side rows cache) since the backend owns every query.
+ */
+const adminUsersTableController = (() => {
+  const state = {
+    initialized: false,
+    content: [],
+    totalElements: 0,
+    totalPages: 1,
+    page: 0, // 0-based to match backend
+    pageSize: 10, // -1 means "All"
+    sortKey: "username",
+    sortDir: "asc",
+    search: "",
+    searchDebounce: null,
+  };
 
-  users.forEach((user) => {
-    const row = $("<tr></tr>");
-    row.append($("<td></td>").text(user.username));
-    row.append($("<td></td>").text(user.enabled ? "Enabled" : "Disabled"));
+  function reload() {
+    init();
+    const params = {
+      page: state.page,
+      size: state.pageSize,
+      sort: state.sortKey,
+      direction: state.sortDir,
+      search: state.search,
+    };
+    return $.ajax({
+      url: ENDPOINTS.adminUsersPage,
+      method: "GET",
+      data: params,
+    })
+      .done((data) => {
+        state.content = Array.isArray(data.content) ? data.content : [];
+        state.totalElements =
+          typeof data.totalElements === "number"
+            ? data.totalElements
+            : state.content.length;
+        state.totalPages =
+          typeof data.totalPages === "number" && data.totalPages > 0
+            ? data.totalPages
+            : 1;
+        if (typeof data.page === "number") state.page = data.page;
+        render();
+      })
+      .fail((err) => {
+        alert("Failed to load users");
+        console.error(err);
+      });
+  }
 
-    const actionTd = $("<td></td>");
-    const editBtn = $("<button class='btn btn-primary btn-sm'>Edit</button>");
-    editBtn.click(() => showEditUserModal(user));
+  function render() {
+    const tbody = $(SELECTORS.usersTableBody);
+    tbody.empty();
 
-    const deleteBtn = $(
-      "<button class='btn btn-danger btn-sm' style='margin-left:5px;'>Delete</button>"
+    state.content.forEach((user) => {
+      const row = $("<tr></tr>");
+      row.append($("<td></td>").text(user.username));
+      row.append($("<td></td>").text(user.enabled ? "Enabled" : "Disabled"));
+
+      const actionTd = $("<td></td>");
+      const editBtn = $("<button class='btn btn-primary btn-sm'>Edit</button>");
+      editBtn.click(() => showEditUserModal(user));
+
+      const deleteBtn = $(
+        "<button class='btn btn-danger btn-sm' style='margin-left:5px;'>Delete</button>"
+      );
+      deleteBtn.click(() => deleteUser(user.username));
+
+      actionTd.append(editBtn).append(deleteBtn);
+      row.append(actionTd);
+      tbody.append(row);
+    });
+
+    // Header sort indicators
+    $(SELECTORS.usersTable + " thead th[data-key]").each(function () {
+      const $th = $(this);
+      $th.removeClass("sort-asc sort-desc");
+      if ($th.data("key") === state.sortKey) {
+        $th.addClass(state.sortDir === "asc" ? "sort-asc" : "sort-desc");
+      }
+    });
+
+    // Pager
+    const $pager = $(SELECTORS.adminUsersPager);
+    $pager.empty();
+    const total = state.totalElements;
+    const usingAll = state.pageSize <= 0;
+    const lo =
+      total === 0 ? 0 : usingAll ? 1 : state.page * state.pageSize + 1;
+    const hi = usingAll
+      ? total
+      : Math.min((state.page + 1) * state.pageSize, total);
+
+    const $prev = $(
+      "<button class='btn btn-default btn-sm'>Prev</button>"
+    ).prop("disabled", usingAll || state.page <= 0);
+    $prev.click(() => {
+      state.page = Math.max(0, state.page - 1);
+      reload();
+    });
+
+    const $pageLabel = $("<span class='page-info'></span>").text(
+      `Page ${state.page + 1} / ${state.totalPages}`
     );
-    deleteBtn.click(() => deleteUser(user.username));
 
-    actionTd.append(editBtn).append(deleteBtn);
-    row.append(actionTd);
-    tbody.append(row);
-  });
-}
+    const $next = $(
+      "<button class='btn btn-default btn-sm'>Next</button>"
+    ).prop("disabled", usingAll || state.page >= state.totalPages - 1);
+    $next.click(() => {
+      state.page = Math.min(state.totalPages - 1, state.page + 1);
+      reload();
+    });
+
+    const $size = $("<select class='form-control'></select>").css({
+      display: "inline-block",
+      width: "auto",
+    });
+    const pageSizeOptions = [
+      { value: 10, label: "10 / page" },
+      { value: 25, label: "25 / page" },
+      { value: 50, label: "50 / page" },
+      { value: 100, label: "100 / page" },
+      { value: -1, label: "All" },
+    ];
+    pageSizeOptions.forEach(({ value, label }) => {
+      $size.append(
+        $("<option></option>")
+          .val(value)
+          .text(label)
+          .prop("selected", value === state.pageSize)
+      );
+    });
+    $size.change(function () {
+      state.pageSize = Number($(this).val());
+      state.page = 0;
+      reload();
+    });
+
+    const $info = $("<span class='page-info'></span>").text(
+      `${lo}-${hi} of ${total}`
+    );
+
+    $pager
+      .append($prev)
+      .append($pageLabel)
+      .append($next)
+      .append($size)
+      .append($info);
+  }
+
+  function init() {
+    if (state.initialized) return;
+    state.initialized = true;
+
+    enableColumnResize(document.querySelector(SELECTORS.usersTable));
+
+    // Header click → toggle sort + reload from backend
+    $(SELECTORS.usersTable + " thead th.sortable").on("click", function () {
+      const key = $(this).data("key");
+      if (!key) return;
+      if (state.sortKey === key) {
+        state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+      } else {
+        state.sortKey = key;
+        state.sortDir = "asc";
+      }
+      state.page = 0;
+      reload();
+    });
+
+    // Search input (debounced) → reload from backend
+    $(SELECTORS.adminUsersSearch).on("input", function () {
+      state.search = $(this).val();
+      state.page = 0;
+      clearTimeout(state.searchDebounce);
+      state.searchDebounce = setTimeout(reload, 250);
+    });
+  }
+
+  return {
+    reload,
+  };
+})();
 
 function deleteUser(username) {
   if (!confirm(`Are you sure you want to delete user '${username}'?`)) {

@@ -1,4 +1,6 @@
+import atexit
 import logging
+import signal
 import sys
 
 
@@ -97,6 +99,12 @@ class Application:
                         ).mainloop()
                         sys.exit(1)
 
+            # If a previous run died without cleaning up, the lock *file* may be
+            # left over even though the kernel released the flock. Remove it if
+            # the recorded PID is no longer alive — flock would still succeed,
+            # but this keeps the file tidy and avoids confusing the user.
+            self._remove_stale_lock_file_if_dead()
+
             # Create the lock file
             try:
                 self.create_lock_file()
@@ -106,11 +114,39 @@ class Application:
                     "Another instance of ClipCascade is already running. Do you want to run anyway?",
                 )
                 if run_anyway == "yes":
-                    os.remove(self.mutex_identifier)
+                    try:
+                        os.remove(self.mutex_identifier)
+                    except OSError:
+                        pass
                     self.create_lock_file()
                 else:
                     self.lock_file = None
                     sys.exit(0)
+
+            # Backup cleanup paths for crashes / signals — finally in run() only
+            # runs on normal completion or handled exceptions.
+            atexit.register(self._cleanup_lock_file)
+            self._install_signal_handlers()
+
+    def _remove_stale_lock_file_if_dead(self):
+        if not os.path.exists(self.mutex_identifier):
+            return
+        try:
+            with open(self.mutex_identifier, "r") as f:
+                content = f.read().strip()
+            if not content:
+                return
+            pid = int(content)
+            if pid == os.getpid():
+                return
+            # os.kill(pid, 0) raises if the process is gone or unreachable.
+            os.kill(pid, 0)
+        except (ValueError, ProcessLookupError, PermissionError, OSError):
+            # Stale or unreadable lock file — safe to remove.
+            try:
+                os.remove(self.mutex_identifier)
+            except OSError:
+                pass
 
     def create_lock_file(self, path=None):
         if path is None:
@@ -119,6 +155,44 @@ class Application:
         if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
             self.lock_file = open(path, "w")
             fcntl.flock(self.lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                self.lock_file.write(str(os.getpid()))
+                self.lock_file.flush()
+            except Exception:
+                pass
+
+    def _install_signal_handlers(self):
+        def _handler(signum, _frame):
+            self._cleanup_lock_file()
+            # Re-raise default behavior so the process actually exits.
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP) if hasattr(signal, "SIGHUP") else (signal.SIGTERM, signal.SIGINT):
+            try:
+                signal.signal(sig, _handler)
+            except (ValueError, OSError):
+                # Some platforms / non-main-thread inits disallow this; skip silently.
+                pass
+
+    def _cleanup_lock_file(self):
+        if PLATFORM != MACOS and not PLATFORM.startswith(LINUX):
+            return
+        if self.lock_file is None:
+            return
+        try:
+            fcntl.flock(self.lock_file, fcntl.LOCK_UN)
+        except Exception:
+            pass
+        try:
+            self.lock_file.close()
+        except Exception:
+            pass
+        self.lock_file = None
+        try:
+            os.remove(self.mutex_identifier)
+        except OSError:
+            pass
 
     def authenticate_and_connect(self):
         # Attempt to connect with existing cookie
@@ -301,9 +375,9 @@ class Application:
                 msg + "\nCheck logs in project directory", msg_type="error"
             ).mainloop()
         finally:
-            self._get_ws_manager().disconnect()
+            try:
+                self._get_ws_manager().disconnect()
+            except Exception:
+                pass
             if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
-                if self.lock_file is not None:
-                    fcntl.flock(self.lock_file, fcntl.LOCK_UN)
-                    self.lock_file.close()
-                    os.remove(self.mutex_identifier)
+                self._cleanup_lock_file()

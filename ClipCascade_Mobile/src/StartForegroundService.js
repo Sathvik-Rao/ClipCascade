@@ -39,6 +39,8 @@ module.exports = async (inputData = null) => {
   const RECONNECT_WS_TIMER = 10000; // 10 seconds
   const HEARTBEAT_INTERVAL = 20000; // 20 seconds
   const FRAGMENT_SIZE = 15360; // 15 KiB
+  const FRAGMENT_TTL_MS = 60000; // drop partial fragment buffers older than 60s
+  const STOMP_DEACTIVATE_TIMEOUT_MS = 5000; // bound the STOMP deactivate() wait
 
   // forground service
   notifee.registerForegroundService(notification => {
@@ -598,9 +600,16 @@ module.exports = async (inputData = null) => {
               stompClient.onWebSocketError = null;
               stompClient.onWebSocketClose = () => {};
 
-              // Deactivate the stomp connection
+              // Deactivate the stomp connection, but don't hang here forever:
+              // some socket states cause deactivate() to never resolve, which
+              // would prevent the foreground service from stopping.
               try {
-                await stompClient.deactivate();
+                await Promise.race([
+                  stompClient.deactivate(),
+                  new Promise(resolve =>
+                    setTimeout(resolve, STOMP_DEACTIVATE_TIMEOUT_MS),
+                  ),
+                ]);
               } catch (e) {
                 // no-op
               }
@@ -655,6 +664,24 @@ module.exports = async (inputData = null) => {
             receivingFragments = {};
             receivingFragmentStats = null;
             await resetP2PMsg();
+          };
+
+          // Drop partial fragment buffers older than FRAGMENT_TTL_MS so a peer
+          // that disconnects mid-transfer can't leak memory forever.
+          const pruneStaleReceivingFragments = () => {
+            const now = Date.now();
+            let pruned = 0;
+            for (const fid of Object.keys(receivingFragments)) {
+              const entry = receivingFragments[fid];
+              if (entry && typeof entry.startedAt === 'number'
+                  && (now - entry.startedAt) > FRAGMENT_TTL_MS) {
+                delete receivingFragments[fid];
+                pruned += 1;
+              }
+            }
+            if (pruned > 0 && Object.keys(receivingFragments).length === 0) {
+              receivingFragmentStats = null;
+            }
           };
 
           const resetP2PMsg = async () => {
@@ -1048,22 +1075,23 @@ module.exports = async (inputData = null) => {
 
               // Fragmented message handling
               if (metadata != null && metadata.isFragmented) {
+                pruneStaleReceivingFragments();
                 receivingFragmentStats = `${metadata.index + 1}/${
                   metadata.totalFragments
                 }`;
                 await p2pStatusMessageChanged();
 
                 if (metadata.id in receivingFragments) {
-                  receivingFragments[metadata.id][metadata.index] = cb;
+                  const entry = receivingFragments[metadata.id];
+                  entry.fragments[metadata.index] = cb;
 
                   // If this is the last fragment, try to combine
                   if (metadata.index === metadata.totalFragments - 1) {
                     // Check if all fragments are present (none is empty)
-                    if (
-                      receivingFragments[metadata.id].every(frag => frag !== '')
-                    ) {
+                    if (entry.fragments.every(frag => frag !== '')) {
                       // Join them all together into one payload
-                      cb = receivingFragments[metadata.id].join('');
+                      cb = entry.fragments.join('');
+                      delete receivingFragments[metadata.id];
                     } else {
                       // Missing fragment(s): error out
                       await resetReceivingFragments();
@@ -1078,10 +1106,11 @@ module.exports = async (inputData = null) => {
                   }
                 } else {
                   await resetReceivingFragments();
-                  receivingFragments[metadata.id] = Array(
-                    metadata.totalFragments,
-                  ).fill('');
-                  receivingFragments[metadata.id][metadata.index] = cb;
+                  receivingFragments[metadata.id] = {
+                    startedAt: Date.now(),
+                    fragments: Array(metadata.totalFragments).fill(''),
+                  };
+                  receivingFragments[metadata.id].fragments[metadata.index] = cb;
                   return;
                 }
               }

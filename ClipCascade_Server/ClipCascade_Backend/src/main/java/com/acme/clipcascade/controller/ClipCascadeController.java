@@ -35,6 +35,7 @@ import com.acme.clipcascade.service.FacadeUserService;
 import com.acme.clipcascade.service.SessionService;
 import com.acme.clipcascade.service.UserInfoService;
 import com.acme.clipcascade.service.UserService;
+import com.acme.clipcascade.service.OnlineUsersService;
 import com.acme.clipcascade.service.WebSocketStatsService;
 import com.acme.clipcascade.utils.ResponseEntityUtil;
 import com.acme.clipcascade.utils.TimeUtility;
@@ -50,6 +51,7 @@ import jakarta.transaction.Transactional;
 
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -66,6 +68,7 @@ public class ClipCascadeController {
     private final CaptchaService captchaService;
     private final BruteForceProtectionService bruteForceProtectionService;
     private final WebSocketStatsService webSocketStatsService;
+    private final OnlineUsersService onlineUsersService;
     private final DonationService donationService;
 
     public ClipCascadeController(
@@ -78,6 +81,7 @@ public class ClipCascadeController {
             SessionService sessionService,
             BruteForceProtectionService bruteForceProtectionService,
             WebSocketStatsService webSocketStatsService,
+            OnlineUsersService onlineUsersService,
             DonationService donationService) {
 
         this.clipCascadeProperties = clipCascadeProperties;
@@ -89,6 +93,7 @@ public class ClipCascadeController {
         this.sessionService = sessionService;
         this.bruteForceProtectionService = bruteForceProtectionService;
         this.webSocketStatsService = webSocketStatsService;
+        this.onlineUsersService = onlineUsersService;
         this.donationService = donationService;
     }
 
@@ -358,6 +363,17 @@ public class ClipCascadeController {
                 "Forbidden");
     }
 
+    @GetMapping("/admin/online-users")
+    public ResponseEntity<?> getOnlineUsers(
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        return ResponseEntityUtil.conditionalExecuteOrError(
+                userPrincipal.isAdmin(),
+                () -> ResponseEntityUtil
+                        .executeWithResponse(() -> onlineUsersService.getOnlineUsers()),
+                "Forbidden");
+    }
+
     @GetMapping("/admin/all-users")
     public ResponseEntity<?> getAllUsers(@AuthenticationPrincipal UserPrincipal userPrincipal) {
 
@@ -384,6 +400,74 @@ public class ClipCascadeController {
                 userPrincipal.isAdmin(),
                 () -> ResponseEntityUtil.executeWithResponse(
                         () -> userInfoService.getAllUserDetails()),
+                "Forbidden");
+    }
+
+    @GetMapping("/admin/user-details/page")
+    public ResponseEntity<?> getUserDetailsPage(
+            @AuthenticationPrincipal UserPrincipal userPrincipal,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction,
+            @RequestParam(required = false) String search) {
+
+        return ResponseEntityUtil.conditionalExecuteOrError(
+                userPrincipal.isAdmin(),
+                () -> ResponseEntityUtil.executeWithResponse(
+                        () -> facadeUserService.getUserDetailsPage(
+                                page, size, sort, direction, search)),
+                "Forbidden");
+    }
+
+    @GetMapping("/admin/online-users/page")
+    public ResponseEntity<?> getOnlineUsersPage(
+            @AuthenticationPrincipal UserPrincipal userPrincipal,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction,
+            @RequestParam(required = false) String search) {
+
+        return ResponseEntityUtil.conditionalExecuteOrError(
+                userPrincipal.isAdmin(),
+                () -> ResponseEntityUtil.executeWithResponse(
+                        () -> onlineUsersService.getOnlineUsersPage(
+                                page, size, sort, direction, search)),
+                "Forbidden");
+    }
+
+    @GetMapping("/admin/bfa-snapshot/page")
+    public ResponseEntity<?> getBfaSnapshotPage(
+            @AuthenticationPrincipal UserPrincipal userPrincipal,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction,
+            @RequestParam(required = false) String search) {
+
+        return ResponseEntityUtil.conditionalExecuteOrError(
+                userPrincipal.isAdmin(),
+                () -> ResponseEntityUtil.executeWithResponse(
+                        () -> bruteForceProtectionService.getTrackerPage(
+                                page, size, sort, direction, search)),
+                "Forbidden");
+    }
+
+    @GetMapping("/admin/users/page")
+    public ResponseEntity<?> getUsersPage(
+            @AuthenticationPrincipal UserPrincipal userPrincipal,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction,
+            @RequestParam(required = false) String search) {
+
+        return ResponseEntityUtil.conditionalExecuteOrError(
+                userPrincipal.isAdmin(),
+                () -> ResponseEntityUtil.executeWithResponse(
+                        () -> userService.getUsersPage(
+                                RoleConstants.USER, page, size, sort, direction, search)),
                 "Forbidden");
     }
 

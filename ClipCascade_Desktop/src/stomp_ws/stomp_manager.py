@@ -1,5 +1,6 @@
 import json
 import logging
+import random
 import time
 
 
@@ -32,6 +33,7 @@ class STOMPManager(WSInterface):
         self.is_connected = False
         self.disconnected = False
         self.is_auto_reconnecting = False
+        self._reconnect_attempts = 0
 
     def set_tray_ref(self, sys_tray: TaskbarPanel):
         """
@@ -76,6 +78,7 @@ class STOMPManager(WSInterface):
             # logging.info("Websocket connected")
             self.is_connected = True
             self.is_auto_reconnecting = False
+            self._reconnect_attempts = 0
             if not self.first_conn_lost:
                 self.first_conn_lost = True
                 self.notification_manager.notify(
@@ -91,6 +94,18 @@ class STOMPManager(WSInterface):
             logging.error(msg)
             return False, msg
 
+    def _next_reconnect_delay(self) -> float:
+        """
+        Exponential backoff with jitter, capped at RECONNECT_WS_MAX_TIMER seconds.
+        Why: a flat 10s retry hammers the server during outages; backoff + jitter
+        spreads reconnect storms across many clients (thundering-herd mitigation).
+        """
+        attempts = max(0, self._reconnect_attempts)
+        base = RECONNECT_WS_TIMER * (RECONNECT_WS_BACKOFF_MULTIPLIER ** attempts)
+        base = min(base, RECONNECT_WS_MAX_TIMER)
+        jitter = base * RECONNECT_WS_JITTER_RATIO
+        return max(1.0, base + random.uniform(-jitter, jitter))
+
     def _on_close(self):
         self.is_connected = False
         # Auto Reconnect
@@ -102,7 +117,21 @@ class STOMPManager(WSInterface):
                     message="Check your internet connection. Retrying...",
                 )
                 self.first_conn_lost = False
-            time.sleep(RECONNECT_WS_TIMER)  # seconds
+            delay = self._next_reconnect_delay()
+            self._reconnect_attempts += 1
+            logging.info(
+                "STOMP reconnect attempt %d in %.1fs",
+                self._reconnect_attempts,
+                delay,
+            )
+            # Use short sleeps so a disconnect() request can abort the wait promptly.
+            slept = 0.0
+            while slept < delay and not self.disconnected:
+                step = min(0.5, delay - slept)
+                time.sleep(step)
+                slept += step
+            if self.disconnected:
+                return
             self.connect()
 
     def send(self, payload: str, payload_type: str = "text"):
@@ -143,6 +172,7 @@ class STOMPManager(WSInterface):
     def manual_reconnect(self):
         if not self.is_auto_reconnecting:
             self.disconnected = False
+            self._reconnect_attempts = 0
             self.connect()
 
     def disconnect(self):

@@ -150,6 +150,8 @@ class TaskbarPanel:
             item("💟 Donate", self._open_donate),
             item("🌐 GitHub", self._open_github),
             Menu.SEPARATOR,
+            item(f"ℹ️ Version v{APP_VERSION}", None, enabled=False),
+            Menu.SEPARATOR,
             item("🔒 Logoff and Quit", self._on_logoff),
             item("❌ Quit", self._on_quit),
         ]

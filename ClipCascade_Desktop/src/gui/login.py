@@ -404,7 +404,7 @@ class LoginForm(tk.Tk):
         )
 
         # SSL CA bundle (private / corporate PKI)
-        ssl_ca_label = ttk.Label(self.extra_frame, text="SSL CA bundle (optional):")
+        ssl_ca_label = ttk.Label(self.extra_frame, text="SSL CA bundle:")
         ssl_ca_label.grid(row=7, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.ssl_ca_bundle_entry = ttk.Entry(
             self.extra_frame, width=50, font=("Helvetica", 13)

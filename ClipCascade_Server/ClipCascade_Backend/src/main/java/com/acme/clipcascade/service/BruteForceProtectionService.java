@@ -5,12 +5,16 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Predicate;
 
 import org.ehcache.Cache;
 import org.ehcache.CacheManager;
@@ -19,10 +23,13 @@ import org.springframework.stereotype.Service;
 
 import com.acme.clipcascade.config.ClipCascadeProperties;
 import com.acme.clipcascade.constants.ServerConstants;
+import com.acme.clipcascade.model.BfaSnapshotRow;
+import com.acme.clipcascade.model.PageResponse;
 import com.acme.clipcascade.model.UserAccessTracker;
 import com.acme.clipcascade.model.IpAttemptDetails;
 import com.acme.clipcascade.model.Timeout;
 import com.acme.clipcascade.utils.IpAddressResolver;
+import com.acme.clipcascade.utils.PagingUtility;
 import com.acme.clipcascade.utils.TimeUtility;
 import com.acme.clipcascade.utils.UserValidator;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -245,6 +252,78 @@ public class BruteForceProtectionService {
 
     public Map<String, UserAccessTracker> getTracker() {
         return snapshotTracker();
+    }
+
+    private static final Map<String, Comparator<BfaSnapshotRow>> BFA_COMPARATORS = Map.of(
+            "username", Comparator.comparing(BfaSnapshotRow::getUsername,
+                    Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)),
+            "sourceIp", Comparator.comparing(BfaSnapshotRow::getSourceIp,
+                    Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)),
+            "attempts", Comparator.comparingInt(BfaSnapshotRow::getAttempts),
+            "lockCount", Comparator.comparingInt(BfaSnapshotRow::getLockCount),
+            "lockTimeout", Comparator.comparingLong(BfaSnapshotRow::getLockTimeout),
+            "uniqueIpCount", Comparator.comparingInt(BfaSnapshotRow::getUniqueIpCount),
+            "userLockTimeout", Comparator.comparingLong(BfaSnapshotRow::getUserLockTimeout));
+
+    /**
+     * Paginated/sorted/searched flattened view of the tracker.
+     * Each (username, ip) pair becomes one row, mirroring the previous
+     * client-side flattening done by advance.html.
+     */
+    public PageResponse<BfaSnapshotRow> getTrackerPage(
+            int page,
+            int size,
+            String sort,
+            String direction,
+            String search) {
+
+        Map<String, UserAccessTracker> snapshot = snapshotTracker();
+        List<BfaSnapshotRow> rows = new ArrayList<>();
+        for (Map.Entry<String, UserAccessTracker> userEntry : snapshot.entrySet()) {
+            String username = userEntry.getKey();
+            UserAccessTracker tracker = userEntry.getValue();
+            if (tracker == null) {
+                continue;
+            }
+            int uniqueIpCount = tracker.getUniqueIpSet() == null
+                    ? 0
+                    : tracker.getUniqueIpSet().size();
+            long userLockTimeout = tracker.getLockTimeout();
+            Map<String, IpAttemptDetails> ipMap = tracker.getIpAccessDetails();
+            if (ipMap == null || ipMap.isEmpty()) {
+                continue;
+            }
+            for (Map.Entry<String, IpAttemptDetails> ipEntry : ipMap.entrySet()) {
+                IpAttemptDetails d = ipEntry.getValue();
+                rows.add(new BfaSnapshotRow(
+                        username,
+                        ipEntry.getKey(),
+                        d == null ? 0 : d.getAttempts(),
+                        d == null ? 0 : d.getLockCount(),
+                        d == null ? 0 : d.getLockTimeout(),
+                        uniqueIpCount,
+                        userLockTimeout));
+            }
+        }
+
+        String needle = (search == null) ? "" : search.trim().toLowerCase();
+        Predicate<BfaSnapshotRow> filter = needle.isEmpty()
+                ? null
+                : r -> PagingUtility.contains(r.getUsername(), needle)
+                        || PagingUtility.contains(r.getSourceIp(), needle);
+
+        String effectiveSort = (sort == null || sort.isEmpty()) ? "username" : sort;
+        String effectiveDir = (direction == null || direction.isEmpty()) ? "asc" : direction;
+
+        return PagingUtility.apply(
+                rows,
+                filter,
+                BFA_COMPARATORS,
+                effectiveSort,
+                effectiveDir,
+                page,
+                size,
+                search);
     }
 
     /**

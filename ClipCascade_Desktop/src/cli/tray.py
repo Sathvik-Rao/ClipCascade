@@ -128,6 +128,8 @@ class TaskbarPanel:
             ("💟 Donate", self._open_donate),
             ("🌐 GitHub", self._open_github),
             "",  # Menu Separator
+            (f"ℹ️  Version v{APP_VERSION}", None),  # Read-only version display
+            "",  # Menu Separator
             ("🔒 Logoff and Quit", self._on_logoff),
             ("❌ Quit", self._on_quit),
         ]

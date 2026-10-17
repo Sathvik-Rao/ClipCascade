@@ -277,6 +277,24 @@ public class ClipCascadeProperties {
     @Value("${CC_DONATIONS_ENABLED:false}")
     private boolean donationsEnabled;
 
+    /*
+     * Maximum number of P2P signaling messages a single WebSocket session can
+     * send per second. Values <= 0 disable the limiter (default: -1, disabled
+     * to preserve existing behavior).
+     * Supported only in P2P mode.
+     */
+    @Value("${CC_P2P_SIGNALING_RATE_LIMIT_PER_SEC:-1}")
+    private int p2pSignalingRateLimitPerSec;
+
+    /*
+     * Captcha difficulty as a percentage from 0 (easiest) to 100 (hardest,
+     * which is the existing behavior). Lower values reduce noise lines and
+     * skip the distortion (gimpy) effect for better human readability while
+     * keeping at least the basic challenge. (default: 100)
+     */
+    @Value("${CC_CAPTCHA_DIFFICULTY_PERCENT:100}")
+    private int captchaDifficultyPercent;
+
     private long getMessageSizeInBytes() {
         /*
          * Note: Ensure that the same logic is applied in the activemq.xml file as well.
@@ -459,6 +477,21 @@ public class ClipCascadeProperties {
         return donationsEnabled;
     }
 
+    public int getP2pSignalingRateLimitPerSec() {
+        return p2pSignalingRateLimitPerSec;
+    }
+
+    public int getCaptchaDifficultyPercent() {
+        // Clamp to 0..100 so out-of-range env values stay safe.
+        if (captchaDifficultyPercent < 0) {
+            return 0;
+        }
+        if (captchaDifficultyPercent > 100) {
+            return 100;
+        }
+        return captchaDifficultyPercent;
+    }
+
     @Override
     public String toString() {
         return "{\n" +
@@ -492,6 +525,8 @@ public class ClipCascadeProperties {
                 ",\n p2pStunUrl='" + getP2pStunUrl() + "'" +
                 ",\n maxWsGlobalConnections='" + getMaxWsGlobalConnections() + "'" +
                 ",\n maxWsConnectionsPerUser='" + getMaxWsConnectionsPerUser() + "'" +
+                ",\n p2pSignalingRateLimitPerSec='" + getP2pSignalingRateLimitPerSec() + "'" +
+                ",\n captchaDifficultyPercent='" + getCaptchaDifficultyPercent() + "'" +
                 "\n}";
     }
 

@@ -37,7 +37,15 @@ class RequestManager:
                 return False, msg, None
 
             soup = BeautifulSoup(response.text, "html.parser")
-            csrf_token = soup.find("input", {"name": "_csrf"})["value"]
+            csrf_input = soup.find("input", {"name": "_csrf"})
+            if csrf_input is None or not csrf_input.get("value"):
+                msg = (
+                    "Login page did not contain a CSRF token. "
+                    "Verify the server URL points to a ClipCascade server."
+                )
+                logging.error(msg)
+                return False, msg, None
+            csrf_token = csrf_input["value"]
 
             # Login with the credentials
             form_data = {

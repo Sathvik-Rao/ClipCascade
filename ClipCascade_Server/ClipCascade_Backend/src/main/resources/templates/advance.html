@@ -27,11 +27,33 @@
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
       }
       .table-responsive {
-        max-height: 300px;
+        max-height: 420px;
         overflow: auto;
       }
       .table thead th {
         white-space: nowrap;
+        position: sticky;
+        top: 0;
+        background: #f1f3f5;
+        z-index: 1;
+        cursor: pointer;
+        user-select: none;
+      }
+      .table thead th[data-sortable="false"] {
+        cursor: default;
+      }
+      .table thead th .sort-indicator {
+        font-size: 0.75rem;
+        margin-left: 4px;
+        color: #6c757d;
+      }
+      .table thead th.sort-asc .sort-indicator::after {
+        content: "▲";
+        color: #212529;
+      }
+      .table thead th.sort-desc .sort-indicator::after {
+        content: "▼";
+        color: #212529;
       }
       .unlock-user-btn {
         margin-top: 32px;
@@ -45,6 +67,54 @@
         font-size: 0.95rem;
         color: #212529;
       }
+      .table-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .table-toolbar .search-input {
+        max-width: 280px;
+      }
+      .table-pager {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .table-pager .page-info {
+        color: #6c757d;
+        font-size: 0.9rem;
+      }
+      /* Resizable columns */
+      .table-resizable {
+        table-layout: fixed;
+        width: 100%;
+      }
+      .table-resizable th {
+        white-space: nowrap;
+      }
+      .table-resizable td {
+        white-space: normal;
+        word-break: break-word;
+        overflow-wrap: break-word;
+        vertical-align: top;
+      }
+      .col-resizer {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 6px;
+        height: 100%;
+        cursor: col-resize;
+        user-select: none;
+        z-index: 2;
+      }
+      .col-resizer:hover {
+        background: rgba(0, 123, 255, 0.25);
+      }
     </style>
   </head>
   <body>
@@ -57,35 +127,44 @@
       <!-- 1) User Details -->
       <div class="section-container">
         <h2>User Details</h2>
-        <button class="btn btn-primary mb-3" onclick="getUserDetails()">
-          Get
-        </button>
+        <div class="table-toolbar">
+          <button class="btn btn-primary" onclick="getUserDetails()">Get</button>
+          <input
+            type="text"
+            class="form-control search-input"
+            id="user-details-search"
+            placeholder="Search users..."
+          />
+        </div>
         <div class="table-responsive">
-          <table class="table table-bordered table-striped">
+          <table
+            class="table table-bordered table-striped"
+            data-table-id="userDetails"
+          >
             <thead>
               <tr>
-                <th>Username</th>
-                <th>Marked for Deletion</th>
-                <th style="min-width: 140px">First Signup</th>
-                <th style="min-width: 140px">Last Login ↓</th>
-                <th>Signup IP</th>
-                <th>Last Login IP</th>
-                <th>Failed Login Attempts</th>
-                <th>Lockout Time</th>
-                <th style="min-width: 140px">Password Changed At</th>
-                <th>Email</th>
-                <th>OTP</th>
-                <th>Phone</th>
-                <th>First Name</th>
-                <th>Last Name</th>
-                <th>Notes</th>
+                <th data-key="username" style="width: 200px">Username<span class="sort-indicator"></span></th>
+                <th data-key="enabled" style="width: 120px">Enabled<span class="sort-indicator"></span></th>
+                <th data-key="markedForDeletion" style="width: 160px">Marked for Deletion<span class="sort-indicator"></span></th>
+                <th data-key="firstSignup" data-type="date" style="width: 180px">First Signup<span class="sort-indicator"></span></th>
+                <th data-key="lastLogin" data-type="date" style="width: 180px">Last Login<span class="sort-indicator"></span></th>
+                <th data-key="firstSignupIp" style="width: 140px">Signup IP<span class="sort-indicator"></span></th>
+                <th data-key="lastLoginIp" style="width: 140px">Last Login IP<span class="sort-indicator"></span></th>
+                <th data-key="failedLoginAttempts" data-type="number" style="width: 160px">Failed Login Attempts<span class="sort-indicator"></span></th>
+                <th data-key="lockoutTime" style="width: 140px">Lockout Time<span class="sort-indicator"></span></th>
+                <th data-key="passwordChangedAt" data-type="date" style="width: 200px">Password Changed At<span class="sort-indicator"></span></th>
+                <th data-key="email" style="width: 220px">Email<span class="sort-indicator"></span></th>
+                <th data-key="otp" style="width: 120px">OTP<span class="sort-indicator"></span></th>
+                <th data-key="phone" style="width: 140px">Phone<span class="sort-indicator"></span></th>
+                <th data-key="firstName" style="width: 150px">First Name<span class="sort-indicator"></span></th>
+                <th data-key="lastName" style="width: 150px">Last Name<span class="sort-indicator"></span></th>
+                <th data-key="notes" style="width: 200px">Notes<span class="sort-indicator"></span></th>
               </tr>
             </thead>
-            <tbody id="user-details-tbody">
-              <!-- Data will be appended here via JavaScript -->
-            </tbody>
+            <tbody id="user-details-tbody"></tbody>
           </table>
         </div>
+        <div class="table-pager" id="user-details-pager"></div>
       </div>
 
       <!-- 2) WebSocket Stats -->
@@ -94,41 +173,78 @@
         <button class="btn btn-primary mb-3" onclick="getWebsocketStats()">
           Get
         </button>
-        <div id="websocket-stats-output">
-          <!-- WebSocket stats text goes here -->
-        </div>
+        <div id="websocket-stats-output"></div>
       </div>
 
-      <!-- 3) Brute Force Protection Tracker Snapshot -->
+      <!-- 3) Online Users (live WebSocket connections) -->
       <div class="section-container">
-        <h2>Brute Force Protection Tracker Snapshot</h2>
-        <button class="btn btn-primary" onclick="getBfaTracker()">Get</button>
-        <button class="btn btn-primary" onclick="downloadBfaSnapshot()">
-          Download
-        </button>
-
-        <!-- Table to display BFA tracker data -->
-        <div class="table-responsive mt-3">
-          <table class="table table-bordered table-striped">
+        <h2>Online Users</h2>
+        <div class="table-toolbar">
+          <button class="btn btn-primary" onclick="getOnlineUsers()">Get</button>
+          <input
+            type="text"
+            class="form-control search-input"
+            id="online-users-search"
+            placeholder="Search users..."
+          />
+          <span id="online-users-summary" class="page-info"></span>
+        </div>
+        <div class="table-responsive">
+          <table
+            class="table table-bordered table-striped"
+            data-table-id="onlineUsers"
+          >
             <thead>
               <tr>
-                <th>Username</th>
-                <th>Source IP</th>
-                <th>Attempts from IP</th>
-                <th>IP Lock Count</th>
-                <th>IP Lock Expires</th>
-                <th>Unique IP Addresses</th>
-                <th>User Lock Expires</th>
+                <th data-key="username" style="width: 250px">Username<span class="sort-indicator"></span></th>
+                <th data-key="connections" data-type="number" style="width: 200px">Open Connections<span class="sort-indicator"></span></th>
               </tr>
             </thead>
-            <tbody id="bfa-snapshot-tbody">
-              <!-- Data will be appended here by getBfaTracker() -->
-            </tbody>
+            <tbody id="online-users-tbody"></tbody>
           </table>
         </div>
+        <div class="table-pager" id="online-users-pager"></div>
       </div>
 
-      <!-- 4) Unlock user -->
+      <!-- 4) Brute Force Protection Tracker Snapshot -->
+      <div class="section-container">
+        <h2>Brute Force Protection Tracker Snapshot</h2>
+        <div class="table-toolbar">
+          <button class="btn btn-primary" onclick="getBfaTracker()">Get</button>
+          <button class="btn btn-primary" onclick="downloadBfaSnapshot()">
+            Download
+          </button>
+          <input
+            type="text"
+            class="form-control search-input"
+            id="bfa-snapshot-search"
+            placeholder="Search..."
+          />
+        </div>
+
+        <div class="table-responsive mt-3">
+          <table
+            class="table table-bordered table-striped"
+            data-table-id="bfaSnapshot"
+          >
+            <thead>
+              <tr>
+                <th data-key="username" style="width: 200px">Username<span class="sort-indicator"></span></th>
+                <th data-key="sourceIp" style="width: 160px">Source IP<span class="sort-indicator"></span></th>
+                <th data-key="attempts" data-type="number" style="width: 150px">Attempts from IP<span class="sort-indicator"></span></th>
+                <th data-key="lockCount" data-type="number" style="width: 140px">IP Lock Count<span class="sort-indicator"></span></th>
+                <th data-key="lockTimeout" data-type="date" style="width: 200px">IP Lock Expires<span class="sort-indicator"></span></th>
+                <th data-key="uniqueIpCount" data-type="number" style="width: 170px">Unique IP Addresses<span class="sort-indicator"></span></th>
+                <th data-key="userLockTimeout" data-type="date" style="width: 200px">User Lock Expires<span class="sort-indicator"></span></th>
+              </tr>
+            </thead>
+            <tbody id="bfa-snapshot-tbody"></tbody>
+          </table>
+        </div>
+        <div class="table-pager" id="bfa-snapshot-pager"></div>
+      </div>
+
+      <!-- 5) Unlock user -->
       <div class="section-container">
         <h2>Unlock User</h2>
         <form id="unlock-user-form" onsubmit="unlockUser(event)">
@@ -153,18 +269,16 @@
         </form>
       </div>
 
-      <!-- 5) Show server time -->
+      <!-- 6) Show server time -->
       <div class="section-container">
         <h2>Server Time</h2>
         <button class="btn btn-primary mb-3" onclick="showServerTime()">
           Get Server Time
         </button>
-        <div id="server-time-output">
-          <!-- Server time text goes here -->
-        </div>
+        <div id="server-time-output"></div>
       </div>
 
-      <!-- 6) Environment Variables -->
+      <!-- 7) Environment Variables -->
       <div class="section-container">
         <h2>Environment Variables</h2>
         <div>
@@ -182,20 +296,19 @@
        */
       const ENDPOINTS = {
         USER_DETAILS: "/admin/user-details",
+        USER_DETAILS_PAGE: "/admin/user-details/page",
         WEBSOCKET_STATS: "/admin/websocket-stats",
+        ONLINE_USERS: "/admin/online-users",
+        ONLINE_USERS_PAGE: "/admin/online-users/page",
         BFA_SNAPSHOT: "/admin/bfa-snapshot",
+        BFA_SNAPSHOT_PAGE: "/admin/bfa-snapshot/page",
         BFA_SNAPSHOT_FILE: "/admin/bfa-snapshot-file",
         UNLOCK_USER: "/admin/unlock-user",
         SERVER_TIME: "/admin/server-time",
       };
 
       /**
-       * A reusable fetch function that handles basic error checking.
-       *
-       * @param {string} url - The URL endpoint to call.
-       * @param {string} [method='GET'] - The HTTP method, default is GET.
-       * @param {Object|null} [body=null] - The request body, if any.
-       * @returns {Promise<Response>} - The fetch response object.
+       * Generic fetch helper with basic error checking.
        */
       async function fetchData(url, method = "GET", body = null, headers = {}) {
         try {
@@ -216,11 +329,7 @@
       }
 
       /**
-       * Format an epoch time in seconds to a human-readable, locale-specific
-       * string in the format "YYYY MMM DD HH:MM:SS AM/PM TZ".
-       *
-       * @param {number} epoch - The epoch time in seconds.
-       * @returns {string} - The formatted string, empty if the input is null or 0.
+       * Format epoch (seconds) to a human-readable, locale-specific string.
        */
       function formatEpochToLocal(epoch) {
         if (epoch == null || epoch === 0) return "";
@@ -245,37 +354,320 @@
       }
 
       /**
-       * 1) Fetch and display user details.
+       * Make table columns drag-resizable. Switches the table to fixed layout,
+       * locks each <th> at its current width, and adds a right-edge drag handle.
        */
-      async function getUserDetails() {
-        try {
-          const response = await fetchData(ENDPOINTS.USER_DETAILS);
-          const data = await response.json();
-          const tbody = document.getElementById("user-details-tbody");
-          tbody.innerHTML = "";
+      function enableColumnResize(tableEl) {
+        if (!tableEl || tableEl.dataset.resizableInit === "1") return;
+        tableEl.dataset.resizableInit = "1";
+        tableEl.classList.add("table-resizable");
 
-          const dateKeys = ["firstSignup", "lastLogin", "passwordChangedAt"];
-          data.forEach((user) => {
-            const row = document.createElement("tr");
-            Object.keys(user).forEach((key) => {
-              const cell = document.createElement("td");
-              let text = user[key];
-              if (dateKeys.includes(key)) {
-                text = formatEpochToLocal(user[key]);
-              }
-              cell.textContent = text ?? "";
-              row.appendChild(cell);
-            });
-            tbody.appendChild(row);
+        tableEl.querySelectorAll("thead th").forEach((th) => {
+          if (!th.style.width) th.style.width = th.offsetWidth + "px";
+
+          const handle = document.createElement("div");
+          handle.className = "col-resizer";
+          th.appendChild(handle);
+
+          let startX = 0;
+          let startW = 0;
+          const onMove = (e) => {
+            const dx = e.clientX - startX;
+            th.style.width = Math.max(40, startW + dx) + "px";
+          };
+          const onUp = () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            document.body.style.userSelect = "";
+          };
+          handle.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            startX = e.clientX;
+            startW = th.offsetWidth;
+            document.body.style.userSelect = "none";
+            document.addEventListener("mousemove", onMove);
+            document.addEventListener("mouseup", onUp);
           });
-        } catch (err) {
-          console.error(err);
-          alert("Error fetching user details.");
-        }
+          handle.addEventListener("click", (e) => e.stopPropagation());
+        });
       }
 
       /**
-       * 2) Fetch and display WebSocket stats.
+       * Calls a paged admin endpoint and returns the PageResponse JSON.
+       * Backend treats size <= 0 as "all rows" and accepts 0-based page index.
+       */
+      async function fetchPage(url, params) {
+        const qs = new URLSearchParams();
+        if (params.page != null) qs.set("page", String(params.page));
+        if (params.size != null) qs.set("size", String(params.size));
+        if (params.sort) qs.set("sort", params.sort);
+        if (params.direction) qs.set("direction", params.direction);
+        if (params.search) qs.set("search", params.search);
+        const res = await fetchData(`${url}?${qs.toString()}`);
+        return await res.json();
+      }
+
+      /**
+       * Generic data-table controller backed by a server endpoint.
+       * The endpoint owns sort/filter/paginate; this just renders the page
+       * it returns and forwards user actions (sort click, search, page nav,
+       * page-size change) back as fresh requests.
+       */
+      function createDataTable(opts) {
+        const tableEl = document.querySelector(
+          `table[data-table-id="${opts.tableId}"]`
+        );
+        const tbody = document.getElementById(opts.tbodyId);
+        const searchEl = document.getElementById(opts.searchId);
+        const pagerEl = document.getElementById(opts.pagerId);
+
+        const state = {
+          content: [],
+          totalElements: 0,
+          totalPages: 1,
+          page: 0, // 0-based to match backend
+          pageSize: 10, // -1 means "All"
+          sortKey: opts.defaultSortKey || null,
+          sortDir: opts.defaultSortDir || "asc",
+          search: "",
+        };
+
+        async function reload() {
+          if (!opts.fetcher) return;
+          try {
+            const data = await opts.fetcher({
+              page: state.page,
+              size: state.pageSize,
+              sort: state.sortKey,
+              direction: state.sortDir,
+              search: state.search,
+            });
+            state.content = Array.isArray(data.content) ? data.content : [];
+            state.totalElements =
+              typeof data.totalElements === "number"
+                ? data.totalElements
+                : state.content.length;
+            state.totalPages =
+              typeof data.totalPages === "number" && data.totalPages > 0
+                ? data.totalPages
+                : 1;
+            if (typeof data.page === "number") state.page = data.page;
+            render();
+          } catch (err) {
+            console.error(err);
+            if (opts.onError) opts.onError(err);
+          }
+        }
+
+        function render() {
+          tbody.innerHTML = "";
+          state.content.forEach((row) => {
+            const tr = document.createElement("tr");
+            opts.columns.forEach((col) => {
+              const td = document.createElement("td");
+              let v = row[col.key];
+              if (col.type === "date") {
+                v = v ? formatEpochToLocal(v) : "";
+              } else if (col.type === "bool") {
+                v = v === true ? "Enabled" : v === false ? "Disabled" : "";
+              } else if (v == null) {
+                v = "";
+              }
+              td.textContent = v;
+              tr.appendChild(td);
+            });
+            tbody.appendChild(tr);
+          });
+
+          // Header sort indicators
+          tableEl.querySelectorAll("thead th[data-key]").forEach((h) => {
+            h.classList.remove("sort-asc", "sort-desc");
+            if (h.dataset.key === state.sortKey) {
+              h.classList.add(
+                state.sortDir === "asc" ? "sort-asc" : "sort-desc"
+              );
+            }
+          });
+
+          // Pager
+          pagerEl.innerHTML = "";
+          const total = state.totalElements;
+          const usingAll = state.pageSize <= 0;
+          const lo =
+            total === 0
+              ? 0
+              : usingAll
+              ? 1
+              : state.page * state.pageSize + 1;
+          const hi = usingAll
+            ? total
+            : Math.min((state.page + 1) * state.pageSize, total);
+
+          const prev = document.createElement("button");
+          prev.className = "btn btn-outline-secondary btn-sm";
+          prev.textContent = "Prev";
+          prev.disabled = usingAll || state.page <= 0;
+          prev.onclick = () => {
+            state.page = Math.max(0, state.page - 1);
+            reload();
+          };
+
+          const next = document.createElement("button");
+          next.className = "btn btn-outline-secondary btn-sm";
+          next.textContent = "Next";
+          next.disabled = usingAll || state.page >= state.totalPages - 1;
+          next.onclick = () => {
+            state.page = Math.min(state.totalPages - 1, state.page + 1);
+            reload();
+          };
+
+          const pageLabel = document.createElement("span");
+          pageLabel.className = "page-info";
+          pageLabel.textContent = `Page ${state.page + 1} / ${state.totalPages}`;
+
+          const sizeSel = document.createElement("select");
+          sizeSel.className = "form-select form-select-sm";
+          sizeSel.style.width = "auto";
+          const sizeOptions = [
+            { value: 10, label: "10 / page" },
+            { value: 25, label: "25 / page" },
+            { value: 50, label: "50 / page" },
+            { value: 100, label: "100 / page" },
+            { value: -1, label: "All" },
+          ];
+          sizeOptions.forEach(({ value, label }) => {
+            const o = document.createElement("option");
+            o.value = String(value);
+            o.textContent = label;
+            if (value === state.pageSize) o.selected = true;
+            sizeSel.appendChild(o);
+          });
+          sizeSel.onchange = (e) => {
+            state.pageSize = Number(e.target.value);
+            state.page = 0;
+            reload();
+          };
+
+          const info = document.createElement("span");
+          info.className = "page-info";
+          info.textContent = `${lo}-${hi} of ${total}`;
+
+          pagerEl.appendChild(prev);
+          pagerEl.appendChild(pageLabel);
+          pagerEl.appendChild(next);
+          pagerEl.appendChild(sizeSel);
+          pagerEl.appendChild(info);
+        }
+
+        enableColumnResize(tableEl);
+
+        // Header click → toggle sort + reload from backend
+        tableEl.querySelectorAll("thead th[data-key]").forEach((h) => {
+          if (h.dataset.sortable === "false") return;
+          h.addEventListener("click", () => {
+            const key = h.dataset.key;
+            if (state.sortKey === key) {
+              state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+            } else {
+              state.sortKey = key;
+              state.sortDir = "asc";
+            }
+            state.page = 0;
+            reload();
+          });
+        });
+
+        // Search input (debounced) → reload from backend
+        if (searchEl) {
+          let timer = null;
+          searchEl.addEventListener("input", (e) => {
+            state.search = e.target.value;
+            state.page = 0;
+            clearTimeout(timer);
+            timer = setTimeout(reload, 250);
+          });
+        }
+
+        // Render empty pager so the UI shows the controls before the first fetch
+        render();
+
+        return {
+          reload,
+        };
+      }
+
+      // --- Table instances (server-driven sort/filter/paginate) ---
+      const userDetailsTable = createDataTable({
+        tableId: "userDetails",
+        tbodyId: "user-details-tbody",
+        searchId: "user-details-search",
+        pagerId: "user-details-pager",
+        columns: [
+          { key: "username" },
+          { key: "enabled", type: "bool" },
+          { key: "markedForDeletion" },
+          { key: "firstSignup", type: "date" },
+          { key: "lastLogin", type: "date" },
+          { key: "firstSignupIp" },
+          { key: "lastLoginIp" },
+          { key: "failedLoginAttempts", type: "number" },
+          { key: "lockoutTime" },
+          { key: "passwordChangedAt", type: "date" },
+          { key: "email" },
+          { key: "otp" },
+          { key: "phone" },
+          { key: "firstName" },
+          { key: "lastName" },
+          { key: "notes" },
+        ],
+        defaultSortKey: "lastLogin",
+        defaultSortDir: "desc",
+        fetcher: (params) => fetchPage(ENDPOINTS.USER_DETAILS_PAGE, params),
+        onError: () => alert("Error fetching user details."),
+      });
+
+      const onlineUsersTable = createDataTable({
+        tableId: "onlineUsers",
+        tbodyId: "online-users-tbody",
+        searchId: "online-users-search",
+        pagerId: "online-users-pager",
+        columns: [{ key: "username" }, { key: "connections", type: "number" }],
+        defaultSortKey: "connections",
+        defaultSortDir: "desc",
+        fetcher: (params) => fetchPage(ENDPOINTS.ONLINE_USERS_PAGE, params),
+        onError: () => alert("Error fetching online users."),
+      });
+
+      const bfaSnapshotTable = createDataTable({
+        tableId: "bfaSnapshot",
+        tbodyId: "bfa-snapshot-tbody",
+        searchId: "bfa-snapshot-search",
+        pagerId: "bfa-snapshot-pager",
+        columns: [
+          { key: "username" },
+          { key: "sourceIp" },
+          { key: "attempts", type: "number" },
+          { key: "lockCount", type: "number" },
+          { key: "lockTimeout", type: "date" },
+          { key: "uniqueIpCount", type: "number" },
+          { key: "userLockTimeout", type: "date" },
+        ],
+        defaultSortKey: "username",
+        defaultSortDir: "asc",
+        fetcher: (params) => fetchPage(ENDPOINTS.BFA_SNAPSHOT_PAGE, params),
+        onError: () => alert("Error fetching BFA tracker data."),
+      });
+
+      /**
+       * 1) User details — reload the current backend page
+       */
+      function getUserDetails() {
+        return userDetailsTable.reload();
+      }
+
+      /**
+       * 2) WebSocket stats
        */
       async function getWebsocketStats() {
         try {
@@ -290,87 +682,51 @@
       }
 
       /**
-       * 3a) Fetch Brute Force Protection Tracker data (JSON) and populate table.
+       * 3) Online users — refresh both the table (paged) and the
+       *    "N user(s), M connection(s)" summary (computed over the full
+       *    map via the legacy unpaged endpoint, since the summary needs
+       *    the total connection count, not just the current page).
        */
-      async function getBfaTracker() {
+      async function getOnlineUsers() {
         try {
-          const response = await fetchData(ENDPOINTS.BFA_SNAPSHOT);
-          const trackerData = await response.json();
-          const tbody = document.getElementById("bfa-snapshot-tbody");
-          tbody.innerHTML = "";
-
-          for (const [username, tracker] of Object.entries(trackerData)) {
-            for (const [ip, details] of Object.entries(
-              tracker.ipAccessDetails || {}
-            )) {
-              const row = document.createElement("tr");
-
-              // Username
-              row.appendChild(
-                Object.assign(document.createElement("td"), {
-                  textContent: username,
-                })
-              );
-              // IP
-              row.appendChild(
-                Object.assign(document.createElement("td"), { textContent: ip })
-              );
-              // Attempts & lock count
-              row.appendChild(
-                Object.assign(document.createElement("td"), {
-                  textContent: details.attempts,
-                })
-              );
-              row.appendChild(
-                Object.assign(document.createElement("td"), {
-                  textContent: details.lockCount,
-                })
-              );
-
-              // Lock timeout (epoch → formatted)
-              const lockTd = document.createElement("td");
-              lockTd.textContent = formatEpochToLocal(details.lockTimeout);
-              row.appendChild(lockTd);
-
-              // Unique IPs & user lock timeout
-              row.appendChild(
-                Object.assign(document.createElement("td"), {
-                  textContent: (tracker.uniqueIpSet || []).length,
-                })
-              );
-              const userLockTd = document.createElement("td");
-              userLockTd.textContent = formatEpochToLocal(tracker.lockTimeout);
-              row.appendChild(userLockTd);
-
-              tbody.appendChild(row);
-            }
-          }
+          const response = await fetchData(ENDPOINTS.ONLINE_USERS);
+          const data = await response.json();
+          const totalUsers = Object.keys(data || {}).length;
+          const totalConnections = Object.values(data || {}).reduce(
+            (sum, n) => sum + (Number(n) || 0),
+            0
+          );
+          document.getElementById(
+            "online-users-summary"
+          ).textContent = `${totalUsers} user(s), ${totalConnections} connection(s)`;
         } catch (err) {
           console.error(err);
-          alert("Error fetching BFA tracker data.");
         }
+        return onlineUsersTable.reload();
       }
 
       /**
-       * 3b) Download Brute Force Protection Tracker Snapshot (as file).
+       * 4) BFA tracker — reload the current backend page (flattening is
+       *    now done server-side).
+       */
+      function getBfaTracker() {
+        return bfaSnapshotTable.reload();
+      }
+
+      /**
+       * Download BFA snapshot
        */
       async function downloadBfaSnapshot() {
         try {
           const response = await fetchData(ENDPOINTS.BFA_SNAPSHOT_FILE);
           const blob = await response.blob();
-
-          // Generate a timestamp-based filename
           const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
           const fileName = `brute_force_tracker_snapshot_${timestamp}.json`;
-
-          // Create a link to download the file
           const url = URL.createObjectURL(blob);
           const link = document.createElement("a");
           link.href = url;
           link.download = fileName;
           link.click();
-
-          // Cleanup
           URL.revokeObjectURL(url);
           alert("Snapshot downloaded successfully!");
         } catch (error) {
@@ -380,31 +736,24 @@
       }
 
       /**
-       * 4) Unlock user based on form submission.
+       * Unlock user
        */
       async function unlockUser(event) {
-        event.preventDefault(); // Prevent default form submission
-
+        event.preventDefault();
         const form = document.getElementById("unlock-user-form");
-        const formData = new FormData(form); // Get form data
-
-        const username = formData.get("username").trim(); // Retrieve the username
-        const csrfToken = formData.get("_csrf"); // Retrieve the CSRF token
-
+        const formData = new FormData(form);
+        const username = formData.get("username").trim();
+        const csrfToken = formData.get("_csrf");
         if (!username) {
           alert("Please enter a username to unlock.");
           return;
         }
-
         try {
-          // PUT request to unlock the user
           await fetchData(
             ENDPOINTS.UNLOCK_USER,
             "PUT",
             { username },
-            {
-              "X-CSRF-TOKEN": csrfToken,
-            }
+            { "X-CSRF-TOKEN": csrfToken }
           );
           alert("User unlocked successfully!");
         } catch (error) {
@@ -414,7 +763,7 @@
       }
 
       /**
-       * 5) Fetch and show server time.
+       * Server time
        */
       async function showServerTime() {
         try {
@@ -429,10 +778,10 @@
       }
     </script>
     <script>
-      // Once the DOM is ready, fetch all the admin data
       document.addEventListener("DOMContentLoaded", () => {
         getUserDetails();
         getWebsocketStats();
+        getOnlineUsers();
         getBfaTracker();
         showServerTime();
       });

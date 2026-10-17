@@ -1,5 +1,6 @@
 import json
 import logging
+import random
 import time
 import websocket
 import asyncio
@@ -44,10 +45,14 @@ class P2PManager(WSInterface):
         self.is_auto_reconnecting = False
         self._suppress_auto_reconnect_once = False
         self.is_clipboard_monitoring_on = False
+        self._reconnect_attempts = 0
 
         # Fragment variables
         self.sending_fragment_id = ""  # The id of the fragment currently being sent
-        self.receiving_fragments: dict = {}  # Mapping: fragmentid:str -> fragment:list[str]
+        # Mapping: fragment_id:str -> {"started_at": float, "fragments": list[str]}
+        # The started_at timestamp lets us drop stale partials so a dropped final
+        # fragment doesn't leak memory forever.
+        self.receiving_fragments: dict = {}
         self.sending_fragment_stats: str = None
         self.receiving_fragment_stats: str = None
 
@@ -206,6 +211,13 @@ class P2PManager(WSInterface):
                 pass
             return False, msg
 
+    def _next_reconnect_delay(self) -> float:
+        attempts = max(0, self._reconnect_attempts)
+        base = RECONNECT_WS_TIMER * (RECONNECT_WS_BACKOFF_MULTIPLIER ** attempts)
+        base = min(base, RECONNECT_WS_MAX_TIMER)
+        jitter = base * RECONNECT_WS_JITTER_RATIO
+        return max(1.0, base + random.uniform(-jitter, jitter))
+
     def _on_ws_close(self, ws, *args):
         self.ws_client = None
         self.is_connected = False
@@ -221,12 +233,26 @@ class P2PManager(WSInterface):
                     message="Check your internet connection. Retrying...",
                 )
                 self.first_conn_lost = False
-            time.sleep(RECONNECT_WS_TIMER)  # seconds
+            delay = self._next_reconnect_delay()
+            self._reconnect_attempts += 1
+            logging.info(
+                "P2P signaling reconnect attempt %d in %.1fs",
+                self._reconnect_attempts,
+                delay,
+            )
+            slept = 0.0
+            while slept < delay and not self.disconnected:
+                step = min(0.5, delay - slept)
+                time.sleep(step)
+                slept += step
+            if self.disconnected:
+                return
             self.connect()
 
     def manual_reconnect(self):
         if not self.is_auto_reconnecting:
             self.disconnected = False
+            self._reconnect_attempts = 0
             self._suppress_auto_reconnect_once = self.ws_client is not None
             self.ws_close()
             self.is_connected = False
@@ -294,6 +320,7 @@ class P2PManager(WSInterface):
 
             self.is_connected = True
             self.is_auto_reconnecting = False
+            self._reconnect_attempts = 0
             self.loop.call_soon_threadsafe(self._restart_dc_heartbeat)
             if not self.first_conn_lost:
                 self.first_conn_lost = True
@@ -769,6 +796,26 @@ class P2PManager(WSInterface):
         self.receiving_fragments = {}
         self.receiving_fragment_stats = None
 
+    def _prune_stale_receiving_fragments(self) -> None:
+        """Drop partial fragment buffers older than P2P_FRAGMENT_TTL_SEC.
+        Why: if a peer disconnects mid-transfer, the final fragment never arrives
+        and the buffer would leak indefinitely otherwise.
+        """
+        if not self.receiving_fragments:
+            return
+        now = time.monotonic()
+        stale = [
+            fid
+            for fid, entry in self.receiving_fragments.items()
+            if isinstance(entry, dict)
+            and (now - entry.get("started_at", now)) > P2P_FRAGMENT_TTL_SEC
+        ]
+        for fid in stale:
+            logging.debug("P2P: dropping stale fragment buffer %s", fid)
+            self.receiving_fragments.pop(fid, None)
+        if not self.receiving_fragments:
+            self.receiving_fragment_stats = None
+
     def _receive(self, frame: any) -> str:
         try:
             body = json.loads(frame)
@@ -794,14 +841,17 @@ class P2PManager(WSInterface):
 
             # Fragmented message handling
             if metadata is not None and metadata["isFragmented"]:
+                self._prune_stale_receiving_fragments()
                 self.receiving_fragment_stats = (
                     f"{metadata['index'] + 1}/{metadata['totalFragments']}"
                 )
                 if metadata["id"] in self.receiving_fragments:
-                    self.receiving_fragments[metadata["id"]][metadata["index"]] = payload
+                    entry = self.receiving_fragments[metadata["id"]]
+                    entry["fragments"][metadata["index"]] = payload
                     if metadata["index"] == metadata["totalFragments"] - 1:
-                        if all(s != "" for s in self.receiving_fragments[metadata["id"]]):
-                            payload = "".join(self.receiving_fragments[metadata["id"]])
+                        if all(s != "" for s in entry["fragments"]):
+                            payload = "".join(entry["fragments"])
+                            self.receiving_fragments.pop(metadata["id"], None)
                         else:
                             self.reset_receiving_fragments()
                             logging.error(
@@ -812,8 +862,13 @@ class P2PManager(WSInterface):
                         return
                 else:
                     self.reset_receiving_fragments()
-                    self.receiving_fragments[metadata["id"]] = [""] * metadata["totalFragments"]
-                    self.receiving_fragments[metadata["id"]][metadata["index"]] = payload
+                    self.receiving_fragments[metadata["id"]] = {
+                        "started_at": time.monotonic(),
+                        "fragments": [""] * metadata["totalFragments"],
+                    }
+                    self.receiving_fragments[metadata["id"]]["fragments"][
+                        metadata["index"]
+                    ] = payload
                     return
 
             if self.config.data["cipher_enabled"]:

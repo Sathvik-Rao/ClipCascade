@@ -189,7 +189,7 @@ class LoginForm:
         while True:
             ssl_ca_bundle = (
                 input(
-                    f"ssl ca bundle path (optional) [{self.config.data.get('ssl_ca_bundle') or ''}]: "
+                    f"ssl ca bundle path [{self.config.data.get('ssl_ca_bundle') or ''}]: "
                 )
                 or (self.config.data.get("ssl_ca_bundle") or "")
             ).strip()
