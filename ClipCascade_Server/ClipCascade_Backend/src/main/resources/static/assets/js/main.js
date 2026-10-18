@@ -803,6 +803,9 @@ function sendTextToPeers(textVal) {
              ========== COMMON MONITORING =========
          ----------------------------------------- */
 function displayIncomingMessage(message) {
+  // Peer keep-alives are connection traffic, not clipboard entries.
+  if (message && message._cc_keepalive === true) return;
+
   const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
   const filename = `${timestamp}.txt`;
   const payload = message.payload || "";
