@@ -316,14 +316,19 @@ public class ClipCascadeController {
         return ResponseEntityUtil.executeWithResponse(() -> "OK");
     }
 
+    @GetMapping("/server-version")
+    public ResponseEntity<?> getServerVersion() {
+        return ResponseEntityUtil.executeWithResponse(
+                () -> Collections.singletonMap("version", ServerConstants.APP_VERSION));
+    }
+
     @GetMapping("/admin/server-version")
     public ResponseEntity<?> getServerVersion(
             @AuthenticationPrincipal UserPrincipal userPrincipal) {
 
         return ResponseEntityUtil.conditionalExecuteOrError(
                 userPrincipal.isAdmin(),
-                () -> ResponseEntityUtil.executeWithResponse(
-                        () -> Collections.singletonMap("version", ServerConstants.APP_VERSION)),
+                this::getServerVersion,
                 "Forbidden");
     }
 
@@ -333,23 +338,23 @@ public class ClipCascadeController {
 
         return ResponseEntityUtil.conditionalExecuteOrError(
                 userPrincipal.isAdmin(),
-                () -> ResponseEntityUtil.executeWithResponse(
-                        () -> {
-                            try {
-                                // get latest version
-                                RestTemplate restTemplate = new RestTemplate();
-                                String versionJson = restTemplate.getForObject(
-                                        ServerConstants.VERSION_URL,
-                                        String.class);
-
-                                // convert json string to map
-                                ObjectMapper objectMapper = new ObjectMapper();
-                                return objectMapper.readValue(versionJson, Map.class);
-                            } catch (Exception e) {
-                                throw new RuntimeException(e);
-                            }
-                        }),
+                this::getLatestServerVersion,
                 "Forbidden");
+    }
+
+    @GetMapping("/latest-server-version")
+    public ResponseEntity<?> getLatestServerVersion() {
+        return ResponseEntityUtil.executeWithResponse(() -> {
+            try {
+                RestTemplate restTemplate = new RestTemplate();
+                String versionJson = restTemplate.getForObject(
+                        ServerConstants.VERSION_URL, String.class);
+                ObjectMapper objectMapper = new ObjectMapper();
+                return objectMapper.readValue(versionJson, Map.class);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     @GetMapping("/admin/websocket-stats")

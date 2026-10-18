@@ -309,8 +309,10 @@ class Application:
                 else:
                     key = "linux_non_gui"
 
-            if response_data[key] != APP_VERSION:
-                return [True, response_data[key], APP_VERSION, RELEASE_URL]
+            latest_version = response_data[key]
+            if not isinstance(latest_version, str) or not latest_version.strip():
+                raise ValueError("Invalid latest version")
+            return [latest_version != APP_VERSION, latest_version, APP_VERSION, RELEASE_URL]
         except Exception as e:
             logging.error(f"Error checking for new version: {e}")
         return [False, "", APP_VERSION, RELEASE_URL]

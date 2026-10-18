@@ -131,11 +131,19 @@ label small {
   display: none;
 }
 .footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
   flex-shrink: 0;
   background-color: #222;
   color: #ccc;
   padding: 10px;
   text-align: left;
+}
+.footer #server-version {
+  margin-left: auto;
+  text-align: right;
 }
 .footer .footer-links {
   margin: 0;

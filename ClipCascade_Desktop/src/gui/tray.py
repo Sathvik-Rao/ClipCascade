@@ -142,6 +142,12 @@ class TaskbarPanel:
             Menu: The menu for the tray icon.
         """
         # Menu items
+        version_suffix = (
+            " (latest)"
+            if self.new_version_available is not None
+            and self.new_version_available[1] == APP_VERSION
+            else ""
+        )
         menu_items = [
             Menu.SEPARATOR,
             item("🗒️ Open Logs", self._open_logs),
@@ -152,7 +158,7 @@ class TaskbarPanel:
             item("💟 Donate", self._open_donate),
             item("🌐 GitHub", self._open_github),
             Menu.SEPARATOR,
-            item(f"ℹ️ Version v{APP_VERSION}", None, enabled=False),
+            item(f"ℹ️ Version v{APP_VERSION}{version_suffix}", None, enabled=False),
             Menu.SEPARATOR,
             item("🔒 Logoff and Quit", self._on_logoff),
             item("❌ Quit", self._on_quit),

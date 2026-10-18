@@ -14,6 +14,7 @@ const SELECTORS = {
 
   // Header / Common
   updateLink: "#update-link",
+  serverVersion: "#server-version",
   advanceLink: "#advance-link",
   changeUsernameLink: "#change-username-link",
   changePasswordLink: "#change-password-link",
@@ -65,8 +66,8 @@ const ENDPOINTS = {
   websocketSend: "/app/cliptext",
   websocketReceive: "/user/queue/cliptext",
   adminLogoutUserSession: "/admin/logout-user-session",
-  serverVersion: "/admin/server-version",
-  latestServerVersion: "/admin/latest-server-version",
+  serverVersion: "/server-version",
+  latestServerVersion: "/latest-server-version",
   serverMode: "/server-mode",
   stunUrl: "/stun-url",
   donationStatus: "/donation-status",
@@ -121,23 +122,32 @@ $(function () {
         showSection(SELECTORS.advanceLink);
         showSection(SELECTORS.changeUsernameLink);
         showSection(SELECTORS.adminSection);
-
-        // check for server updates
-        fetchServerVersion()
-          .then((serverVersion) => {
-            fetchLatestServerVersion()
-              .then((latestServerVersion) => {
-                if (serverVersion.version !== latestServerVersion.server) {
-                  $(SELECTORS.updateLink).text(
-                    `🔄 Update (${serverVersion.version} ➞ ${latestServerVersion.server})`
-                  );
-                  showSection(SELECTORS.updateLink);
-                }
-              })
-              .catch(() => {});
-          })
-          .catch(() => {});
       }
+
+      // Show the read-only server version to every signed-in user.
+      fetchServerVersion()
+        .then((serverVersion) => {
+          $(SELECTORS.serverVersion).text(`Version v${serverVersion.version}`);
+          fetchLatestServerVersion()
+            .then((latestServerVersion) => {
+              if (
+                typeof latestServerVersion.server !== "string" ||
+                !latestServerVersion.server.trim()
+              ) {
+                return;
+              }
+              if (serverVersion.version === latestServerVersion.server) {
+                $(SELECTORS.serverVersion).text(`Version v${serverVersion.version} (latest)`);
+              } else if (userData.role === "ADMIN") {
+                $(SELECTORS.updateLink).text(
+                  `🔄 Update (${serverVersion.version} ➞ ${latestServerVersion.server})`
+                );
+                showSection(SELECTORS.updateLink);
+              }
+            })
+            .catch(() => {});
+        })
+        .catch(() => {});
 
       // Initialize event handlers
       initEventHandlers();

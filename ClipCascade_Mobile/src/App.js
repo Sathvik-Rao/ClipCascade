@@ -299,8 +299,8 @@ export default function App() {
             throw new Error('Network response was not ok');
           }
           const data = await response.json();
-          if (data && data.android !== APP_VERSION) {
-            setNewVersionAvailable([true, data.android]);
+          if (data && typeof data.android === 'string' && data.android.trim()) {
+            setNewVersionAvailable([data.android !== APP_VERSION, data.android]);
           }
         } catch (e) {
           // Silent catch
@@ -1122,7 +1122,9 @@ export default function App() {
               </TouchableOpacity>
             )}
           </View>
-          <Text style={styles.versionText}>v{APP_VERSION}</Text>
+          <Text style={styles.versionText}>
+            v{APP_VERSION}{newVersionAvailable[1] === APP_VERSION ? ' (latest)' : ''}
+          </Text>
         </ScrollView>
       )}
 
@@ -1372,7 +1374,9 @@ export default function App() {
               <Text style={styles.footerText}>HOMEPAGE</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.versionText}>v{APP_VERSION}</Text>
+          <Text style={styles.versionText}>
+            v{APP_VERSION}{newVersionAvailable[1] === APP_VERSION ? ' (latest)' : ''}
+          </Text>
         </ScrollView>
       )}
     </SafeAreaView>

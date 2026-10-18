@@ -118,6 +118,12 @@ class TaskbarPanel:
 
     def create_menu(self, item_: tuple = None):
         # Menu items
+        version_suffix = (
+            " (latest)"
+            if self.new_version_available is not None
+            and self.new_version_available[1] == APP_VERSION
+            else ""
+        )
         menu_items = [
             "",  # Menu Separator
             ("🗒️  Open Logs", self._open_logs),
@@ -128,7 +134,7 @@ class TaskbarPanel:
             ("💟 Donate", self._open_donate),
             ("🌐 GitHub", self._open_github),
             "",  # Menu Separator
-            (f"ℹ️  Version v{APP_VERSION}", None),  # Read-only version display
+            (f"ℹ️  Version v{APP_VERSION}{version_suffix}", None),  # Read-only version display
             "",  # Menu Separator
             ("🔒 Logoff and Quit", self._on_logoff),
             ("❌ Quit", self._on_quit),
