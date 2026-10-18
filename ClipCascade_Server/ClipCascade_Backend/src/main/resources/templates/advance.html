@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:th="https://www.thymeleaf.org">
   <head>
+    <!-- Apply the saved or system theme before the page is painted. -->
+    <script src="/assets/js/theme.js"></script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ClipCascade - Advance</title>
@@ -116,11 +118,22 @@
         background: rgba(0, 123, 255, 0.25);
       }
     </style>
+    <link rel="stylesheet" href="/assets/css/theme.css" />
   </head>
-  <body>
+  <body class="advance-page">
     <div class="container">
       <!-- Website Header -->
-      <header class="mb-4">
+      <header class="mb-4 theme-header">
+        <button type="button" id="theme-toggle" class="theme-toggle" role="switch"
+        aria-label="Dark mode" aria-checked="false" title="Switch to dark mode">
+        <svg class="theme-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" />
+        </svg>
+        <svg class="theme-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M20.5 14A9 9 0 0 1 10 3.5 9 9 0 1 0 20.5 14Z" />
+        </svg>
+      </button>
         <h1 class="text-center text-secondary">ClipCascade - Advance</h1>
       </header>
 
