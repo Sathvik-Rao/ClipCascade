@@ -206,13 +206,12 @@ class LoginForm(tk.Tk):
         self.login_button.pack()
 
         # Extra Configurations Toggle Label
-        # macOS: show advanced fields by default
-        self.show_extra = PLATFORM == MACOS
+        self.show_extra = False
         self.toggle_normal_color = "#007acc"  # neutral blue with strong contrast
         self.toggle_hover_color = "#005a9e"  # slightly darker for hover feedback
         self.toggle_label = tk.Label(
             main_frame,
-            text="Hide Extra Config" if PLATFORM == MACOS else "Enable Extra Config",
+            text="Enable Extra Config",
             fg=self.toggle_normal_color,
             cursor="hand2",
             font=font.Font(family="Helvetica", size=13, underline=True),
@@ -232,10 +231,6 @@ class LoginForm(tk.Tk):
 
         # Extra Configuration Frame with Scrollbar
         self.extra_frame_container = ttk.Frame(main_frame)
-        if PLATFORM == MACOS:
-            self.extra_frame_container.pack(fill=tk.BOTH, expand=True)
-        else:
-            self.extra_frame_container.pack_forget()
 
         # Create a canvas inside the extra_frame_container
         self.extra_canvas = tk.Canvas(
