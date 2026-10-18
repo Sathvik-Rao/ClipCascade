@@ -8,6 +8,7 @@ import webbrowser
 from pystray import Icon, MenuItem as item, Menu
 from PIL import Image, ImageDraw
 
+from utils.main_thread import on_main_thread
 from core.config import Config
 from gui.info import CustomDialog
 from core.constants import *
@@ -41,6 +42,7 @@ class TaskbarPanel:
         self.disconnecting_items = None
         self.is_file_download_enabled = False
         self.file_download_items = None
+        self._stopped = threading.Event()
         self.previous_stats: str = ""
         self.previous_stats_items = None
 
@@ -202,20 +204,22 @@ class TaskbarPanel:
 
         return Menu(*menu_items)
 
+    @on_main_thread
     def update_menu(self, item_: tuple = None):
-        self.icon.menu = self.create_menu(item_=item_)
+        if not self._stopped.is_set():
+            self.icon.menu = self.create_menu(item_=item_)
 
     def update_stats(self):
         threading.Thread(target=self._update_stats_thread, daemon=True).start()
 
     def _update_stats_thread(self):
-        while True:
+        while not self._stopped.is_set():
             current_stats = self.ws_interface.get_stats()
             if current_stats is not None and self.previous_stats != current_stats:
                 self.previous_stats = current_stats
                 self.previous_stats_items = (current_stats, 0, None)
                 self.update_menu()
-            time.sleep(1)  # Sleep for 1 second
+            self._stopped.wait(1)
 
     @staticmethod
     def open_webbrowser(url):
@@ -320,6 +324,7 @@ class TaskbarPanel:
                 msg_type="error",
             ).mainloop()
 
+    @on_main_thread
     def enable_files_download(self, files):
         self.is_file_download_enabled = True
         self.icon.icon = self.create_clipboard_icon_with_dot()
@@ -330,6 +335,7 @@ class TaskbarPanel:
         )
         self.update_menu()
 
+    @on_main_thread
     def disable_files_download(self):
         self.is_file_download_enabled = False
         self.file_download_items = None
@@ -384,6 +390,7 @@ class TaskbarPanel:
             ).mainloop()
 
     def _on_logoff(self, icon, item):
+        self._stopped.set()
         try:
             if self.on_logoff_callback:
                 self.on_logoff_callback()
@@ -395,5 +402,6 @@ class TaskbarPanel:
             ).mainloop()
 
     def _on_quit(self, icon, item):
+        self._stopped.set()
         self.icon.stop()
         self.root.quit()

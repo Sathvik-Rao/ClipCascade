@@ -1,4 +1,4 @@
-from urllib.parse import urlparse
+import re
 
 Byte = {"LF": "\x0A", "NULL": "\x00"}
 
@@ -11,55 +11,46 @@ class Frame:
         self.body = "" if body is None else body
 
     def __str__(self):
+        # STOMP content-length counts UTF-8 bytes, not Python characters.
+        headers = dict(self.headers)
+        headers["content-length"] = str(len(self.body.encode("utf-8")))
         lines = [self.command]
-        skipContentLength = "content-length" in self.headers
-        if skipContentLength:
-            del self.headers["content-length"]
-
-        for name in self.headers:
-            value = self.headers[name]
-            lines.append("" + name + ":" + value)
-
-        if self.body is not None and not skipContentLength:
-            lines.append("content-length:" + str(len(self.body)))
-
-        lines.append(Byte["LF"] + self.body)
-        return Byte["LF"].join(lines)
+        lines.extend(f"{name}:{value}" for name, value in headers.items())
+        return Byte["LF"].join(lines) + "\n\n" + self.body
 
     @staticmethod
     def unmarshall_single(data):
-        # A single malformed frame should not kill the receive thread.
-        # Return None so callers can skip the frame without losing the connection.
+        """Parse one complete frame without truncating multiline or UTF-8 bodies."""
         try:
-            if data is None:
+            if isinstance(data, str):
+                data = data.encode("utf-8")
+            if not isinstance(data, bytes):
                 return None
-            lines = data.split(Byte["LF"])
-            if not lines:
+            # CRLF is allowed for header line endings, but body bytes are opaque.
+            separator = re.search(b"\r?\n\r?\n", data)
+            if separator is None:
                 return None
-
+            lines = data[:separator.start()].decode("utf-8").splitlines()
+            if not lines or not lines[0].strip():
+                return None
             command = lines[0].strip()
-            if not command:
-                return None
             headers = {}
-
-            # get all headers
-            i = 1
-            while i < len(lines) and lines[i] != "":
-                # Skip header lines that don't contain a ':' separator instead of crashing.
-                if ":" in lines[i]:
-                    (key, value) = lines[i].split(":", 1)
-                    headers[key] = value
-                i += 1
-
-            # set body to None if no body line exists or the body marker indicates empty
-            if i + 1 >= len(lines):
-                body = None
+            for line in lines[1:]:
+                key, value = line.split(":", 1)
+                headers.setdefault(key, value)
+            body = data[separator.end():]
+            if "content-length" in headers:
+                length = int(headers["content-length"])
+                if length < 0 or len(body) <= length or body[length:length + 1] != b"\x00":
+                    return None
+                body = body[:length]
             else:
-                raw_body = lines[i + 1]
-                body = None if raw_body == Byte["NULL"] or raw_body == "" else raw_body[:-1]
-
-            return Frame(command, headers, body)
-        except Exception:
+                end = body.find(b"\x00")
+                if end < 0:
+                    return None
+                body = body[:end]
+            return Frame(command, headers, body.decode("utf-8"))
+        except (ValueError, TypeError, UnicodeError):
             return None
 
     @staticmethod

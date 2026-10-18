@@ -57,7 +57,7 @@ class ClipboardManager:
 
     @staticmethod
     def hash_clipboard(clipboard: str) -> int:
-        return xxhash.xxh64(clipboard).intdigest()
+        return xxhash.xxh64(clipboard.encode("utf-8") if isinstance(clipboard, str) else clipboard).intdigest()
 
     def is_clipboard_size_within_limit(
         self, clipboard_content: any, type_: str = "text"
@@ -215,7 +215,9 @@ class ClipboardManager:
             self.reset_files_download()
 
             if payload_type == "text":
-                if PLATFORM == WINDOWS or PLATFORM == MACOS:
+                if PLATFORM == MACOS:
+                    clipboard_monitor.write_to_pasteboard(payload, pasteboard.String)
+                elif PLATFORM == WINDOWS:
                     pyperclip.copy(payload)
                 elif PLATFORM.startswith(LINUX):
                     if XMODE and self.is_x_clipboard_owner:

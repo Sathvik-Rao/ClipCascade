@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ClipCascade"
-version = "3.2.0"
+version = "3.3.0"
 description = "ClipCascade is a lightweight utility that automatically syncs the clipboard across devices, no key press required."
 authors = [{ name = "Sathvik Rao", email = "sathvik.poladi@gmail.com" }]
 license = { file = "LICENSE" }
@@ -32,19 +32,23 @@ classifiers = [
 ]
 
 dependencies = [
-    "Pillow>=10.4.0",
+    "Pillow>=10.4.0; python_version < '3.14'",
+    "Pillow==12.0.0; python_version >= '3.14'",
     "plyer==2.1.0",
     "pycryptodome==3.20.0",
     "pystray==0.19.5",
     "Requests==2.32.3",
     "websocket_client==1.8.0",
-    "xxhash==3.5.0",
+    "xxhash>=3.5.0,<5",
     "beautifulsoup4==4.12.3",
-    "aiortc==1.10.0",
+    "aiortc==1.10.0; python_version < '3.14'",
+    "aiortc==1.14.0; python_version >= '3.14'",
+    "av>=16.0.0,<17; python_version >= '3.14'",
     # Platform-specific dependencies
     "pyfiglet==1.0.2; sys_platform == 'linux'",
     "pyperclip==1.8.2; sys_platform == 'win32' or sys_platform == 'darwin'",
     "pywin32==306; sys_platform == 'win32'",
+    "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
     "certifi; sys_platform == 'darwin'",
     "pyobjus==1.2.3; sys_platform == 'darwin'",
     "pasteboard==0.4.0; sys_platform == 'darwin'",
