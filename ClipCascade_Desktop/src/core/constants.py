@@ -176,9 +176,7 @@ elif PLATFORM.startswith(LINUX):
 
 
 # core constants
-RECONNECT_WS_TIMER = 10  # seconds (base delay; retained for backward-compat)
-RECONNECT_WS_MAX_TIMER = 120  # seconds (cap for exponential backoff)
-RECONNECT_WS_BACKOFF_MULTIPLIER = 2.0  # doubles each consecutive failure
+RECONNECT_WS_TIMER = 10  # seconds between failed attempts, before jitter
 RECONNECT_WS_JITTER_RATIO = 0.25  # +/-25% jitter to avoid thundering herd
 WEBSOCKET_TIMEOUT = 3000  # milliseconds
 

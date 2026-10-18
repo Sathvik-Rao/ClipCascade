@@ -4,8 +4,7 @@ import random
 import threading
 
 from core.constants import (
-    RECONNECT_WS_TIMER, RECONNECT_WS_MAX_TIMER,
-    RECONNECT_WS_BACKOFF_MULTIPLIER, RECONNECT_WS_JITTER_RATIO,
+    RECONNECT_WS_TIMER, RECONNECT_WS_JITTER_RATIO,
 )
 
 
@@ -13,7 +12,7 @@ class ReconnectMixin:
     def _init_reconnect(self):
         self._connect_lock = threading.Lock()
         self._retry_lock = threading.Lock()
-        self._retry_stop = threading.Event()
+        self._retry_wake = threading.Event()
         self._retry_thread = None
         self._reconnect_attempts = 0
 
@@ -26,33 +25,40 @@ class ReconnectMixin:
             return self._connect_once()
 
     def _next_reconnect_delay(self):
-        # Saturate before exponentiation, even after months offline.
+        if self._reconnect_attempts == 0:
+            return 0.0
+        # Keep retries responsive throughout an outage, spreading clients with jitter.
         base = float(RECONNECT_WS_TIMER)
-        for _ in range(min(self._reconnect_attempts, 64)):
-            base = min(RECONNECT_WS_MAX_TIMER, base * RECONNECT_WS_BACKOFF_MULTIPLIER)
         jitter = base * RECONNECT_WS_JITTER_RATIO
-        return min(RECONNECT_WS_MAX_TIMER, max(1.0, base + random.uniform(-jitter, jitter)))
+        return max(1.0, base + random.uniform(-jitter, jitter))
 
     def _start_reconnect(self, immediate=False):
         with self._retry_lock:
             if self.disconnected or self.is_login_phase:
                 return
-            self._retry_stop.clear()
             if self._retry_thread is not None:
+                if immediate:
+                    self._reconnect_attempts = 0
+                    self._retry_wake.set()
                 return
+            self._retry_wake.clear()
             self.is_auto_reconnecting = True
-            self._retry_thread = threading.Thread(target=self._retry_loop, args=(immediate,), daemon=True)
+            self._retry_thread = threading.Thread(target=self._retry_loop, daemon=True)
             self._retry_thread.start()
 
-    def _retry_loop(self, immediate=False):
+    def _retry_loop(self):
         try:
             while not self.disconnected and not self.is_connected:
-                delay = 0 if immediate else self._next_reconnect_delay()
-                immediate = False
-                self._reconnect_attempts += 1
-                logging.info("WebSocket reconnect attempt %d in %.1fs", self._reconnect_attempts, delay)
-                if self._retry_stop.wait(delay):
-                    break
+                with self._retry_lock:
+                    delay = self._next_reconnect_delay()
+                    attempt = self._reconnect_attempts + 1
+                logging.info("WebSocket reconnect attempt %d in %.1fs", attempt, delay)
+                self._retry_wake.wait(delay)
+                with self._retry_lock:
+                    self._retry_wake.clear()
+                    if self.disconnected or self.is_connected:
+                        break
+                    self._reconnect_attempts += 1
                 try:
                     self.connect()
                 except Exception:
@@ -66,11 +72,13 @@ class ReconnectMixin:
                 self._start_reconnect()
 
     def _stop_reconnect(self):
-        self.disconnected = True
-        self.is_auto_reconnecting = False
-        self._retry_stop.set()
+        with self._retry_lock:
+            self.disconnected = True
+            self.is_auto_reconnecting = False
+            self._retry_wake.set()
 
     def manual_reconnect(self):
-        self.disconnected = False
-        self._reconnect_attempts = 0
+        with self._retry_lock:
+            self.disconnected = False
+            self._reconnect_attempts = 0
         self._start_reconnect(immediate=True)
