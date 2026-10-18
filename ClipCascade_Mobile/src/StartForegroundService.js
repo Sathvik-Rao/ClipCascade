@@ -39,7 +39,7 @@ module.exports = async (inputData = null) => {
   const RECONNECT_WS_TIMER = 10000; // 10 seconds
   const HEARTBEAT_INTERVAL = 20000; // 20 seconds
   const FRAGMENT_SIZE = 15360; // 15 KiB
-  const FRAGMENT_TTL_MS = 60000; // drop partial fragment buffers older than 60s
+  const FRAGMENT_TTL_MS = 60000; // drop partial fragment buffers idle for 60s
   const STOMP_DEACTIVATE_TIMEOUT_MS = 5000; // bound the STOMP deactivate() wait
 
   // forground service
@@ -666,15 +666,15 @@ module.exports = async (inputData = null) => {
             await resetP2PMsg();
           };
 
-          // Drop partial fragment buffers older than FRAGMENT_TTL_MS so a peer
+          // Drop partial fragment buffers idle for FRAGMENT_TTL_MS so a peer
           // that disconnects mid-transfer can't leak memory forever.
           const pruneStaleReceivingFragments = () => {
             const now = Date.now();
             let pruned = 0;
             for (const fid of Object.keys(receivingFragments)) {
               const entry = receivingFragments[fid];
-              if (entry && typeof entry.startedAt === 'number'
-                  && (now - entry.startedAt) > FRAGMENT_TTL_MS) {
+              if (entry && typeof entry.lastReceivedAt === 'number'
+                  && (now - entry.lastReceivedAt) > FRAGMENT_TTL_MS) {
                 delete receivingFragments[fid];
                 pruned += 1;
               }
@@ -1084,6 +1084,7 @@ module.exports = async (inputData = null) => {
                 if (metadata.id in receivingFragments) {
                   const entry = receivingFragments[metadata.id];
                   entry.fragments[metadata.index] = cb;
+                  entry.lastReceivedAt = Date.now();
 
                   // If this is the last fragment, try to combine
                   if (metadata.index === metadata.totalFragments - 1) {
@@ -1107,7 +1108,7 @@ module.exports = async (inputData = null) => {
                 } else {
                   await resetReceivingFragments();
                   receivingFragments[metadata.id] = {
-                    startedAt: Date.now(),
+                    lastReceivedAt: Date.now(),
                     fragments: Array(metadata.totalFragments).fill(''),
                   };
                   receivingFragments[metadata.id].fragments[metadata.index] = cb;

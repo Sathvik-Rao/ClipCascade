@@ -49,8 +49,8 @@ class P2PManager(ReconnectMixin, WSInterface):
 
         # Fragment variables
         self.sending_fragment_id = ""  # The id of the fragment currently being sent
-        # Mapping: fragment_id:str -> {"started_at": float, "fragments": list[str]}
-        # The started_at timestamp lets us drop stale partials so a dropped final
+        # Mapping: fragment_id:str -> {"last_received_at": float, "fragments": list[str]}
+        # Refresh the timestamp on each fragment so a dropped final
         # fragment doesn't leak memory forever.
         self.receiving_fragments: dict = {}
         self.sending_fragment_stats: str = None
@@ -769,7 +769,7 @@ class P2PManager(ReconnectMixin, WSInterface):
         self.receiving_fragment_stats = None
 
     def _prune_stale_receiving_fragments(self) -> None:
-        """Drop partial fragment buffers older than P2P_FRAGMENT_TTL_SEC.
+        """Drop partial fragment buffers idle for P2P_FRAGMENT_TTL_SEC.
         Why: if a peer disconnects mid-transfer, the final fragment never arrives
         and the buffer would leak indefinitely otherwise.
         """
@@ -780,7 +780,7 @@ class P2PManager(ReconnectMixin, WSInterface):
             fid
             for fid, entry in self.receiving_fragments.items()
             if isinstance(entry, dict)
-            and (now - entry.get("started_at", now)) > P2P_FRAGMENT_TTL_SEC
+            and (now - entry.get("last_received_at", now)) > P2P_FRAGMENT_TTL_SEC
         ]
         for fid in stale:
             logging.debug("P2P: dropping stale fragment buffer %s", fid)
@@ -820,6 +820,7 @@ class P2PManager(ReconnectMixin, WSInterface):
                 if metadata["id"] in self.receiving_fragments:
                     entry = self.receiving_fragments[metadata["id"]]
                     entry["fragments"][metadata["index"]] = payload
+                    entry["last_received_at"] = time.monotonic()
                     if metadata["index"] == metadata["totalFragments"] - 1:
                         if all(s != "" for s in entry["fragments"]):
                             payload = "".join(entry["fragments"])
@@ -835,7 +836,7 @@ class P2PManager(ReconnectMixin, WSInterface):
                 else:
                     self.reset_receiving_fragments()
                     self.receiving_fragments[metadata["id"]] = {
-                        "started_at": time.monotonic(),
+                        "last_received_at": time.monotonic(),
                         "fragments": [""] * metadata["totalFragments"],
                     }
                     self.receiving_fragments[metadata["id"]]["fragments"][

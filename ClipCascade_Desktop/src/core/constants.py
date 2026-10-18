@@ -191,7 +191,7 @@ P2P_DC_HEARTBEAT_INTERVAL_SEC = 20
 # thread does not stall (which would also block processing ASSIGNED_ID / PEER_LIST).
 P2P_PC_CLOSE_TIMEOUT_SEC = 5.0
 
-# Drop partially-received fragment buffers older than this many seconds. Prevents
+# Drop partially-received fragment buffers idle for this many seconds. Prevents
 # memory leak when a sender drops the final fragment mid-transfer.
 P2P_FRAGMENT_TTL_SEC = 60
 
