@@ -13,6 +13,11 @@ from core.config import Config
 from gui.info import CustomDialog
 from core.constants import *
 
+if PLATFORM == MACOS:
+    from gui.macos_tray import MacOSTrayIcon as TrayIcon
+else:
+    TrayIcon = Icon
+
 if PLATFORM != WINDOWS:
     import subprocess
 
@@ -61,7 +66,7 @@ class TaskbarPanel:
         self.is_connected = True
 
         # Create the tray icon
-        self.icon = Icon(
+        self.icon = TrayIcon(
             "ClipCascade", self.create_clipboard_icon(), menu=self.create_menu()
         )
 
