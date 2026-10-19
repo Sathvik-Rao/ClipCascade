@@ -148,11 +148,23 @@ module.exports = async (inputData = null) => {
 
         // fragment string into chunks
         const fragmentString = async (str, fragmentSize) => {
+          if (!Number.isInteger(fragmentSize) || fragmentSize < 4) {
+            throw new Error(
+              'fragmentSize must be an integer of at least 4 bytes',
+            );
+          }
           const bytes = textEncoder.encode(str); // convert to UTF-8 bytes
           const fragments = [];
-          for (let i = 0; i < bytes.length; i += fragmentSize) {
-            const chunk = bytes.slice(i, i + fragmentSize);
+          let start = 0;
+          while (start < bytes.length) {
+            let end = Math.min(start + fragmentSize, bytes.length);
+            // Move the boundary back to the start of any split UTF-8 character.
+            while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) {
+              end -= 1;
+            }
+            const chunk = bytes.slice(start, end);
             fragments.push(textDecoder.decode(chunk));
+            start = end;
           }
           return fragments;
         };
