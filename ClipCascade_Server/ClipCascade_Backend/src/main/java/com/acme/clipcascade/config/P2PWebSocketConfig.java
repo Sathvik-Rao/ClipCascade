@@ -2,6 +2,7 @@ package com.acme.clipcascade.config;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
+import com.acme.clipcascade.service.LiveWebSocketService;
 import org.springframework.lang.NonNull;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
@@ -15,17 +16,21 @@ public class P2PWebSocketConfig implements WebSocketConfigurer {
     private final P2PWebSocketHandler p2pWebSocketHandler;
     private final ClipCascadeProperties clipCascadeProperties;
 
+    private final LiveWebSocketService liveWebSockets;
+
     public P2PWebSocketConfig(
             P2PWebSocketHandler p2pWebSocketHandler,
-            ClipCascadeProperties clipCascadeProperties) {
+            ClipCascadeProperties clipCascadeProperties,
+            LiveWebSocketService liveWebSockets) {
 
         this.p2pWebSocketHandler = p2pWebSocketHandler;
+        this.liveWebSockets = liveWebSockets;
         this.clipCascadeProperties = clipCascadeProperties;
     }
 
     @Override
     public void registerWebSocketHandlers(@NonNull WebSocketHandlerRegistry registry) {
-        registry.addHandler(p2pWebSocketHandler, "/p2psignaling")
+        registry.addHandler(liveWebSockets.decorate(p2pWebSocketHandler), "/p2psignaling")
                 .setAllowedOrigins(clipCascadeProperties.getAllowedOrigins());
     }
 }

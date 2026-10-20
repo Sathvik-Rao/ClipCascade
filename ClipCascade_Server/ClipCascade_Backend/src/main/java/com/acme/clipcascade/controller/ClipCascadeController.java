@@ -564,16 +564,25 @@ public class ClipCascadeController {
                 "Forbidden");
     }
 
+    @DeleteMapping("/admin/logout-all-sessions")
+    public ResponseEntity<String> logoutAllUserSessions(
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        if (!userPrincipal.isAdmin()) {
+            return ResponseEntity.status(403).body("Forbidden");
+        }
+        return ResponseEntityUtil.executeWithResponse(sessionService::logoutAllUsers);
+    }
+
     @DeleteMapping("/admin/logout-user-session")
     public ResponseEntity<String> logoutUserSession(
             @AuthenticationPrincipal UserPrincipal userPrincipal,
             @RequestBody Map<String, String> payload) {
 
-        return ResponseEntityUtil.conditionalExecuteOrError(
-                userPrincipal.isAdmin(),
-                () -> ResponseEntityUtil.executeWithResponse(
-                        () -> sessionService.logoutAllSessions(payload.get("username"))),
-                "Forbidden");
+        if (!userPrincipal.isAdmin()) {
+            return ResponseEntity.status(403).body("Forbidden");
+        }
+        return ResponseEntityUtil.executeWithResponse(
+                () -> sessionService.logoutAllSessions(payload.get("username")));
     }
 
     @DeleteMapping("/logout-session")
@@ -633,7 +642,7 @@ public class ClipCascadeController {
         return ResponseEntityUtil.buildResponse(
                 facadeUserService.updatePassword(
                         userPrincipal.getUsername(),
-                        payload.get("newPassword")) != null,
+                        payload.get("newPassword"), sessionService) != null,
                 "Password updated successfully",
                 "Invalid user or password");
     }
@@ -649,7 +658,7 @@ public class ClipCascadeController {
                 () -> ResponseEntityUtil.buildResponse(
                         facadeUserService.updatePassword(
                                 payload.get("username"),
-                                payload.get("newPassword")) != null,
+                                payload.get("newPassword"), sessionService) != null,
                         "Password updated successfully",
                         "Invalid user or password"),
                 "Forbidden");

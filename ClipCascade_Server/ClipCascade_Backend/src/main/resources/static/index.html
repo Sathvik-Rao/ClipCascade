@@ -191,12 +191,11 @@
         <hr />
         <p>
           <strong>Note:</strong> After editing or deleting a user, the server
-          will automatically log out the associated session. If the user has an
-          active WebSocket connection, a server restart will be required to
-          terminate the connection. Additionally, the server enforces a unique
-          username policy, preventing the creation of usernames that are
-          currently in use or have been used. These usernames will be available
-          for reuse after the server is restarted.
+          will automatically revoke their login sessions and disconnect their
+          active WebSocket connections on this server. No restart is needed for
+          this. Deleted or renamed usernames remain reserved until the server
+          restarts. Usernames still assigned to an existing account cannot be
+          reused, even after a restart.
         </p>
 
         <div class="admin-toolbar">
@@ -209,6 +208,9 @@
             style="margin-left: 10px"
           >
             Add New User
+          </button>
+          <button id="revoke-all-sessions-btn" class="btn btn-warning" style="margin-left: 10px">
+            Revoke All Sessions
           </button>
           <input
             id="admin-users-search"
@@ -229,7 +231,7 @@
               <tr>
                 <th data-key="username" class="sortable" style="width: 250px">Username<span class="sort-indicator"></span></th>
                 <th data-key="enabled" class="sortable" style="width: 120px">Enabled<span class="sort-indicator"></span></th>
-                <th data-key="actions" data-sortable="false" style="width: 160px">Actions</th>
+                <th data-key="actions" data-sortable="false" style="width: 320px">Actions</th>
               </tr>
             </thead>
             <tbody id="users-tbody">

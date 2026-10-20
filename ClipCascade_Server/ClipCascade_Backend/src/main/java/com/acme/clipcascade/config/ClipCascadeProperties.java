@@ -238,6 +238,9 @@ public class ClipCascadeProperties {
     @Value("${CC_SESSION_TIMEOUT:525960m}")
     private String sessionTimeout;
 
+    @Value("${app.session.persistence.enabled:false}")
+    private boolean sessionPersistenceEnabled;
+
     /*
      * Server P2P enabled (default: false)
      * note: Ensure configuration is included in the application.properties file as
@@ -449,6 +452,10 @@ public class ClipCascadeProperties {
         return sessionTimeout;
     }
 
+    public boolean isSessionPersistenceEnabled() {
+        return sessionPersistenceEnabled;
+    }
+
     public boolean isP2pEnabled() {
         return p2pEnabled;
     }
@@ -521,6 +528,7 @@ public class ClipCascadeProperties {
                 ",\n serverDbHibernateDialect='" + getServerDbHibernateDialect() + "'" +
                 ",\n port='" + getPort() + "'" +
                 ",\n sessionTimeout='" + getSessionTimeout() + "'" +
+                ",\n sessionPersistenceEnabled=" + isSessionPersistenceEnabled() +
                 ",\n p2pEnabled='" + isP2pEnabled() + "'" +
                 ",\n p2pStunUrl='" + getP2pStunUrl() + "'" +
                 ",\n maxWsGlobalConnections='" + getMaxWsGlobalConnections() + "'" +

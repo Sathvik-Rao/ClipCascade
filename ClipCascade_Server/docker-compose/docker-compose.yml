@@ -91,9 +91,15 @@ services:
       # - CC_PORT=8080
 
       # # ⚙️ Configure the server session timeout.
-      # # Note: On restart, the session will be logged out.
+      # # Note: On restart, sessions are logged out unless persistence below is enabled.
       # # Default: 525960m  (1 year)
       # - CC_SESSION_TIMEOUT=525960m
+
+      # # ⚙️ Keep login sessions across server restarts in the existing H2/PostgreSQL database.
+      # # Requires persistent database storage (the /database volume above for H2).
+      # # Disabling and starting the server deletes saved sessions. Use HTTPS and protect backups.
+      # # Default: false
+      # - CC_SESSION_PERSISTENCE_ENABLED=false
 
       # # ⚙️ Maximum number of global WebSocket connections allowed (default: -1 for unlimited).
       # # Supported only in P2P mode.

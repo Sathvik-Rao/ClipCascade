@@ -1,8 +1,10 @@
 package com.acme.clipcascade.model;
 
+import java.io.Serial;
 import java.util.Collection;
 import java.util.Collections;
 
+import org.springframework.security.core.CredentialsContainer;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -10,17 +12,26 @@ import org.springframework.security.core.userdetails.UserDetails;
 import com.acme.clipcascade.constants.RoleConstants;
 import com.acme.clipcascade.service.BruteForceProtectionService;
 
-public class UserPrincipal implements UserDetails {
+public class UserPrincipal implements UserDetails, CredentialsContainer {
 
-    private Users user;
+    @Serial
+    private static final long serialVersionUID = 1L;
 
-    private final BruteForceProtectionService bruteForceProtectionService;
+    private final String username;
+    private final String role;
+    private final boolean enabled;
+    // Neither password hashes nor application services belong in persisted sessions.
+    private transient String password;
+    private final transient BruteForceProtectionService bruteForceProtectionService;
 
     public UserPrincipal(
             Users user,
             BruteForceProtectionService bruteForceProtectionService) {
 
-        this.user = user;
+        this.username = user.getUsername();
+        this.role = user.getRole();
+        this.enabled = user.getEnabled();
+        this.password = user.getPassword();
         this.bruteForceProtectionService = bruteForceProtectionService;
     }
 
@@ -28,28 +39,34 @@ public class UserPrincipal implements UserDetails {
     public boolean isAccountNonLocked() {
 
         // validate attempt using brute force protection
-        return bruteForceProtectionService.recordAndValidateAttempt(user.getUsername());
+        return bruteForceProtectionService == null
+                || bruteForceProtectionService.recordAndValidateAttempt(username);
     }
 
     @Override
     public boolean isEnabled() {
-        return user.getEnabled();
+        return enabled;
     }
 
     @Override
     public String getPassword() {
-        return user.getPassword();
+        return password;
     }
 
     @Override
     public String getUsername() {
-        return user.getUsername();
+        return username;
     }
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         // Return a collection of roles
-        return Collections.singleton(new SimpleGrantedAuthority(user.getRole()));
+        return Collections.singleton(new SimpleGrantedAuthority(role));
+    }
+
+    @Override
+    public void eraseCredentials() {
+        this.password = null;
     }
 
     public boolean isAdmin() {

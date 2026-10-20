@@ -110,12 +110,17 @@ public class FacadeUserService {
         return userService.deleteUser(username);
     }
 
-    public Users updatePassword(String username, String newPassword) {
+    public Users updatePassword(String username, String newPassword, SessionService sessionService) {
         if (!UserValidator.isValidUsername(username)
                 || !UserValidator.isValidPassword(newPassword)) {
 
             return null;
         }
+
+        if (!userService.userExists(username)) {
+            return null;
+        }
+        sessionService.logoutAllSessions(username);
 
         userInfoService.setPasswordChangeTime(username, TimeUtility.getCurrentTimeInSeconds());
 
