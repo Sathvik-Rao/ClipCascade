@@ -22,7 +22,13 @@ import CheckBox from '@react-native-community/checkbox';
 import notifee from '@notifee/react-native';
 import { pbkdf2 } from '@react-native-module/pbkdf2';
 import { Buffer } from 'buffer';
-import { pickDirectory, isCancel } from '@react-native-documents/picker';
+import {
+  pick,
+  pickDirectory,
+  errorCodes,
+  isErrorWithCode,
+} from '@react-native-documents/picker';
+
 import { sha3_512 } from 'js-sha3';
 import { DOMParser } from 'react-native-html-parser';
 
@@ -33,6 +39,9 @@ import {
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
+
+const isCancel = error =>
+  isErrorWithCode(error) && error.code === errorCodes.OPERATION_CANCELED;
 
 /*
  * These files are part of the ClipCascade project.
@@ -110,6 +119,8 @@ export default function App() {
   const [data, setData] = useState({
     cipher_enabled: 'true',
     server_url: 'http://localhost:8080',
+    ssl_ca_bundle: '',
+    ssl_ca_bundle_name: '',
     websocket_url: '',
     username: '',
     hashed_password: '',
@@ -214,6 +225,10 @@ export default function App() {
         // get data from async storage and initialize data hook
         let data_s = await getAsyncStorage();
         setData(data_s);
+        await NativeModules.ServerTlsModule.configure(
+          data_s.server_url,
+          data_s.ssl_ca_bundle,
+        );
 
         // get foreground service status from work manager
         let foregroundServiceStoppedRunning = await getDataFromAsyncStorage(
@@ -771,6 +786,23 @@ export default function App() {
     }
   };
 
+  const importCaBundle = async () => {
+    try {
+      const [file] = await pick({ allowMultiSelection: false, type: ['*/*'] });
+      const pem = await NativeModules.ServerTlsModule.importBundle(file.uri);
+      setData(previous => ({
+        ...previous,
+        ssl_ca_bundle: pem,
+        ssl_ca_bundle_name: file.name || 'Imported CA bundle',
+      }));
+      setLoginStatusMessage('CA bundle imported. Log in to save and use it.');
+    } catch (error) {
+      if (!isCancel(error)) {
+        setLoginStatusMessage('❌ ' + error);
+      }
+    }
+  };
+
   // Function to handle login button press
   const handleLogin = async (pass = null, data_s_c = null) => {
     try {
@@ -797,6 +829,11 @@ export default function App() {
 
       // remove trailing slashes in server_url
       data_s.server_url = data_s.server_url.replace(/\/+$/, '');
+
+      await NativeModules.ServerTlsModule.configure(
+        data_s.server_url,
+        data_s.ssl_ca_bundle,
+      );
 
       let iteration = 0;
       let loginResult;
@@ -1096,6 +1133,44 @@ export default function App() {
                     handleInputChange('enable_file_sharing', String(newValue))
                   }
                 />
+              </View>
+              <View style={styles.row}>
+                <View style={styles.caDetails}>
+                  <Text style={styles.caLabel}>SSL CA bundle:</Text>
+                  <Text
+                    style={styles.caFileName}
+                    numberOfLines={1}
+                    ellipsizeMode="middle"
+                  >
+                    {data.ssl_ca_bundle_name || 'Default system certificates'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.caButton}
+                  onPress={importCaBundle}
+                  accessibilityRole="button"
+                  accessibilityLabel="Import SSL CA bundle"
+                >
+                  <Text style={styles.caButtonText}>
+                    {data.ssl_ca_bundle ? 'Replace' : 'Import'}
+                  </Text>
+                </TouchableOpacity>
+                {data.ssl_ca_bundle !== '' && (
+                  <TouchableOpacity
+                    style={[styles.caButton, styles.caRemoveButton]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove SSL CA bundle"
+                    onPress={() =>
+                      setData(previous => ({
+                        ...previous,
+                        ssl_ca_bundle: '',
+                        ssl_ca_bundle_name: '',
+                      }))
+                    }
+                  >
+                    <Text style={styles.caButtonText}>Remove</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </>
           )}
@@ -1417,6 +1492,34 @@ const styles = StyleSheet.create({
   label: {
     flex: 1,
     fontSize: 16,
+  },
+  caDetails: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  caLabel: {
+    fontSize: 16,
+  },
+  caFileName: {
+    fontSize: 13,
+    color: '#777',
+    marginTop: 3,
+  },
+  caButton: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#5081ab',
+    borderRadius: 5,
+  },
+  caButtonText: {
+    color: '#5081ab',
+    fontSize: 14,
+  },
+  caRemoveButton: {
+    marginLeft: 8,
   },
   input: {
     flex: 2,

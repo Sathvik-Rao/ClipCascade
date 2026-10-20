@@ -1081,9 +1081,14 @@ Defines the STOMP broker password for external message handling.
 - **Enable Notification**: Turn on this option to receive notifications about WebSocket disconnections and reconnections.
 - **Enable Encryption (recommended)**: Enabling this option activates end-to-end encryption for clipboard data. This ensures that all clipboard content is encrypted before leaving your device. Refer to the section below on E2E encryption for detailed instructions on how it works and how to configure the `salt` and `hash rounds`.
 
+- **SSL CA bundle**: Use a PEM/CRT certificate bundle when your server uses a private/internal CA (for example, corporate PKI). Leave it empty to use default public CA/OS trust. The bundle affects HTTPS/WSS verification only; HTTP/WS connections are still allowed, and TLS certificate and hostname verification remain enabled.
+
+  **Desktop:** Enter the path to a PEM file containing your root CA or certificate chain.
+
+  **Android:** Tap **Import** to select a certificate bundle (up to 1 MiB). The app saves a copy after successful login and restores it for background connections. Imported certificates are trusted alongside system CAs only for the configured server hostname; other hostnames use system trust. Tap **Replace** to import another bundle, or **Remove** and log in to return to system trust only.
+
   #### Desktop (Specific):
   - **Default File Download Location**: When this path is set, the app will save files directly to the specified location without prompting the user each time the "Download Files" button is clicked.
-  - **SSL CA bundle**: Path to a PEM file containing your root CA (or full chain) used for HTTPS/WSS verification. Leave it empty to use default public CA/OS trust. Use this field when your ClipCascade server certificate is signed by a private/internal CA (for example, corporate PKI).
   
   #### Android (Specific):
   - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.

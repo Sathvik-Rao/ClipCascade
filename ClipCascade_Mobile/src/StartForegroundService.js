@@ -47,6 +47,11 @@ module.exports = async (inputData = null) => {
     return new Promise(async () => {
       try {
         const { NativeBridgeModule } = NativeModules;
+        // Restore trust before either WebSocket mode starts, including headless boot.
+        await NativeModules.ServerTlsModule.configure(
+          await getDataFromAsyncStorage('server_url'),
+          (await getDataFromAsyncStorage('ssl_ca_bundle')) || '',
+        );
         const textEncoder = new TextEncoder();
         const textDecoder = new TextDecoder();
 
