@@ -8,5 +8,11 @@
     "name": "app.bfa.cache.enabled",
     "type": "java.lang.Boolean",
     "description": "Enables the Brute Force Protection Tracker cache"
+  },
+  {
+    "name": "app.session.persistence.enabled",
+    "type": "java.lang.Boolean",
+    "defaultValue": false,
+    "description": "Enables persistent HTTP session storage in the database"
   }
 ]}
