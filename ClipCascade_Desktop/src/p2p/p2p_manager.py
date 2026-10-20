@@ -325,6 +325,36 @@ class P2PManager(ReconnectMixin, WSInterface):
         self.is_connected = False
         self._disconnect_future = self.schedule_task(self._disconnect())
 
+    def shutdown(self, timeout=5):
+        """Finish pending disconnect work and stop the loop at application exit.
+
+        Called from the shutdown worker, never from AppKit or the asyncio loop.
+        Ordinary tray Disconnect keeps the loop alive for reconnection.
+        """
+        self._stop_reconnect()
+        deadline = time.monotonic() + timeout
+        try:
+            if self._disconnect_future is not None:
+                self._disconnect_future.result(timeout=timeout * 0.8)
+        finally:
+            try:
+                # Signaling/ICE tasks can still be alive after peers close.
+                # Cancel them on their own loop before releasing the loop.
+                self.schedule_task(self._cancel_shutdown_tasks()).result(
+                    timeout=max(0, deadline - time.monotonic())
+                )
+            finally:
+                self.loop.call_soon_threadsafe(self.loop.stop)
+                self.loop_thread.join(timeout=max(0, deadline - time.monotonic()))
+                if not self.loop_thread.is_alive():
+                    self.loop.close()
+
+    async def _cancel_shutdown_tasks(self):
+        tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
     async def _disconnect(self):
         """
         Stops the clipboard manager, closes the WebSocket,

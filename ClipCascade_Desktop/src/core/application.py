@@ -62,6 +62,7 @@ class Application:
             self.stomp_manager = STOMPManager(self.config)
             self.p2p_manager = P2PManager(self.config)
             self.cipher_manager = CipherManager(self.config)
+            self._macos_shutdown_complete = False
         except Exception as e:
             CustomDialog(
                 f"An error occurred during application initialization: {e}",
@@ -347,6 +348,22 @@ class Application:
             Echo(GITHUB_URL.center(53))
             Echo("*" * 53)
 
+    def _shutdown_macos(self, logoff=False):
+        """Run on a worker while Tk continues servicing native UI callbacks."""
+        try:
+            if logoff:
+                self.logoff_and_exit()
+            else:
+                self._get_ws_manager().disconnect()
+        finally:
+            try:
+                # Both managers are constructed at startup, even in relay mode.
+                # Wait for P2P cleanup before stopping its asyncio worker.
+                self.p2p_manager.shutdown()
+            finally:
+                self._cleanup_lock_file()
+                self._macos_shutdown_complete = True
+
     def run(self):
         try:
             self.banner()
@@ -367,6 +384,7 @@ class Application:
                 donation_url=donation_url,
                 ws_interface=self._get_ws_manager(),
                 config=self.config,
+                **({"on_shutdown_callback": self._shutdown_macos} if PLATFORM == MACOS else {}),
             )
             self._get_ws_manager().set_tray_ref(sys_tray)
             sys_tray.run()
@@ -377,9 +395,10 @@ class Application:
                 msg + "\nCheck logs in project directory", msg_type="error"
             ).mainloop()
         finally:
-            try:
-                self._get_ws_manager().disconnect()
-            except Exception:
-                pass
-            if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
-                self._cleanup_lock_file()
+            if not (PLATFORM == MACOS and self._macos_shutdown_complete):
+                try:
+                    self._get_ws_manager().disconnect()
+                except Exception:
+                    pass
+                if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
+                    self._cleanup_lock_file()

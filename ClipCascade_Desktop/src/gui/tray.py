@@ -15,11 +15,14 @@ from core.constants import *
 
 if PLATFORM == MACOS:
     from gui.macos_tray import MacOSTrayIcon as TrayIcon
+    from clipboard import clipboard_monitor_mac
 else:
     TrayIcon = Icon
 
 if PLATFORM != WINDOWS:
     import subprocess
+
+MACOS_SHUTDOWN_TIMEOUT = 15
 
 
 class TaskbarPanel:
@@ -33,6 +36,7 @@ class TaskbarPanel:
         donation_url: str = None,
         ws_interface=None,  # type= interfaces.ws_interface.WSInterface
         config: Config = None,
+        on_shutdown_callback: callable = None,
     ):
         self.on_connect_callback = on_connect_callback
         self.on_disconnect_callback = on_disconnect_callback
@@ -42,6 +46,9 @@ class TaskbarPanel:
         self.donation_url = donation_url
         self.ws_interface = ws_interface
         self.config = config
+        self.on_shutdown_callback = on_shutdown_callback
+        self._shutdown_done = threading.Event()
+        self._shutdown_watchdog = None
 
         self.is_disconnecting = False
         self.disconnecting_items = None
@@ -75,7 +82,60 @@ class TaskbarPanel:
         self.update_stats()  # Start the stats update thread
 
     def run(self):
-        self.icon.run()
+        if PLATFORM != MACOS:
+            self.icon.run()
+            return
+
+        # Tk owns NSApplication and queues macOS quit Apple events in Tcl.
+        # Running only NSApplication.run() can leave those events unprocessed
+        # until a mouse event happens to wake Tk. Let Tk drive both toolkits.
+        self.root.createcommand("::tk::mac::Quit", lambda: self._on_quit(None, None))
+        self.icon.run_detached()
+        try:
+            self.root.mainloop()
+        finally:
+            self._stopped.set()
+            try:
+                self.icon.stop()
+            finally:
+                self.root.tk.deletecommand("::tk::mac::Quit")
+                self.root.destroy()
+
+    def _begin_macos_shutdown(self, logoff=False):
+        if self._stopped.is_set():
+            return
+        self._stopped.set()
+        logging.info("macOS shutdown requested (logoff=%s)", logoff)
+        # Leave the watchdog armed after the UI closes, including while Python
+        # waits for remaining threads. Normal process exit kills this daemon.
+        self._shutdown_watchdog = threading.Timer(MACOS_SHUTDOWN_TIMEOUT, os._exit, args=(1,))
+        self._shutdown_watchdog.daemon = True
+        self._shutdown_watchdog.start()
+
+        # Release native pasteboard objects on the main thread before workers
+        # start closing connections. Their later stop() calls are idempotent.
+        clipboard_monitor_mac.stop()
+
+        def cleanup():
+            try:
+                if self.on_shutdown_callback:
+                    self.on_shutdown_callback(logoff)
+            except Exception:
+                logging.exception("macOS shutdown cleanup failed")
+            finally:
+                self._shutdown_done.set()
+
+        threading.Thread(target=cleanup, name="MacOSShutdown", daemon=True).start()
+        self._poll_macos_shutdown()
+
+    def _poll_macos_shutdown(self):
+        # Network cleanup may dispatch pasteboard work back to the main thread.
+        # Keep servicing Tk/AppKit until it finishes; never join it here.
+        if self._shutdown_done.is_set():
+            logging.info("macOS shutdown cleanup finished")
+            self.root.quit()
+        else:
+            self.root.after(50, self._poll_macos_shutdown)
 
     def _create_clipboard_base_image(self):
         """Shared clipboard artwork for normal tray icon and file-download badge variant."""
@@ -401,6 +461,9 @@ class TaskbarPanel:
             ).mainloop()
 
     def _on_logoff(self, icon, item):
+        if PLATFORM == MACOS:
+            self._begin_macos_shutdown(logoff=True)
+            return
         self._stopped.set()
         try:
             if self.on_logoff_callback:
@@ -413,6 +476,9 @@ class TaskbarPanel:
             ).mainloop()
 
     def _on_quit(self, icon, item):
+        if PLATFORM == MACOS:
+            self._begin_macos_shutdown()
+            return
         self._stopped.set()
         self.icon.stop()
         self.root.quit()
