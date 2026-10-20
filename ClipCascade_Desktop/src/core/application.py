@@ -39,6 +39,7 @@ class Application:
         data_file_path=DATA_FILE_NAME,
         mutex_identifier=MUTEX_NAME,
     ):
+        self._macos_shutdown_complete = False
         try:
             self.log_file_path = os.path.join(
                 get_program_files_directory(), log_file_path
@@ -62,7 +63,6 @@ class Application:
             self.stomp_manager = STOMPManager(self.config)
             self.p2p_manager = P2PManager(self.config)
             self.cipher_manager = CipherManager(self.config)
-            self._macos_shutdown_complete = False
         except Exception as e:
             CustomDialog(
                 f"An error occurred during application initialization: {e}",
@@ -349,7 +349,7 @@ class Application:
             Echo("*" * 53)
 
     def _shutdown_macos(self, logoff=False):
-        """Run on a worker while Tk continues servicing native UI callbacks."""
+        """Run on a worker while AppKit continues servicing native UI callbacks."""
         try:
             if logoff:
                 self.logoff_and_exit()

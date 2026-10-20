@@ -14,6 +14,7 @@ from gui.info import CustomDialog
 from core.constants import *
 
 if PLATFORM == MACOS:
+    from PyObjCTools import AppHelper
     from gui.macos_tray import MacOSTrayIcon as TrayIcon
     from clipboard import clipboard_monitor_mac
 else:
@@ -86,19 +87,15 @@ class TaskbarPanel:
             self.icon.run()
             return
 
-        # Tk owns NSApplication and queues macOS quit Apple events in Tcl.
-        # Running only NSApplication.run() can leave those events unprocessed
-        # until a mouse event happens to wake Tk. Let Tk drive both toolkits.
-        self.root.createcommand("::tk::mac::Quit", lambda: self._on_quit(None, None))
-        self.icon.run_detached()
+        # PyObjC callbacks re-entering Tk's macOS mainloop can corrupt its
+        # saved Python thread state. Let AppKit own the tray's event loop.
         try:
-            self.root.mainloop()
+            self.icon.run_with_shutdown(lambda: self._on_quit(None, None))
         finally:
             self._stopped.set()
             try:
                 self.icon.stop()
             finally:
-                self.root.tk.deletecommand("::tk::mac::Quit")
                 self.root.destroy()
 
     def _begin_macos_shutdown(self, logoff=False):
@@ -130,12 +127,12 @@ class TaskbarPanel:
 
     def _poll_macos_shutdown(self):
         # Network cleanup may dispatch pasteboard work back to the main thread.
-        # Keep servicing Tk/AppKit until it finishes; never join it here.
+        # Keep servicing AppKit until it finishes; never join it here.
         if self._shutdown_done.is_set():
             logging.info("macOS shutdown cleanup finished")
-            self.root.quit()
+            self.icon.stop()
         else:
-            self.root.after(50, self._poll_macos_shutdown)
+            AppHelper.callLater(0.05, self._poll_macos_shutdown)
 
     def _create_clipboard_base_image(self):
         """Shared clipboard artwork for normal tray icon and file-download badge variant."""
