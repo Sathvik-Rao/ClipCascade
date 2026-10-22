@@ -307,3 +307,8 @@ class Application:
                     fcntl.flock(self.lock_file, fcntl.LOCK_UN)
                     self.lock_file.close()
                     os.remove(self.mutex_identifier)
+            if PLATFORM == MACOS:
+                # pystray's NSApplication loop + the undestroyed tkinter interpreter + native daemon
+                # threads (websocket-client, pasteboard, aiortc) stall finalization; force exit instead.
+                logging.shutdown()
+                os._exit(0)
