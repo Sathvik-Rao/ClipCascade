@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  WiX v3 installer source for ClipCascade Windows MSI.
+  Ported from the Advanced Installer (.aip) configuration.
+
+  Build (CI does this automatically):
+      candle ClipCascade.wxs -arch x64 -dProductVersion=3.3.0 \
+                              -dStagingDir=<path-to-staged-files>
+      light  ClipCascade.wixobj -ext WixUIExtension -out ClipCascade.msi
+
+  StagingDir must contain:
+      ClipCascade.exe
+      LICENSE
+      LICENSE.rtf
+      readme.txt
+      logo.ico
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+
+  <Product Id="*"
+           Name="ClipCascade"
+           Language="1033"
+           Version="$(var.ProductVersion)"
+           Manufacturer="Sathvik Rao Poladi"
+           UpgradeCode="f432e76f-3a4c-4d2a-bacf-528cc7029a35">
+
+    <Package InstallerVersion="500"
+             Compressed="yes"
+             InstallScope="perMachine"
+             Description="ClipCascade $(var.ProductVersion) Installer"
+             Manufacturer="Sathvik Rao Poladi" />
+
+    <MajorUpgrade
+        Schedule="afterInstallInitialize"
+        DowngradeErrorMessage="A newer version of ClipCascade is already installed." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="ClipCascadeIcon.ico" SourceFile="$(var.StagingDir)\logo.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ClipCascadeIcon.ico" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/Sathvik-Rao/ClipCascade" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/Sathvik-Rao/ClipCascade" />
+
+    <!-- =================== Directory layout =================== -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="APPDIR" Name="ClipCascade" />
+      </Directory>
+
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="StartMenuShortcutDir" Name="ClipCascade" />
+      </Directory>
+
+      <Directory Id="DesktopFolder" />
+      <Directory Id="StartupFolder" />
+    </Directory>
+
+    <!-- =================== Application files =================== -->
+    <DirectoryRef Id="APPDIR">
+      <Component Id="cmpClipCascadeExe" Guid="*">
+        <File Id="filClipCascadeExe"
+              Source="$(var.StagingDir)\ClipCascade.exe"
+              KeyPath="yes" />
+      </Component>
+
+      <Component Id="cmpLicense" Guid="*">
+        <File Id="filLicense" Source="$(var.StagingDir)\LICENSE" KeyPath="yes" />
+      </Component>
+
+      <Component Id="cmpLicenseRtf" Guid="*">
+        <File Id="filLicenseRtf" Source="$(var.StagingDir)\LICENSE.rtf" KeyPath="yes" />
+      </Component>
+
+      <Component Id="cmpReadme" Guid="*">
+        <File Id="filReadme" Source="$(var.StagingDir)\readme.txt" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- =================== Start Menu shortcut =================== -->
+    <DirectoryRef Id="StartMenuShortcutDir">
+      <Component Id="cmpStartMenuShortcut" Guid="*">
+        <Shortcut Id="StartMenuShortcut"
+                  Name="ClipCascade"
+                  Description="Sync your clipboard across devices"
+                  Target="[APPDIR]ClipCascade.exe"
+                  WorkingDirectory="APPDIR"
+                  Icon="ClipCascadeIcon.ico" />
+        <RemoveFolder Id="rmStartMenuShortcutDir" On="uninstall" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\ClipCascade\Install"
+                       Name="StartMenu"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- =================== Desktop shortcut =================== -->
+    <DirectoryRef Id="DesktopFolder">
+      <Component Id="cmpDesktopShortcut" Guid="*">
+        <Shortcut Id="DesktopShortcut"
+                  Name="ClipCascade"
+                  Description="Sync your clipboard across devices"
+                  Target="[APPDIR]ClipCascade.exe"
+                  WorkingDirectory="APPDIR"
+                  Icon="ClipCascadeIcon.ico" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\ClipCascade\Install"
+                       Name="Desktop"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- =================== Startup (auto-launch on login) =================== -->
+    <DirectoryRef Id="StartupFolder">
+      <Component Id="cmpStartupShortcut" Guid="*">
+        <Shortcut Id="StartupShortcut"
+                  Name="ClipCascade"
+                  Target="[APPDIR]ClipCascade.exe"
+                  WorkingDirectory="APPDIR"
+                  Icon="ClipCascadeIcon.ico" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\ClipCascade\Install"
+                       Name="Startup"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- =================== Feature tree =================== -->
+    <Feature Id="MainFeature" Title="ClipCascade" Level="1" Display="expand">
+      <ComponentRef Id="cmpClipCascadeExe" />
+      <ComponentRef Id="cmpLicense" />
+      <ComponentRef Id="cmpLicenseRtf" />
+      <ComponentRef Id="cmpReadme" />
+      <ComponentRef Id="cmpStartMenuShortcut" />
+      <ComponentRef Id="cmpDesktopShortcut" />
+      <ComponentRef Id="cmpStartupShortcut" />
+    </Feature>
+
+    <!-- =================== UI =================== -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.StagingDir)\LICENSE.rtf" />
+    <Property Id="WIXUI_INSTALLDIR" Value="APPDIR" />
+    <UIRef Id="WixUI_InstallDir" />
+
+  </Product>
+</Wix>

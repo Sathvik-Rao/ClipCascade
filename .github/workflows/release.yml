@@ -1,0 +1,645 @@
+name: Release
+
+# Fires on every push to main. The merged PR title determines which platforms
+# are built and how versions are bumped. Non-releasing types (docs:, chore:, ...)
+# exit gracefully in the `prep` job.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write       # version.json bump commit + tag + release
+  pull-requests: read   # look up the merged PR
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # =====================================================================
+  # PREP: calculate unpublished versions locally. Public version.json stays
+  # unchanged until all builds and GitHub Release publication succeed.
+  # =====================================================================
+  prep:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip release]')"
+    outputs:
+      release:        ${{ steps.parse.outputs.release }}
+      bumps_json:     ${{ steps.parse.outputs.bumps_json }}
+      bumped_keys:    ${{ steps.bump.outputs.bumped_keys }}
+      release_version: ${{ steps.bump.outputs.release_version }}
+      tag:            ${{ steps.tag.outputs.tag }}
+      pr_number:      ${{ steps.pr.outputs.number }}
+      pr_body:        ${{ steps.pr.outputs.body }}
+      versions:       ${{ steps.bump.outputs.new_versions }}
+      previous_versions: ${{ steps.bump.outputs.old_versions }}
+      build_windows:       ${{ steps.bump.outputs.build_windows }}
+      build_macos:         ${{ steps.bump.outputs.build_macos }}
+      build_linux_gui:     ${{ steps.bump.outputs.build_linux_gui }}
+      build_linux_non_gui: ${{ steps.bump.outputs.build_linux_non_gui }}
+      build_android:       ${{ steps.bump.outputs.build_android }}
+      build_server:        ${{ steps.bump.outputs.build_server }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Look up merged PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          # Find the PR associated with this commit
+          PR_JSON=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            --jq '.[0] // empty')
+          if [ -z "$PR_JSON" ]; then
+            echo "No PR found for commit ${{ github.sha }} — using head commit message as title."
+            TITLE="${{ github.event.head_commit.message }}"
+            # Strip everything after the first newline
+            TITLE="${TITLE%%$'\n'*}"
+            # Strip trailing " (#NUM)"
+            TITLE=$(echo "$TITLE" | sed -E 's/ *\(#[0-9]+\) *$//')
+            BODY=""
+            NUMBER=""
+          else
+            TITLE=$(echo "$PR_JSON" | jq -r '.title')
+            BODY=$(echo "$PR_JSON" | jq -r '.body // ""')
+            NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+          fi
+          echo "title=$TITLE"
+          echo "number=$NUMBER"
+          {
+            echo "title<<__END__"
+            echo "$TITLE"
+            echo "__END__"
+            echo "body<<__END__"
+            echo "$BODY"
+            echo "__END__"
+            echo "number=$NUMBER"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Parse PR title
+        id: parse
+        env:
+          PR_TITLE: ${{ steps.pr.outputs.title }}
+        run: |
+          set -e
+          python3 .github/scripts/parse_pr_title.py > /tmp/parsed.json
+          cat /tmp/parsed.json
+          RELEASE=$(jq -r '.release' /tmp/parsed.json)
+          BUMPS=$(jq -c '.bumps' /tmp/parsed.json)
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+          echo "bumps_json=$BUMPS" >> "$GITHUB_OUTPUT"
+
+      - name: Calculate release versions locally
+        id: bump
+        if: steps.parse.outputs.release == 'true'
+        env:
+          BUMPS_JSON: ${{ steps.parse.outputs.bumps_json }}
+        run: |
+          set -e
+          python3 .github/scripts/bump_version.py
+          # Per-platform conditional flags for the matrix jobs
+          BUMPED=$(jq -c . <<<"$BUMPS_JSON")
+          for k in windows macos linux_gui linux_non_gui android server; do
+            if echo "$BUMPED" | jq -e --arg k "$k" 'has($k)' >/dev/null; then
+              echo "build_${k}=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "build_${k}=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
+      - name: Validate release tag
+        id: tag
+        if: steps.parse.outputs.release == 'true'
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          set -e
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            echo "::error::Release tag $TAG already exists. Check version.json's release counter."
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+  # =====================================================================
+  # WINDOWS — PyInstaller + WiX -> .msi
+  # =====================================================================
+  windows:
+    needs: prep
+    if: needs.prep.outputs.build_windows == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+
+      - name: Apply unpublished build versions
+        env:
+          VERSIONS_JSON: ${{ needs.prep.outputs.versions }}
+        run: python .github/scripts/apply_app_version.py desktop
+
+      - name: Install Python deps
+        working-directory: ClipCascade_Desktop/src
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -r requirements_win.txt
+
+      - name: Build ClipCascade.exe with PyInstaller
+        working-directory: ClipCascade_Desktop/src
+        run: python -m PyInstaller ClipCascade_win.spec --noconfirm
+
+      - name: Install WiX Toolset v3
+        shell: pwsh
+        run: |
+          choco install -y wixtoolset --no-progress
+          # WiX installer sets a WIX env var; expose its bin dir to subsequent steps
+          $wixBin = Join-Path $env:WIX 'bin'
+          if (-not (Test-Path $wixBin)) {
+            $wixBin = (Get-ChildItem 'C:\Program Files (x86)\WiX Toolset *\bin' | Select-Object -First 1).FullName
+          }
+          if (-not (Test-Path $wixBin)) { throw "WiX bin directory not found" }
+          Write-Host "WiX bin: $wixBin"
+          Add-Content -Path $env:GITHUB_PATH -Value $wixBin
+
+      - name: Stage installer files
+        shell: bash
+        run: |
+          set -e
+          STAGE="${{ runner.temp }}/wix-stage"
+          mkdir -p "$STAGE"
+          cp ClipCascade_Desktop/src/dist/ClipCascade.exe   "$STAGE/"
+          cp LICENSE                                        "$STAGE/"
+          cp logo/logo.ico                                  "$STAGE/"
+          cp ClipCascade_Desktop/installer/windows/readme.txt "$STAGE/"
+          python3 .github/scripts/generate_rtf.py LICENSE "$STAGE/LICENSE.rtf"
+          ls -la "$STAGE"
+          echo "STAGE=$STAGE" >> "$GITHUB_ENV"
+
+      - name: Build MSI with WiX
+        shell: pwsh
+        run: |
+          $version = '${{ fromJSON(needs.prep.outputs.versions).windows }}'
+          $stage = $env:STAGE
+          $wxs = "ClipCascade_Desktop/installer/windows/ClipCascade.wxs"
+          candle.exe -arch x64 -dProductVersion=$version -dStagingDir=$stage $wxs -out installer.wixobj
+          light.exe  -ext WixUIExtension installer.wixobj -out ClipCascade.msi
+          Write-Host "Built: ClipCascade.msi"
+
+      - name: Copy raw EXE alongside MSI
+        shell: bash
+        run: cp ClipCascade_Desktop/src/dist/ClipCascade.exe ClipCascade.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            ClipCascade.exe
+            ClipCascade.msi
+          if-no-files-found: error
+
+  # =====================================================================
+  # MACOS — native Apple Silicon and Intel packages, sharing one version
+  # =====================================================================
+  macos:
+    needs: prep
+    if: needs.prep.outputs.build_macos == 'true'
+    name: macOS (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+            archive: ClipCascade-Apple_macOS(ARM_M-Series).zip
+          - runner: macos-15-intel
+            arch: x86_64
+            archive: ClipCascade-Apple_macOS(Intel-Series).zip
+    runs-on: ${{ matrix.runner }}
+    env:
+      MACOS_PYTHON_VERSION: "3.12.10"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install official Python with bundled Tcl/Tk
+        run: |
+          set -euo pipefail
+          PKG="$RUNNER_TEMP/python-${MACOS_PYTHON_VERSION}-macos11.pkg"
+          curl --fail --location --retry 3 \
+            "https://www.python.org/ftp/python/${MACOS_PYTHON_VERSION}/python-${MACOS_PYTHON_VERSION}-macos11.pkg" \
+            --output "$PKG"
+          pkgutil --check-signature "$PKG"
+          sudo installer -pkg "$PKG" -target /
+          /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 \
+            -m venv "$RUNNER_TEMP/clipcascade-python"
+          echo "$RUNNER_TEMP/clipcascade-python/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$RUNNER_TEMP/clipcascade-python" >> "$GITHUB_ENV"
+
+      - name: Verify exact Python and architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import platform
+
+          expected = {
+              "Python": os.environ["MACOS_PYTHON_VERSION"],
+              "Architecture": os.environ["EXPECTED_ARCH"],
+          }
+          actual = {
+              "Python": platform.python_version(),
+              "Architecture": platform.machine(),
+          }
+          for name, value in actual.items():
+              print(f"{name}: {value}; required: {expected[name]}")
+              if value != expected[name]:
+                  raise SystemExit(f"{name} mismatch: {value} != {expected[name]}")
+          PY
+
+      - name: Install macOS native build dependencies
+        run: brew install ffmpeg pkg-config
+
+      - name: Apply unpublished build versions
+        env:
+          VERSIONS_JSON: ${{ needs.prep.outputs.versions }}
+        run: python3 .github/scripts/apply_app_version.py desktop
+
+      - name: Install Python deps
+        working-directory: ClipCascade_Desktop/src
+        run: |
+          python3 -m pip install --upgrade pip certifi
+          python3 -m pip install pyinstaller
+          python3 -m pip install -r requirements_mac.txt
+
+      - name: Check aiortc before packaging
+        run: |
+          python3 - <<'PY'
+          import sys
+          import aiortc
+          import av
+          from aiortc import RTCPeerConnection
+
+          print("Python:", sys.version)
+          print("aiortc:", aiortc.__version__)
+          print("PyAV:", av.__version__)
+          PY
+
+      - name: Build ClipCascade.app with PyInstaller
+        working-directory: ClipCascade_Desktop/src
+        run: python3 -m PyInstaller ClipCascade_macos.spec --noconfirm
+
+      - name: Verify packaged executable architecture
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          lipo -verify_arch "$EXPECTED_ARCH" ClipCascade_Desktop/src/dist/ClipCascade.app/Contents/MacOS/ClipCascade
+
+      - name: Stage and zip (on macOS to preserve attributes)
+        env:
+          ARCHIVE_NAME: ${{ matrix.archive }}
+        run: |
+          set -e
+          STAGE="$RUNNER_TEMP/macos-stage/ClipCascade"
+          mkdir -p "$STAGE"
+          cp -R ClipCascade_Desktop/src/dist/ClipCascade.app "$STAGE/"
+          cp LICENSE "$STAGE/"
+          cp ClipCascade_Desktop/installer/macos/help.txt "$STAGE/"
+          OUT="$ARCHIVE_NAME"
+          (cd "$RUNNER_TEMP/macos-stage" && zip -ry "$GITHUB_WORKSPACE/$OUT" ClipCascade)
+          ls -la "$OUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
+
+  # =====================================================================
+  # LINUX — single package (covers both GUI and CLI source paths)
+  # Triggered when EITHER linux_gui or linux_non_gui is bumped.
+  # =====================================================================
+  linux:
+    needs: prep
+    if: needs.prep.outputs.build_linux_gui == 'true' || needs.prep.outputs.build_linux_non_gui == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Apply unpublished build versions
+        env:
+          VERSIONS_JSON: ${{ needs.prep.outputs.versions }}
+        run: python3 .github/scripts/apply_app_version.py desktop
+
+      - name: Stage and package
+        run: |
+          set -e
+          STAGE="$RUNNER_TEMP/linux-stage/ClipCascade"
+          mkdir -p "$STAGE"
+          cp -R ClipCascade_Desktop/src/. "$STAGE/"
+
+          # Strip dev / non-Linux artefacts
+          find "$STAGE" -type d -name __pycache__ -exec rm -rf {} +
+          rm -f "$STAGE/.gitignore"
+          rm -rf "$STAGE/dist" "$STAGE/build"
+          rm -f "$STAGE/ClipCascade_win.spec" "$STAGE/ClipCascade_macos.spec"
+          rm -f "$STAGE/requirements_win.txt" \
+                "$STAGE/requirements_mac.txt" \
+                "$STAGE/requirements_linux_gui.txt" \
+                "$STAGE/requirements_linux_cli.txt"
+          # Use the combined requirements file as requirements.txt
+          mv "$STAGE/requirements_linux.txt" "$STAGE/requirements.txt"
+
+          cp LICENSE "$STAGE/"
+          cp ClipCascade_Desktop/installer/linux/help.txt "$STAGE/"
+
+          # Permissions
+          find "$STAGE" -type d -exec chmod 0755 {} \;
+          find "$STAGE" -type f -exec chmod 0755 {} \;
+
+          (cd "$RUNNER_TEMP/linux-stage" && zip -ry  "$GITHUB_WORKSPACE/ClipCascade_Linux.zip"    ClipCascade)
+          (cd "$RUNNER_TEMP/linux-stage" && tar -cJf "$GITHUB_WORKSPACE/ClipCascade_Linux.tar.xz" ClipCascade)
+          ls -la ClipCascade_Linux.zip ClipCascade_Linux.tar.xz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            ClipCascade_Linux.zip
+            ClipCascade_Linux.tar.xz
+          if-no-files-found: error
+
+  # =====================================================================
+  # ANDROID
+  # =====================================================================
+  android:
+    needs: prep
+    if: needs.prep.outputs.build_android == 'true'
+    runs-on: ubuntu-latest
+    env:
+      KEYSTORE_FILE: ${{ vars.ANDROID_KEYSTORE_FILENAME }}
+      MYAPP_UPLOAD_STORE_FILE: ${{ vars.ANDROID_KEYSTORE_FILENAME }}
+      MYAPP_UPLOAD_KEY_ALIAS: ${{ vars.ANDROID_KEY_ALIAS }}
+      MYAPP_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      MYAPP_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Apply unpublished build versions
+        env:
+          VERSIONS_JSON: ${{ needs.prep.outputs.versions }}
+        run: python3 .github/scripts/apply_app_version.py android
+
+      - name: Decode keystore
+        run: |
+          set -e
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d \
+            > "ClipCascade_Mobile/src/android/app/${KEYSTORE_FILE}"
+          ls -la "ClipCascade_Mobile/src/android/app/${KEYSTORE_FILE}"
+
+      - name: Materialize gradle.properties from template + secrets
+        # gradle.properties is gitignored locally to keep passwords out of
+        # the repo. CI copies the tracked template and fills ALL four
+        # MYAPP_UPLOAD_* lines from variables (filename, alias) and secrets
+        # (passwords). The template ships with empty values.
+        run: |
+          set -e
+          TEMPLATE=ClipCascade_Mobile/src/android/gradle.properties.ci
+          TARGET=ClipCascade_Mobile/src/android/gradle.properties
+          cp "$TEMPLATE" "$TARGET"
+          # Delimiter | avoids issues with values containing / & etc.
+          sed -i "s|^MYAPP_UPLOAD_STORE_FILE=.*|MYAPP_UPLOAD_STORE_FILE=${MYAPP_UPLOAD_STORE_FILE}|"          "$TARGET"
+          sed -i "s|^MYAPP_UPLOAD_KEY_ALIAS=.*|MYAPP_UPLOAD_KEY_ALIAS=${MYAPP_UPLOAD_KEY_ALIAS}|"             "$TARGET"
+          sed -i "s|^MYAPP_UPLOAD_STORE_PASSWORD=.*|MYAPP_UPLOAD_STORE_PASSWORD=${MYAPP_UPLOAD_STORE_PASSWORD}|" "$TARGET"
+          sed -i "s|^MYAPP_UPLOAD_KEY_PASSWORD=.*|MYAPP_UPLOAD_KEY_PASSWORD=${MYAPP_UPLOAD_KEY_PASSWORD}|"     "$TARGET"
+          # Sanity: confirm each line has a non-empty value (without printing values)
+          for k in MYAPP_UPLOAD_STORE_FILE MYAPP_UPLOAD_KEY_ALIAS MYAPP_UPLOAD_STORE_PASSWORD MYAPP_UPLOAD_KEY_PASSWORD; do
+            grep -q "^${k}=..*" "$TARGET" || { echo "$k is empty after injection"; exit 1; }
+          done
+
+      - name: npm install
+        working-directory: ClipCascade_Mobile/src
+        run: npm ci
+
+      - name: Build release APK
+        working-directory: ClipCascade_Mobile/src/android
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Rename APK
+        run: |
+          set -e
+          SRC="ClipCascade_Mobile/src/android/app/build/outputs/apk/release/app-release.apk"
+          cp "$SRC" ClipCascade.apk
+          ls -la ClipCascade.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: ClipCascade.apk
+          if-no-files-found: error
+
+  # =====================================================================
+  # SERVER — Maven jar + multi-arch Docker push
+  # =====================================================================
+  server:
+    needs: prep
+    if: needs.prep.outputs.build_server == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      image_digest: ${{ steps.docker_build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Apply unpublished build versions
+        env:
+          VERSIONS_JSON: ${{ needs.prep.outputs.versions }}
+        run: python3 .github/scripts/apply_app_version.py server
+
+      - name: Build jar
+        working-directory: ClipCascade_Server/ClipCascade_Backend
+        run: ./mvnw -B clean package -DskipTests
+
+      - name: Collect jar and docker-compose
+        run: |
+          set -e
+          # Maven already produces ClipCascade-Server-JRE_21.jar (from pom.xml <version>)
+          cp ClipCascade_Server/ClipCascade_Backend/target/ClipCascade-Server-JRE_21.jar .
+          cp ClipCascade_Server/docker-compose/docker-compose.yml docker-compose.yml
+          ls -la ClipCascade-Server-JRE_21.jar docker-compose.yml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server
+          path: |
+            ClipCascade-Server-JRE_21.jar
+            docker-compose.yml
+          if-no-files-found: error
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push versioned multi-arch image
+        id: docker_build
+        uses: docker/build-push-action@v6
+        with:
+          context: ClipCascade_Server/ClipCascade_Backend
+          file: ClipCascade_Server/ClipCascade_Backend/Dockerfile
+          platforms: linux/amd64,linux/arm64/v8,linux/ppc64le,linux/s390x
+          push: true
+          tags: |
+            ${{ vars.DOCKER_IMAGE_NAME }}:${{ fromJSON(needs.prep.outputs.versions).server }}
+
+  # =====================================================================
+  # RELEASE — collect new + carried-over artifacts, create GitHub Release
+  # =====================================================================
+  release:
+    needs: [prep, windows, macos, linux, android, server]
+    if: |
+      always() &&
+      needs.prep.result == 'success' &&
+      needs.prep.outputs.release == 'true' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: built-artifacts
+
+      - name: Flatten artifacts into ./release-assets
+        run: |
+          set -e
+          mkdir -p release-assets
+          find built-artifacts -type f -exec cp -v {} release-assets/ \;
+          ls -la release-assets
+
+      - name: Carry over unchanged-platform artifacts from previous release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUMPED_KEYS: ${{ needs.prep.outputs.bumped_keys }}
+          OUT_DIR: release-assets
+        run: bash .github/scripts/carry_artifacts.sh
+
+      - name: Compose release body
+        id: body
+        env:
+          PR_BODY: ${{ needs.prep.outputs.pr_body }}
+          PR_NUMBER: ${{ needs.prep.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ needs.prep.outputs.release_version }}
+          VERSIONS_JSON: ${{ needs.prep.outputs.versions }}
+        run: python3 .github/scripts/build_release_body.py
+
+      - name: Publish GitHub Release with all downloads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prep.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.body.outputs.title }}
+          BODY_PATH: ${{ steps.body.outputs.body_path }}
+        run: |
+          set -e
+          export TARGET_SHA="$(git rev-parse HEAD)"
+          bash .github/scripts/publish_release.sh
+
+      - name: Set up Docker promotion
+        if: needs.prep.outputs.build_server == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub for promotion
+        if: needs.prep.outputs.build_server == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Promote published server image to latest
+        if: needs.prep.outputs.build_server == 'true'
+        env:
+          DOCKER_IMAGE_NAME: ${{ vars.DOCKER_IMAGE_NAME }}
+          IMAGE_DIGEST: ${{ needs.server.outputs.image_digest }}
+        run: |
+          set -euo pipefail
+          : "${DOCKER_IMAGE_NAME:?Docker image name is required}"
+          : "${IMAGE_DIGEST:?The server build must provide its image digest}"
+          docker buildx imagetools create \
+            --tag "$DOCKER_IMAGE_NAME:latest" \
+            "$DOCKER_IMAGE_NAME@$IMAGE_DIGEST"
+
+      - name: Check out latest main for the public version announcement
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Announce published versions on main
+        env:
+          OLD_VERSIONS_JSON: ${{ needs.prep.outputs.previous_versions }}
+          VERSIONS_JSON: ${{ needs.prep.outputs.versions }}
+          TAG: ${{ needs.prep.outputs.tag }}
+        run: |
+          set -e
+          python3 .github/scripts/finalize_versions.py
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add version.json \
+                  ClipCascade_Desktop/src/core/constants.py \
+                  ClipCascade_Mobile/src/App.js \
+                  ClipCascade_Mobile/src/android/app/build.gradle \
+                  ClipCascade_Server/ClipCascade_Backend/src/main/java/com/acme/clipcascade/constants/ServerConstants.java \
+                  ClipCascade_Server/docker-compose/docker-compose.yml
+          if git diff --cached --quiet; then
+            echo "Release versions already announced."
+            exit 0
+          fi
+          git commit -m "chore(release): announce $TAG [skip release]"
+          git push origin HEAD:main

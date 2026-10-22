@@ -4,3 +4,7 @@ screenshots/
 /logs/
 .DS_Store
 .vscode/
+
+# Python bytecode caches
+__pycache__/
+*.py[cod]
