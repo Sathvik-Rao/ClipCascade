@@ -1,0 +1,23 @@
+ClipCascade for macOS (Apple Silicon / Intel)
+===========================================
+
+A lightweight utility to sync clipboard content seamlessly across devices
+with privacy and encryption.
+
+Download the archive matching your Mac's processor:
+- Apple Silicon (M1 or newer): ClipCascade-Apple_macOS(ARM_M-Series).zip
+- Intel: ClipCascade-Apple_macOS(Intel-Series).zip
+
+Install
+-------
+1. Unzip this archive ON macOS (zipping/unzipping on Windows strips
+   macOS file attributes and Gatekeeper will refuse to launch the app).
+2. Move ClipCascade.app to /Applications.
+3. Right-click ClipCascade.app -> Open the first time (unsigned build).
+4. ClipCascade runs as a menu-bar app (no dock icon by default).
+
+Project:   https://github.com/Sathvik-Rao/ClipCascade
+Releases:  https://github.com/Sathvik-Rao/ClipCascade/releases
+Issues:    https://github.com/Sathvik-Rao/ClipCascade/issues
+
+See LICENSE for license terms.

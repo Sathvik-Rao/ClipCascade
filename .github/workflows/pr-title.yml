@@ -1,0 +1,30 @@
+name: Validate PR title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -e
+          echo "Validating PR title: $PR_TITLE"
+          python3 .github/scripts/parse_pr_title.py | tee /tmp/parsed.json
+          echo ""
+          echo "Parsed successfully."
