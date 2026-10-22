@@ -34,12 +34,13 @@ class Client:
         self.errorCallback = None
 
     def _connect(self, timeout=0):
+        run_kwargs = {
+            "ping_interval": WEBSOCKET_PING_INTERVAL,
+            "ping_timeout": WEBSOCKET_PING_TIMEOUT,
+        }
         if self._ws_sslopt:
-            thread = Thread(
-                target=lambda: self.ws.run_forever(sslopt=self._ws_sslopt)
-            )
-        else:
-            thread = Thread(target=self.ws.run_forever)
+            run_kwargs["sslopt"] = self._ws_sslopt
+        thread = Thread(target=lambda: self.ws.run_forever(**run_kwargs))
         thread.daemon = True
         thread.start()
 
@@ -48,6 +49,9 @@ class Client:
             time.sleep(0.25)
             total_ms += 250
             if 0 < timeout < total_ms:
+                # detach only; ws.close() here nulls self.sock under the live run_forever
+                # thread -> spurious "'NoneType' object has no attribute 'sock'"
+                self.ws.on_close = None
                 raise TimeoutError(f"Connection to {self.url} timed out")
 
     def _on_open(self, ws_app, *args):
