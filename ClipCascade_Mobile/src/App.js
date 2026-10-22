@@ -69,7 +69,7 @@ const isCancel = error =>
  */
 
 // App version
-const APP_VERSION = '3.3.0';
+const APP_VERSION = '3.2.0';
 
 // Main App
 export default function App() {

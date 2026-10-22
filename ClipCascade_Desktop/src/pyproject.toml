@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ClipCascade"
-version = "3.3.0"
+version = "3.2.0"
 description = "ClipCascade is a lightweight utility that automatically syncs the clipboard across devices, no key press required."
 authors = [{ name = "Sathvik Rao", email = "sathvik.poladi@gmail.com" }]
 license = { file = "LICENSE" }

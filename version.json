@@ -1,8 +1,9 @@
 {
-  "android": "3.3.0",
-  "windows": "3.3.0",
-  "linux_gui": "3.3.0",
-  "linux_non_gui": "3.3.0",
-  "macos": "3.3.0",
-  "server": "3.3.0"
+  "release": "3.2.0",
+  "android": "3.2.0",
+  "windows": "3.2.0",
+  "linux_gui": "3.2.0",
+  "linux_non_gui": "3.2.0",
+  "macos": "3.2.0",
+  "server": "3.1.0"
 }
