@@ -196,6 +196,7 @@ FRAGMENT_SIZE = 15360  # 15 KiB
 SUBSCRIPTION_DESTINATION = "/user/queue/cliptext"
 SEND_DESTINATION = "/app/cliptext"
 LOGIN_URL = "/login"
+VALIDATE_URL = "/validate-session"
 LOGOUT_URL = "/logout"
 MAXSIZE_URL = "/max-size"
 CSRF_URL = "/csrf-token"

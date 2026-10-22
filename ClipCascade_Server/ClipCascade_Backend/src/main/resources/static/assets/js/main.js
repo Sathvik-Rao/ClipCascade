@@ -198,15 +198,15 @@ function onSendClick() {
   const textVal = $("#ws_text").val() || "";
   if (!textVal.trim()) return;
 
-  // Send to STOMP or P2P
+  // P2S echoes the message back through the user queue, so rendering it
+  // locally as well would duplicate every sent clipboard entry. P2P has no
+  // server echo, so keep the local monitoring entry in that mode.
   if (CURRENT_MODE === "P2S") {
     sendTextToServerStomp(textVal);
   } else {
     sendTextToPeers(textVal);
+    displayIncomingMessage({ payload: textVal, type: "text" });
   }
-
-  // Log *locally* in the monitoring
-  displayIncomingMessage({ payload: textVal, type: "text" });
 }
 
 function onDisconnectClick() {

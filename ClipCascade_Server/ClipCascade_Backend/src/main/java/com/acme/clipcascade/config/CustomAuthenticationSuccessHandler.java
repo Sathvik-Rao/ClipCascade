@@ -37,7 +37,9 @@ public class CustomAuthenticationSuccessHandler implements AuthenticationSuccess
         // save ip details to the database
         facadeUserService.setLoginDetails(authentication.getName(), ipDetails);
 
-        // Redirect to the home page
-        response.sendRedirect("/");
+        // Keep redirects inside the configured servlet context so deployments
+        // behind a reverse-proxy subpath (for example /clipcascade) do not jump
+        // to the domain root.
+        response.sendRedirect(request.getContextPath() + "/");
     }
 }

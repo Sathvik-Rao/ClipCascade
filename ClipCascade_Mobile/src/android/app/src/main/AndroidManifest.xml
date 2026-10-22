@@ -5,8 +5,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.READ_LOGS" tools:ignore="ProtectedPermissions" />
+    <!-- React Native's debug manifest adds this for its dev overlay; this fork
+         deliberately removes it because Shizuku handles background clipboard access. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" tools:node="remove" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
@@ -58,10 +59,6 @@
           <data android:mimeType="*/*" />
         </intent-filter>
       </activity>
-      <activity
-        android:name=".ClipboardFloatingActivity"
-        android:theme="@style/Theme.TransparentActivity" />
-      
       <service
         android:name="app.notifee.core.ForegroundService"
         android:foregroundServiceType="remoteMessaging" 
@@ -74,11 +71,24 @@
         android:exported="true">
         <intent-filter>
           <action android:name="android.intent.action.BOOT_COMPLETED" />
+          <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
         </intent-filter>
       </receiver>
       <service
         android:name=".HeadlessTaskService"
         android:exported="false" />
+      <service
+        android:name=".RecoveryService"
+        android:exported="false"
+        android:stopWithTask="false" />
+
+      <provider
+        android:name="rikka.shizuku.ShizukuProvider"
+        android:authorities="${applicationId}.shizuku"
+        android:multiprocess="false"
+        android:enabled="true"
+        android:exported="true"
+        android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
       <provider
         android:name="androidx.core.content.FileProvider"

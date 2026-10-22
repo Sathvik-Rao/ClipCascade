@@ -1,6 +1,7 @@
 // android\app\src\main\java\com\clipcascade\ScheduleService.kt
 package com.clipcascade
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -49,6 +50,7 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
                 val bridgeData = AsyncStorageBridge(applicationContext)
                 if(enableForegroundService(bridgeData)) {
                     if(!foregroundServiceIsActive(bridgeData)) {
+                        RecoveryService.requestRecovery(applicationContext)
                         showNotificationIfNotPresent()
                     } else {
                         removeNotificationIfPresent(applicationContext)
@@ -70,15 +72,38 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
     } 
     
     suspend fun foregroundServiceIsActive(bridgeData: AsyncStorageBridge) : Boolean {
-        // check if foreground service is running
+        // Android already knows whether our foreground service is alive. Prefer
+        // that over the JS heartbeat, which can time out while React Native is
+        // briefly busy even though clipboard monitoring is still running.
+        if (nativeForegroundServiceIsActive()) {
+            return true
+        }
+
+        // Keep the heartbeat as a compatibility fallback in case a device hides
+        // running-service details from ActivityManager.
         bridgeData.setValue("echo", "ping")
-        repeat(35) { // 3500 ms
-            delay(100) // Wait for 100 ms
+        repeat(100) {
+            delay(100)
             if (bridgeData.getValue("echo") == "pong") {
                 return true
             }
         }
         return false
+    }
+
+    private fun nativeForegroundServiceIsActive(): Boolean {
+        return try {
+            val activityManager = applicationContext
+                .getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            activityManager.getRunningServices(Int.MAX_VALUE).any { service ->
+                service.service.packageName == applicationContext.packageName &&
+                    service.service.className == "app.notifee.core.ForegroundService" &&
+                    service.foreground
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to query native foreground-service state", e)
+            false
+        }
     }
 
     private fun showNotificationIfNotPresent() {

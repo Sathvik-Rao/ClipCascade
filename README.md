@@ -272,10 +272,11 @@ To install the ClipCascade Windows desktop application, follow these steps:
 
 **Important Note:** Since the application is not published or registered with Microsoft, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning or temporarily disable your antivirus during installation. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Microsoft requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
 
-To build your own desktop executable from source (`ClipCascade_Desktop/src`):
+To build your own desktop executable from source (`ClipCascade_Desktop/src`), install uv first using its [official installer](https://docs.astral.sh/uv/getting-started/installation/):
 ```bash
-pip3 install -r requirements_win.txt
-python3 -m PyInstaller ClipCascade_win.spec
+uv venv .venv
+uv pip install --python .venv/Scripts/python.exe -r requirements_win.txt
+.venv/Scripts/python.exe -m PyInstaller ClipCascade_win.spec
 ```
 
 The `.exe` file does not need UAC approval because it is standalone executable, while the `.msi` installer will request UAC permissions because it creates a designated folder for the software, adds a startup option, and allows for uninstallation via the Control Panel. Additionally, with the .msi installer, you have the option to choose any location to save the software. However, select locations where even when you create a file manually at that location, Windows shouldn’t prompt for permission to answer "yes or no" questions.
@@ -345,10 +346,11 @@ To install the ClipCascade macOS desktop application, follow these steps:
 
 **Important Note:** Since the application is not published or registered with Apple, you may see a warning suggesting that it could be unsafe. This is a standard precaution and does not indicate any issues with the software. You can choose to ignore this warning. All source code is available in this repository, and everything is open source and free. If you prefer, you can compile the executable yourself. Feel free to review the code to ensure your comfort! **Registering the application with Apple requires purchasing a certificate subscription, which is quite expensive, especially for an open-source project.**
 
-To build your own desktop executable from source (`ClipCascade_Desktop/src`):
+To build your own desktop executable from source (`ClipCascade_Desktop/src`), install uv first using its [official installer](https://docs.astral.sh/uv/getting-started/installation/):
 ```bash
-pip3 install -r requirements_mac.txt
-python3 -m PyInstaller ClipCascade_macos.spec
+uv venv .venv
+uv pip install --python .venv/bin/python -r requirements_mac.txt
+.venv/bin/python -m PyInstaller ClipCascade_macos.spec
 ```
 
 [➡️ Explore Advanced Details](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-advanced-details)
@@ -415,18 +417,18 @@ This guide provides step-by-step instructions to install ClipCascade on Debian/U
 ##### Debian/Ubuntu:
 ```
 sudo apt update
-sudo apt install -y python3 python3-pip python3-gi xclip wl-clipboard dunst
+sudo apt install -y python3 python3-gi xclip wl-clipboard dunst
 ```
 
 ##### Fedora:
 ```
 sudo dnf check-update
-sudo dnf install -y python3 python3-pip python3-gobject xclip wl-clipboard dunst
+sudo dnf install -y python3 python3-gobject xclip wl-clipboard dunst
 ```
 
 ##### Arch:
 ```
-sudo pacman -Syu --noconfirm python python-pip python-gobject xclip wl-clipboard dunst xdg-utils
+sudo pacman -Syu --noconfirm python python-gobject xclip wl-clipboard dunst xdg-utils
 ```
 
 
@@ -451,21 +453,18 @@ sudo pacman -S --noconfirm python-gobject gtk3
 Install the [GNOME tray support extension](https://extensions.gnome.org/extension/615/appindicator-support/).
 
 
-#### Step 4: Install Python Dependencies
+#### Step 4: Install uv and Python Dependencies
 
-##### Debian/Ubuntu/Fedora:
-```
-sudo pip3 install -r requirements.txt
-```
+Install uv using its [official installer](https://docs.astral.sh/uv/getting-started/installation/) or your distribution package manager. Then create an isolated environment with access to the system GTK packages and install the Python dependencies:
 
-##### Arch:
-```
-sudo pip install -r requirements.txt
+```bash
+uv venv --system-site-packages .venv
+uv pip install --python .venv/bin/python -r requirements.txt
 ```
 
-#### Step 4.1: Fix `externally-managed-environment` Error (if applicable)
+#### Step 4.1: Install Python packages with the distribution package manager (optional)
 
-If you encounter the `error: externally-managed-environment`, install the required Python packages manually.
+If a dependency is unavailable through uv on your distribution, install the corresponding package with the system package manager.
 
 ##### Debian/Ubuntu:
 ```

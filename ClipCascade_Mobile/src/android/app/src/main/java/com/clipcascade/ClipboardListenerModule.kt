@@ -4,20 +4,14 @@ package com.clipcascade
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.core.content.ContextCompat
+import android.os.Handler
+import android.os.Looper
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 
 class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
@@ -26,14 +20,38 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
     private var listener: ClipboardManager.OnPrimaryClipChangedListener? = null
     private var isListening = false
     private var lastEmittedTime: Long = 0 // for clipboard listener debounce
-    private var lastActivityStartTime: Long = 0 // for log cat monitoring  debounce
     private val debounceTime: Long = 0 // milliseconds (increase to debounce clipboard listener)
-    private val activityDebounceTime: Long = 1000 // milliseconds (increase to debounce log cat monitoring)
-
-    // logcat‐reader control
-    private var stopLogcat = false
-    private var logcatThread: Thread? = null
-    private var logcatProcess: Process? = null
+    private val heartbeatHandler = Handler(Looper.getMainLooper())
+    private val heartbeatIntervalMs = 5_000L
+    private var lastClipboardServiceHealthy = true
+    private val heartbeatRunnable = object : Runnable {
+        override fun run() {
+            if (!isListening) return
+            try {
+                if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+                    val healthy = shizukuClipboard.ensureListening()
+                    if (healthy != lastClipboardServiceHealthy) {
+                        if (healthy) {
+                            android.util.Log.i("ClipCascade.Clipboard", "Shizuku clipboard callback recovered")
+                        } else {
+                            android.util.Log.w("ClipCascade.Clipboard", "Shizuku clipboard callback unavailable; recovering")
+                        }
+                    }
+                    lastClipboardServiceHealthy = healthy
+                }
+                reactApplicationContext
+                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    .emit("onClipboardWatchdog", Arguments.createMap())
+            } catch (e: Exception) {
+                android.util.Log.w("ClipCascade.Clipboard", "Clipboard watchdog failed; retrying", e)
+            } finally {
+                if (isListening) heartbeatHandler.postDelayed(this, heartbeatIntervalMs)
+            }
+        }
+    }
+    private val shizukuClipboard = ShizukuClipboardManager(reactContext) { params ->
+        sendEventToJS(params)
+    }
     
 
     override fun getName(): String {
@@ -43,6 +61,9 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
     @ReactMethod
     fun startListening() {
         if (isListening) {
+            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+                shizukuClipboard.ensureListening()
+            }
             return
         }
 
@@ -83,50 +104,13 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
         }
         clipboardManager.addPrimaryClipChangedListener(listener)
         isListening = true
+        heartbeatHandler.removeCallbacks(heartbeatRunnable)
+        heartbeatHandler.postDelayed(heartbeatRunnable, heartbeatIntervalMs)
 
-        // 2) Logcat monitoring
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P &&
-            ContextCompat.checkSelfPermission(reactApplicationContext, Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
-        ) {
-            // If already stopping, reset flag
-            stopLogcat = false
-
-            // Start a single dedicated thread
-            logcatThread = Thread {
-                try {
-                    val timeStamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
-                        .format(Date())
-                    logcatProcess = Runtime.getRuntime().exec(
-                        arrayOf("logcat", "-T", timeStamp, "ClipboardService:E", "*:S")
-                    )
-                    val reader = BufferedReader(InputStreamReader(logcatProcess!!.inputStream))
-                    var line: String? = null
-                    reader.use { br ->
-                        while (!stopLogcat && br.readLine().also { line = it } != null) {
-                            if (line!!.contains(BuildConfig.APPLICATION_ID)) {
-                                val currentTime = System.currentTimeMillis()
-                                if (currentTime - lastActivityStartTime > activityDebounceTime) {
-                                    lastActivityStartTime = currentTime
-                                    // launch the floating activity
-                                    reactApplicationContext.startActivity(
-                                        ClipboardFloatingActivity.getIntent(reactApplicationContext)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    try {
-                        logcatProcess?.destroy()
-                    } catch (_: Exception) {}
-                    stopLogcat = false
-                }
-            }.apply {
-                isDaemon = true
-                start()
-            }
+        // 2) Android 10+ background clipboard access through Shizuku. This avoids
+        // READ_LOGS and overlay permissions entirely.
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+            shizukuClipboard.start()
         }
     }
 
@@ -139,16 +123,16 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
             isListening = false
         }
 
-        // 2) Tear down logcat‐reader thread & process
-        stopLogcat = true
-        try {
-            logcatThread?.interrupt()
-        } catch (_: Exception) {}
-        try {
-            logcatProcess?.destroy()
-        } catch (_: Exception) {}
-        logcatThread = null
-        logcatProcess = null
+        heartbeatHandler.removeCallbacks(heartbeatRunnable)
+
+        // 2) Stop Shizuku-backed background monitoring
+        shizukuClipboard.stop()
+    }
+
+    override fun invalidate() {
+        stopListening()
+        shizukuClipboard.destroy()
+        super.invalidate()
     }
 
 

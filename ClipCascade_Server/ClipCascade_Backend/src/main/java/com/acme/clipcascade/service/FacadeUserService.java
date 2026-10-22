@@ -1,5 +1,8 @@
 package com.acme.clipcascade.service;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -32,14 +35,54 @@ public class FacadeUserService {
     }
 
     public void insertDefaultAdminUserIfEmpty() {
-        if (userService.isTableEmpty()) {
-            userService.doubleHashAndCreateUser(
-                    "admin",
-                    "admin123",
-                    RoleConstants.ADMIN,
-                    true);
+        if (!userService.isTableEmpty()) {
+            return;
+        }
 
-            userInfoService.registerNewUser("admin");
+        String adminUsername = getEnvOrDefault("CC_BOOTSTRAP_ADMIN_USERNAME", "admin");
+        String adminPassword = readSecretFileOrDefault(
+                "CC_BOOTSTRAP_ADMIN_PASSWORD_FILE",
+                "admin123");
+
+        userService.doubleHashAndCreateUser(
+                adminUsername,
+                adminPassword,
+                RoleConstants.ADMIN,
+                true);
+        userInfoService.registerNewUser(adminUsername);
+
+        String userUsername = System.getenv("CC_BOOTSTRAP_USER_USERNAME");
+        String userPasswordFile = System.getenv("CC_BOOTSTRAP_USER_PASSWORD_FILE");
+        if (userUsername != null && !userUsername.isBlank()
+                && userPasswordFile != null && !userPasswordFile.isBlank()) {
+            String userPassword = readSecretFile(userPasswordFile);
+            if (UserValidator.isValidUsername(userUsername)
+                    && UserValidator.isValidPassword(userPassword)) {
+                userService.doubleHashAndCreateUser(
+                        userUsername,
+                        userPassword,
+                        RoleConstants.USER,
+                        true);
+                userInfoService.registerNewUser(userUsername);
+            }
+        }
+    }
+
+    private static String getEnvOrDefault(String name, String fallback) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private static String readSecretFileOrDefault(String envName, String fallback) {
+        String path = System.getenv(envName);
+        return path == null || path.isBlank() ? fallback : readSecretFile(path);
+    }
+
+    private static String readSecretFile(String path) {
+        try {
+            return Files.readString(Path.of(path)).trim();
+        } catch (IOException e) {
+            throw new IllegalStateException("Unable to read bootstrap credential file", e);
         }
     }
 

@@ -1,4 +1,4 @@
-package com.acme.ClipCascade;
+package com.acme.clipcascade;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

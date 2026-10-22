@@ -7,7 +7,7 @@ import {
 
 import notifee, { AndroidImportance } from '@notifee/react-native';
 import { Client } from '@stomp/stompjs';
-import * as encoding from 'text-encoding'; //do not remove this (polyfills for TextEncoder/TextDecoder stompjs)
+import { TextEncoder, TextDecoder } from 'text-encoding';
 import { xxHash32 } from 'js-xxhash';
 import AesGcmCrypto from 'react-native-aes-gcm-crypto';
 import { Buffer } from 'buffer';
@@ -24,12 +24,15 @@ import {
   getMultipleDataFromAsyncStorage,
   clearAsyncStorage,
 } from './AsyncStorageManagement';
+import { createSignalingHeartbeat } from './SignalingHeartbeat';
+import { createDataChannelProbes } from './DataChannelProbes';
 
 function cleanupClipboardListeners() {
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
   DeviceEventEmitter.removeAllListeners('SHARED_IMAGE');
   DeviceEventEmitter.removeAllListeners('SHARED_FILES');
   DeviceEventEmitter.removeAllListeners('onClipboardChange');
+  DeviceEventEmitter.removeAllListeners('onClipboardWatchdog');
 }
 
 module.exports = async (inputData = null) => {
@@ -37,6 +40,7 @@ module.exports = async (inputData = null) => {
   const SUBSCRIPTION_DESTINATION = '/user/queue/cliptext';
   const SEND_DESTINATION = '/app/cliptext';
   const RECONNECT_WS_TIMER = 10000; // 10 seconds
+  const SIGNALING_CONNECT_TIMEOUT = 15000; // 15 seconds
   const HEARTBEAT_INTERVAL = 20000; // 20 seconds
   const FRAGMENT_SIZE = 15360; // 15 KiB
 
@@ -45,6 +49,7 @@ module.exports = async (inputData = null) => {
     return new Promise(async () => {
       try {
         const { NativeBridgeModule } = NativeModules;
+        NativeBridgeModule.clearInactiveServiceNotification();
         const textEncoder = new TextEncoder();
         const textDecoder = new TextDecoder();
 
@@ -57,6 +62,12 @@ module.exports = async (inputData = null) => {
 
         let stompClient = null;
         let wsSignalingClient = null;
+        const signalingHeartbeat = createSignalingHeartbeat();
+        let invalidateP2PSignaling = null;
+        let signalingReconnectInProgress = false;
+        let nextSignalingReconnectAt = 0;
+        let reconnectP2PSignaling = null;
+        let dataChannelProbes = null;
         let sendClipBoardP2S = null;
         let sendClipBoardP2P = null;
         let stopServicesP2S = null;
@@ -67,6 +78,8 @@ module.exports = async (inputData = null) => {
         // get data from async storage
         const {
           websocket_url,
+          server_url,
+          session_cookie,
           cipher_enabled,
           maxsize: maxsizeStr,
           server_mode,
@@ -77,6 +90,8 @@ module.exports = async (inputData = null) => {
           max_clipboard_size_local_limit_bytes: maxClipboardLimitStr,
         } = await getMultipleDataFromAsyncStorage([
           'websocket_url',
+          'server_url',
+          'session_cookie',
           'cipher_enabled',
           'maxsize',
           'server_mode',
@@ -86,6 +101,82 @@ module.exports = async (inputData = null) => {
           'enable_websocket_status_notification',
           'max_clipboard_size_local_limit_bytes',
         ]);
+
+        let websocketCookie = session_cookie;
+        if (!websocketCookie && server_url) {
+          websocketCookie = await NativeBridgeModule.getCookies(server_url);
+          if (websocketCookie) {
+            await setDataInAsyncStorage('session_cookie', websocketCookie);
+          }
+        }
+
+        // Spring sessions are in-memory, so a server restart invalidates the
+        // WebSocket cookie. Re-authenticate from the persisted authentication
+        // hash before reconnecting instead of retrying a stale JSESSIONID forever.
+        const refreshSessionCookie = async () => {
+          try {
+            if (!server_url) {
+              return false;
+            }
+            const { username, password } =
+              await getMultipleDataFromAsyncStorage(['username', 'password']);
+            if (!username || !password) {
+              return false;
+            }
+
+            const loginPageResponse = await fetch(server_url + '/login', {
+              method: 'GET',
+              credentials: 'include',
+            });
+            if (!loginPageResponse.ok) {
+              return false;
+            }
+            const htmlText = await loginPageResponse.text();
+            const csrfMatch = htmlText.match(
+              /name=["']_csrf["'][^>]*value=["']([^"']+)["']/i,
+            );
+            const csrfToken = csrfMatch?.[1] ?? '';
+            if (!csrfToken) {
+              return false;
+            }
+
+            const body =
+              'username=' +
+              encodeURIComponent(username) +
+              '&password=' +
+              encodeURIComponent(password) +
+              '&_csrf=' +
+              encodeURIComponent(csrfToken);
+            await fetch(server_url + '/login', {
+              method: 'POST',
+              credentials: 'include',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body,
+            });
+
+            const validateResponse = await fetch(
+              server_url + '/validate-session',
+              { method: 'GET', credentials: 'include' },
+            );
+            if (
+              !validateResponse.ok ||
+              (await validateResponse.text()) !== 'OK'
+            ) {
+              return false;
+            }
+
+            websocketCookie = await NativeBridgeModule.getCookies(server_url);
+            if (!websocketCookie) {
+              return false;
+            }
+            await setDataInAsyncStorage('session_cookie', websocketCookie);
+            return true;
+          } catch (e) {
+            return false;
+          }
+        };
 
         const maxsize = Number(maxsizeStr);
         let max_clipboard_size_local_limit_bytes = Number(maxClipboardLimitStr);
@@ -324,6 +415,11 @@ module.exports = async (inputData = null) => {
             }
           },
         );
+        clipboardListener.addListener('onClipboardWatchdog', async () => {
+          if (server_mode === 'P2P' && reconnectP2PSignaling) {
+            await reconnectP2PSignaling();
+          }
+        });
 
         const clearFiles = async (expensiveCall = false) => {
           files_in_memory = null;
@@ -526,7 +622,7 @@ module.exports = async (inputData = null) => {
                       clipContent,
                     );
                   } else if (type_ === 'files') {
-                    temp = {};
+                    const temp = {};
                     const file_paths = clipContent
                       .split(',')
                       .filter(item => item.trim() !== '');
@@ -622,7 +718,7 @@ module.exports = async (inputData = null) => {
           let p2pShuttingDown = false;
           const peerOpChains = {};
           const dataChannelHeartbeatTimers = {};
-          const P2P_DC_KEEPALIVE_JSON = JSON.stringify({ _cc_keepalive: true });
+          dataChannelProbes = createDataChannelProbes();
 
           // Fragment variables
           let sendingFragmentId = '';
@@ -633,6 +729,10 @@ module.exports = async (inputData = null) => {
           getP2PStatusMessage = async () => {
             let msg = '📊';
             msg += ` Peers: ${liveConnectionsCount}`;
+            const openPeers = Object.entries(dataChannels)
+              .filter(([, channel]) => channel?.readyState === 'open')
+              .map(([peerId]) => peerId);
+            msg += ` | Verified: ${dataChannelProbes.verifiedCount(openPeers)}`;
             if (sendingFragmentStats != null) {
               msg += ` | Sending: ${sendingFragmentStats}`;
             }
@@ -684,10 +784,10 @@ module.exports = async (inputData = null) => {
             dataChannelHeartbeatTimers[remotePeerId] = setInterval(() => {
               try {
                 if (channel.readyState === 'open') {
-                  channel.send(P2P_DC_KEEPALIVE_JSON);
+                  channel.send(dataChannelProbes.ping(remotePeerId));
                 }
               } catch (e) {
-                // no-op
+                // A failed heartbeat will be retried or repaired by the watchdog.
               }
             }, HEARTBEAT_INTERVAL);
           };
@@ -699,6 +799,7 @@ module.exports = async (inputData = null) => {
                 clearInterval(dataChannelHeartbeatTimers[id]);
                 delete dataChannelHeartbeatTimers[id];
               }
+              dataChannelProbes.reset();
               for (const [, dc] of Object.entries(dataChannels)) {
                 if (dc) {
                   try {
@@ -742,11 +843,78 @@ module.exports = async (inputData = null) => {
             }
           }
 
+          const reconnectSignaling = async () => {
+            if (
+              wsSignalingClient != null ||
+              signalingReconnectInProgress ||
+              Date.now() < nextSignalingReconnectAt ||
+              (await getDataFromAsyncStorage('wsIsRunning')) !== 'true'
+            ) {
+              return;
+            }
+
+            signalingReconnectInProgress = true;
+            try {
+              await setDataInAsyncStorage(
+                'wsStatusMessage',
+                '⏳ Re-authenticating',
+              );
+              const refreshed = await refreshSessionCookie();
+              if (!refreshed) {
+                await setDataInAsyncStorage(
+                  'wsStatusMessage',
+                  '⚠️ Re-authentication failed; retrying',
+                );
+                nextSignalingReconnectAt = Date.now() + RECONNECT_WS_TIMER;
+                return;
+              }
+
+              await initializeWebSocketSignalingClient();
+            } finally {
+              signalingReconnectInProgress = false;
+            }
+          };
+
+          reconnectP2PSignaling = reconnectSignaling;
+
           const initializeWebSocketSignalingClient = async () => {
             if (wsSignalingClient == null) {
-              wsSignalingClient = new WebSocket(websocket_url);
+              const socket = new WebSocket(websocket_url, [], {
+                headers: {
+                  Cookie: websocketCookie,
+                },
+              });
+              wsSignalingClient = socket;
 
-              wsSignalingClient.onopen = async () => {
+              // React Native can occasionally leave a failed handshake in
+              // CONNECTING without delivering a useful close callback. Bound the
+              // handshake so one zombie socket cannot block recovery forever.
+              const connectTimer = setTimeout(async () => {
+                if (
+                  wsSignalingClient === socket &&
+                  socket.readyState !== WebSocket.OPEN
+                ) {
+                  wsSignalingClient = null;
+                  try {
+                    socket.close();
+                  } catch (e) {
+                    // no-op
+                  }
+                  nextSignalingReconnectAt = Date.now() + RECONNECT_WS_TIMER;
+                  await setDataInAsyncStorage(
+                    'wsStatusMessage',
+                    '⚠️ Signaling connect timed out; retrying',
+                  );
+                }
+              }, SIGNALING_CONNECT_TIMEOUT);
+
+              socket.onopen = async () => {
+                clearTimeout(connectTimer);
+                signalingHeartbeat.connected();
+                if (wsSignalingClient !== socket) {
+                  return;
+                }
+                nextSignalingReconnectAt = 0;
                 await cleanupPeerConnections();
 
                 await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
@@ -765,10 +933,13 @@ module.exports = async (inputData = null) => {
                 }
               };
 
-              wsSignalingClient.onmessage = async event => {
+              socket.onmessage = async event => {
                 try {
                   const data = JSON.parse(event.data);
                   switch (data.type) {
+                    case 'PONG':
+                      signalingHeartbeat.pong();
+                      break;
                     case 'ASSIGNED_ID':
                       if (myPeerId && myPeerId !== data.peerId) {
                         await cleanupPeerConnections();
@@ -810,15 +981,44 @@ module.exports = async (inputData = null) => {
                 }
               };
 
-              wsSignalingClient.onerror = async event => {
+              const invalidateSignalingSocket = async statusMessage => {
+                if (wsSignalingClient !== socket) {
+                  return;
+                }
+                wsSignalingClient = null;
+                signalingHeartbeat.reset();
+                socket.onopen = null;
+                socket.onmessage = null;
+                socket.onerror = null;
+                socket.onclose = null;
+                try {
+                  socket.close();
+                } catch (e) {
+                  // Closing an already-dead socket may fail.
+                }
                 block_image_once = false;
-                await setDataInAsyncStorage(
-                  'wsStatusMessage',
-                  '❌ WebSocket Error: ' + JSON.stringify(event, null, 2),
+                nextSignalingReconnectAt = Date.now() + RECONNECT_WS_TIMER;
+                await cleanupPeerConnections();
+                await setDataInAsyncStorage('wsStatusMessage', statusMessage);
+                await setDataInAsyncStorage('p2pStatusMessage', '');
+              };
+
+              invalidateP2PSignaling = () =>
+                invalidateSignalingSocket(
+                  '⚠️ Signaling heartbeat timed out; reconnecting',
+                );
+
+              socket.onerror = async () => {
+                await invalidateSignalingSocket(
+                  '⚠️ Signaling error; reconnecting',
                 );
               };
 
-              wsSignalingClient.onclose = async event => {
+              socket.onclose = async event => {
+                clearTimeout(connectTimer);
+                if (wsSignalingClient !== socket) {
+                  return;
+                }
                 block_image_once = false;
                 const reason = event?.reason || 'closed by client';
                 await setDataInAsyncStorage(
@@ -838,14 +1038,8 @@ module.exports = async (inputData = null) => {
                 }
 
                 wsSignalingClient = null;
-                setTimeout(async () => {
-                  if (
-                    wsSignalingClient == null &&
-                    (await getDataFromAsyncStorage('wsIsRunning')) === 'true'
-                  ) {
-                    initializeWebSocketSignalingClient();
-                  }
-                }, RECONNECT_WS_TIMER);
+                signalingHeartbeat.reset();
+                nextSignalingReconnectAt = Date.now() + RECONNECT_WS_TIMER;
               };
             }
           };
@@ -871,7 +1065,7 @@ module.exports = async (inputData = null) => {
                     clipContent,
                   );
                 } else if (type_ === 'files') {
-                  temp = {};
+                  const temp = {};
                   const file_paths = clipContent
                     .split(',')
                     .filter(item => item.trim() !== '');
@@ -963,6 +1157,7 @@ module.exports = async (inputData = null) => {
 
           // stop events and connection P2P
           stopServicesP2P = async () => {
+            reconnectP2PSignaling = null;
             // 1) Stop listening to clipboard events
             try {
               await ClipboardListener.stopListening();
@@ -989,6 +1184,8 @@ module.exports = async (inputData = null) => {
               }
             }
             wsSignalingClient = null;
+            invalidateP2PSignaling = null;
+            signalingHeartbeat.reset();
 
             // 3) Close all DataChannels and RTCPeerConnections
             await cleanupPeerConnections();
@@ -1019,14 +1216,32 @@ module.exports = async (inputData = null) => {
           };
 
           // receive clipboard content P2P
-          const onDataChannelMessage = async messageJson => {
+          const onDataChannelMessage = async (messageJson, remotePeerId) => {
             try {
-              const message = JSON.parse(messageJson);
-              if (message && message._cc_keepalive === true) {
+              const channel = dataChannels[remotePeerId];
+              const wasVerified = dataChannelProbes.verifiedCount([
+                remotePeerId,
+              ]);
+              if (
+                dataChannelProbes.receive(
+                  remotePeerId,
+                  messageJson,
+                  response => {
+                    if (channel?.readyState === 'open') channel.send(response);
+                  },
+                )
+              ) {
+                if (
+                  !wasVerified &&
+                  dataChannelProbes.verifiedCount([remotePeerId])
+                ) {
+                  isP2PStatusMsgChanged = true;
+                }
                 return;
               }
+              const message = JSON.parse(messageJson);
 
-              await clearFiles((expensiveCall = true));
+              await clearFiles(true);
               await resetSendingFragmentId();
 
               let cb = String(message.payload);
@@ -1174,6 +1389,7 @@ module.exports = async (inputData = null) => {
             // 2) For each stale peer, close data channel and peer connection
             for (const oldPid of stalePeerIds) {
               delete peerOpChains[oldPid];
+              dataChannelProbes.dropPeer(oldPid);
               if (dataChannelHeartbeatTimers[oldPid]) {
                 clearInterval(dataChannelHeartbeatTimers[oldPid]);
                 delete dataChannelHeartbeatTimers[oldPid];
@@ -1203,6 +1419,7 @@ module.exports = async (inputData = null) => {
           };
 
           const disposePeerConnection = async peerId => {
+            dataChannelProbes.dropPeer(peerId);
             if (dataChannelHeartbeatTimers[peerId]) {
               clearInterval(dataChannelHeartbeatTimers[peerId]);
               delete dataChannelHeartbeatTimers[peerId];
@@ -1412,7 +1629,7 @@ module.exports = async (inputData = null) => {
             };
 
             channel.onmessage = async e => {
-              await onDataChannelMessage(e.data);
+              await onDataChannelMessage(e.data, remotePeerId);
             };
 
             channel.onclose = async () => {
@@ -1482,6 +1699,33 @@ module.exports = async (inputData = null) => {
               break;
             }
 
+            if (
+              server_mode === 'P2P' &&
+              wsSignalingClient?.readyState === WebSocket.OPEN
+            ) {
+              signalingHeartbeat.polled();
+              if (signalingHeartbeat.isStale() && invalidateP2PSignaling) {
+                await invalidateP2PSignaling();
+              } else if (signalingHeartbeat.shouldPing()) {
+                try {
+                  wsSignalingClient.send(JSON.stringify({ type: 'PING' }));
+                  signalingHeartbeat.markPingSent();
+                } catch (e) {
+                  if (invalidateP2PSignaling) {
+                    await invalidateP2PSignaling();
+                  }
+                }
+              }
+            }
+            if (
+              server_mode === 'P2P' &&
+              reconnectP2PSignaling &&
+              wsSignalingClient == null &&
+              Date.now() >= nextSignalingReconnectAt
+            ) {
+              await reconnectP2PSignaling();
+            }
+
             if (isP2PStatusMsgChanged) {
               isP2PStatusMsgChanged = false;
               await setDataInAsyncStorage(
@@ -1490,9 +1734,18 @@ module.exports = async (inputData = null) => {
               );
             }
 
+            if (server_mode === 'P2P') {
+              dataChannelProbes.poll();
+              const staleTransportPeers = dataChannelProbes.stalePeers();
+              if (staleTransportPeers.length && invalidateP2PSignaling) {
+                await invalidateP2PSignaling();
+              }
+            }
+
             // check if ping initiated
             if (latest.echo === 'ping') {
               await setDataInAsyncStorage('echo', 'pong');
+              NativeBridgeModule.clearInactiveServiceNotification();
             }
 
             // check if user wants to download files

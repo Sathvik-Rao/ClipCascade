@@ -50,19 +50,22 @@ class RequestManager:
                 data=form_data,
                 verify=self._verify(),
             )
-            if (
-                response.status_code == 200
-                and "bad credentials" not in response.text.lower()
-            ):
-                # login successful
+            # A successful form login may redirect to `/`. When ClipCascade is
+            # reverse-proxied under a context path that redirect can itself be a
+            # 404, so validate the authenticated session instead of trusting the
+            # final redirect status code.
+            validation = session.get(
+                self.config.data["server_url"] + VALIDATE_URL,
+                verify=self._verify(),
+            )
+            if validation.status_code == 200 and validation.text == "OK":
                 cookie = session.cookies.get_dict()
-                logging.info(f"Login successful: {response.status_code}")
+                logging.info("Login successful")
                 return True, "Login successful", cookie
-            else:
-                # login failed
-                msg = f"Login failed: {response.status_code}"
-                logging.error(msg)
-                return False, msg, None
+
+            msg = f"Login failed: {response.status_code}"
+            logging.error(msg)
+            return False, msg, None
         except Exception as e:
             msg = f"An error occurred during login: {e}"
             logging.error(msg)

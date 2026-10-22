@@ -221,6 +221,15 @@ def _monitor_wl_watch(enable_image_monitoring=False, enable_file_monitoring=Fals
         while _run_poll.is_set():
             line = _wl_watch_proc.stdout.readline()
             if not line:
+                if _run_poll.is_set():
+                    stderr_out = _wl_watch_proc.stderr.read().decode(
+                        "utf-8", errors="ignore"
+                    )
+                    logging.warning(
+                        "wl-paste --watch exited while clipboard monitoring was active; "
+                        f"falling back to polling. {stderr_out.strip()}"
+                    )
+                    return False
                 break
             if not _run_poll.is_set():
                 break
@@ -407,6 +416,10 @@ def _runner(enable_image_monitoring=False, enable_file_monitoring=False):
     logging.info(f"XMODE: {XMODE}")
     try:
         _run_poll.set()
+        if not XMODE:
+            _start_clipboard_polling(enable_image_monitoring, enable_file_monitoring)
+            return
+
         import gi
 
         gi.require_version("Gtk", "3.0")

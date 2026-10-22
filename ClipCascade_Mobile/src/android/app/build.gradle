@@ -73,6 +73,10 @@ def enableProguardInReleaseBuilds = false
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
+    buildFeatures {
+        aidl true
+    }
+
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
@@ -134,6 +138,11 @@ dependencies {
 
     // WorkManager
     implementation "androidx.work:work-runtime-ktx:2.10.3"
+
+    // Shizuku - background clipboard access without READ_LOGS/overlay tricks
+    def shizuku_version = "13.1.5"
+    implementation "dev.rikka.shizuku:api:$shizuku_version"
+    implementation "dev.rikka.shizuku:provider:$shizuku_version"
 
     // DocumentFile
     implementation "androidx.documentfile:documentfile:1.1.0"

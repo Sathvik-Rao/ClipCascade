@@ -1,0 +1,17 @@
+[Unit]
+Description=ClipCascade headless clipboard sync
+After=graphical-session.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/brandon/clip-cascade/ClipCascade_Desktop/src
+Environment=XDG_SESSION_TYPE=wayland
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+ExecStart=/home/brandon/.local/bin/clipcascade-headless --xmode false
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
