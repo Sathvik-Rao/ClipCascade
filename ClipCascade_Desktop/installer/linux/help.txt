@@ -1,0 +1,18 @@
+ClipCascade for Linux
+=====================
+
+A lightweight utility to sync clipboard content seamlessly across devices
+with privacy and encryption.
+
+Installation and setup
+----------------------
+Follow the latest Linux GUI and CLI installation instructions in the project
+README, including the prerequisites and setup steps for your environment:
+
+https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#%EF%B8%8F-linux-desktop-application-gui--%EF%B8%8F-linux-terminal-based-application-cli
+
+Project:   https://github.com/Sathvik-Rao/ClipCascade
+Releases:  https://github.com/Sathvik-Rao/ClipCascade/releases
+Issues:    https://github.com/Sathvik-Rao/ClipCascade/issues
+
+See LICENSE for license terms.
