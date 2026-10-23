@@ -261,7 +261,7 @@ class Application:
                         self.config.data["hashed_password"] = (
                             self.cipher_manager.hash_password(raw_password)
                         )
-                    if not self.config.data["save_password"]:
+                    if self.config.data["cipher_enabled"] or not self.config.data["save_password"]:
                         self.config.data["password"] = ""
                     if display_login_success_dialog:
                         CustomDialog(

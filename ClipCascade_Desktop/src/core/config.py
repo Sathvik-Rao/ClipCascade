@@ -2,10 +2,16 @@ import base64
 import json
 import os
 import re
+import tempfile
 from core.constants import *
 
 
 class Config:
+    DEVICE_PREFERENCE_FIELDS = frozenset({
+        "notification", "save_password", "max_clipboard_size_local_limit_bytes",
+        "enable_image_sharing", "enable_file_sharing", "default_file_download_location",
+    })
+
     def __init__(self, file_name=DATA_FILE_NAME):
         self.file_name = file_name
         self.data = {
@@ -30,21 +36,50 @@ class Config:
             "stun_url": "",
             "ssl_ca_bundle": "",
         }
+        self._saved_data = self.data.copy()
 
     def save(self):
         """
         Save data to file
         """
+        return self._save_data(self.data.copy())
+
+    def save_preferences(self, updates):
+        """Persist only device preferences, preserving the last saved login settings."""
+        if not updates.keys() <= self.DEVICE_PREFERENCE_FIELDS:
+            raise ValueError("Only device preferences can be saved independently")
+        saved = self._saved_data.copy()
+        saved.update(updates)
+        if not saved["save_password"]:
+            saved["password"] = ""
+        if self._save_data(saved):
+            self.data.update(updates)
+            return True
+        return False
+
+    def _save_data(self, data):
+        temporary_path = None
         try:
-            temp = self.data.copy()
-            if self.data.get("cipher_enabled") and self.data.get("hashed_password"):
+            temp = data.copy()
+            if isinstance(temp.get("hashed_password"), bytes):
                 temp["hashed_password"] = base64.b64encode(
                     temp["hashed_password"]
                 ).decode("utf-8")
-            with open(self.file_name, "w") as f:
+            with tempfile.NamedTemporaryFile(
+                mode="w", dir=os.path.dirname(os.path.abspath(self.file_name)),
+                delete=False,
+            ) as f:
+                temporary_path = f.name
                 json.dump(temp, f, indent=4)
+            os.replace(temporary_path, self.file_name)
+            self._saved_data = data.copy()
+            return True
         except Exception as e:
             logging.error(f"Failed to save data: {e}")
+            return False
+        finally:
+            if temporary_path and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
 
     def load(self):
         """
@@ -60,6 +95,7 @@ class Config:
                     self.data["hashed_password"] = base64.b64decode(
                         self.data["hashed_password"]
                     )
+                self._saved_data = self.data.copy()
                 return True
             except Exception as e:
                 logging.error(f"Failed to load data: {e}")

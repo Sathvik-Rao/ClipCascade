@@ -74,6 +74,7 @@ class LoginForm:
             )
             or LoginForm.bool_to_str(self.config.data["notification"])
         )
+        self._save_preference("notification")
 
         # extra fields
         show_extra_fields = input(f"show extra fields [n]: ") or "n"
@@ -112,6 +113,7 @@ class LoginForm:
             )
             or LoginForm.bool_to_str(self.config.data["save_password"])
         )
+        self._save_preference("save_password")
 
         # Validate max_clipboard_size_local_limit_bytes
         while True:
@@ -132,6 +134,7 @@ class LoginForm:
             )
             if max_clipboard_size_local_limit_bytes == "":
                 self.config.data["max_clipboard_size_local_limit_bytes"] = None
+                self._save_preference("max_clipboard_size_local_limit_bytes")
                 break
 
             if not LoginForm.is_positive_integer(max_clipboard_size_local_limit_bytes):
@@ -144,6 +147,7 @@ class LoginForm:
             self.config.data["max_clipboard_size_local_limit_bytes"] = int(
                 max_clipboard_size_local_limit_bytes
             )
+            self._save_preference("max_clipboard_size_local_limit_bytes")
             break
 
         self.config.data["enable_image_sharing"] = LoginForm.str_to_bool(
@@ -152,6 +156,7 @@ class LoginForm:
             )
             or LoginForm.bool_to_str(self.config.data["enable_image_sharing"])
         )
+        self._save_preference("enable_image_sharing")
 
         self.config.data["enable_file_sharing"] = LoginForm.str_to_bool(
             input(
@@ -159,6 +164,7 @@ class LoginForm:
             )
             or LoginForm.bool_to_str(self.config.data["enable_file_sharing"])
         )
+        self._save_preference("enable_file_sharing")
 
         # Validate default file download location
         while True:
@@ -172,6 +178,7 @@ class LoginForm:
             default_file_download_location = default_file_download_location.strip()
             if default_file_download_location == "":
                 self.config.data["default_file_download_location"] = ""
+                self._save_preference("default_file_download_location")
                 break
 
             if not os.path.isdir(default_file_download_location):
@@ -184,6 +191,7 @@ class LoginForm:
             self.config.data["default_file_download_location"] = (
                 default_file_download_location
             )
+            self._save_preference("default_file_download_location")
             break
 
         while True:
@@ -206,6 +214,10 @@ class LoginForm:
             break
 
         CustomDialog("Logging in...").mainloop()
+
+    def _save_preference(self, field):
+        if not self.config.save_preferences({field: self.config.data[field]}):
+            CustomDialog("Unable to save device preferences.", msg_type="error").mainloop()
 
     def on_quit(self):
         pass

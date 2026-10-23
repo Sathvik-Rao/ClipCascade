@@ -39,6 +39,12 @@ import {
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
+import {
+  DEVICE_PREFERENCE_FIELDS,
+  isValidClipboardLimit,
+  saveDevicePreference,
+  waitForPreferenceWrites,
+} from './DevicePreferences';
 
 const isCancel = error =>
   isErrorWithCode(error) && error.code === errorCodes.OPERATION_CANCELED;
@@ -76,6 +82,8 @@ export default function App() {
   const { NativeBridgeModule } = NativeModules;
 
   const isMountedRef = useRef(true);
+  const loginInProgressRef = useRef(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const [newVersionAvailable, setNewVersionAvailable] = useState([false, '']);
   const [donateUrl, setDonateUrl] = useState(null);
@@ -776,11 +784,39 @@ export default function App() {
 
   // Function to handle input changes in the login form
   const handleInputChange = (field, value) => {
+    if (loginInProgressRef.current) {
+      return;
+    }
     try {
       setData(prevData => ({
         ...prevData,
         [field]: value,
       }));
+      if (
+        DEVICE_PREFERENCE_FIELDS.has(field) &&
+        (field !== 'max_clipboard_size_local_limit_bytes' ||
+          isValidClipboardLimit(value))
+      ) {
+        saveDevicePreference(field, value)
+          .then(async () => {
+            if (field === 'enable_periodic_checks') {
+              if (value === 'true') {
+                await NativeBridgeModule.startWorkManager();
+              } else {
+                await NativeBridgeModule.stopWorkManager();
+              }
+            }
+            if (
+              field === 'enable_websocket_status_notification' &&
+              value === 'false'
+            ) {
+              await notifee.cancelNotification(
+                'ClipCascade_WebSocket_Status_Notification_Id',
+              );
+            }
+          })
+          .catch(e => setLoginStatusMessage('❌ Unable to save preference: ' + e));
+      }
     } catch (e) {
       setLoginStatusMessage('❌ Error: ' + e);
     }
@@ -805,7 +841,22 @@ export default function App() {
 
   // Function to handle login button press
   const handleLogin = async (pass = null, data_s_c = null) => {
+    if (loginInProgressRef.current) {
+      return;
+    }
+    loginInProgressRef.current = true;
+    setIsLoggingIn(true);
     try {
+      if (
+        !isValidClipboardLimit(
+          (data_s_c || data).max_clipboard_size_local_limit_bytes,
+        )
+      ) {
+        throw new Error(
+          'Max Clipboard Size Local Limit must be a positive integer or empty.',
+        );
+      }
+      await waitForPreferenceWrites();
       setLoginStatusMessage('⌛ Please wait...');
 
       // clear cookies if any
@@ -851,12 +902,14 @@ export default function App() {
 
         // Stop periodic checks work manager notification (if disabled)
         if (data_s.enable_periodic_checks === 'false') {
-          NativeBridgeModule.stopWorkManager();
+          await NativeBridgeModule.stopWorkManager();
         }
 
         // Save password in async storage
-        if (data_s.save_password === 'true') {
+        if (data_s.save_password === 'true' && data_s.cipher_enabled !== 'true') {
           await setDataInAsyncStorage('password', password_s);
+        } else {
+          await setDataInAsyncStorage('password', '');
         }
         // Remove password from memory
         setPassword('');
@@ -876,6 +929,9 @@ export default function App() {
       }
     } catch (e) {
       setLoginStatusMessage('❌ Error: ' + e);
+    } finally {
+      loginInProgressRef.current = false;
+      setIsLoggingIn(false);
     }
   };
 
@@ -959,6 +1015,7 @@ export default function App() {
           <View style={styles.row}>
             <Text style={styles.label}>Username:</Text>
             <TextInput
+              editable={!isLoggingIn}
               style={styles.input}
               value={data.username}
               onChangeText={text => handleInputChange('username', text)}
@@ -968,6 +1025,7 @@ export default function App() {
           <View style={styles.row}>
             <Text style={styles.label}>Password:</Text>
             <TextInput
+              editable={!isLoggingIn}
               style={styles.input}
               value={password}
               onChangeText={text => setPassword(text)}
@@ -978,6 +1036,7 @@ export default function App() {
           <View style={styles.row}>
             <Text style={styles.label}>Server URL:</Text>
             <TextInput
+              editable={!isLoggingIn}
               style={styles.input}
               value={data.server_url}
               onChangeText={text =>
@@ -989,6 +1048,7 @@ export default function App() {
           <View style={styles.row}>
             <Text style={styles.label}>Enable Encryption (recommended):</Text>
             <CheckBox
+              disabled={isLoggingIn}
               value={data.cipher_enabled === 'true' ? true : false}
               onValueChange={newValue =>
                 handleInputChange('cipher_enabled', String(newValue))
@@ -1004,6 +1064,7 @@ export default function App() {
           {/* Login Button */}
           <TouchableOpacity
             style={styles.loginButton}
+            disabled={isLoggingIn}
             onPress={() => {
               handleLogin(null, null);
             }}
@@ -1026,6 +1087,7 @@ export default function App() {
               <View style={styles.row}>
                 <Text style={styles.label}>Hash Rounds:</Text>
                 <TextInput
+                  editable={!isLoggingIn}
                   style={styles.input}
                   value={data.hash_rounds}
                   onChangeText={text =>
@@ -1039,6 +1101,7 @@ export default function App() {
               <View style={styles.row}>
                 <Text style={styles.label}>Salt:</Text>
                 <TextInput
+                  editable={!isLoggingIn}
                   style={styles.input}
                   value={data.salt}
                   onChangeText={text => handleInputChange('salt', text)}
@@ -1051,6 +1114,7 @@ export default function App() {
                   encryption is disabled):
                 </Text>
                 <CheckBox
+                  disabled={isLoggingIn}
                   value={data.save_password === 'true' ? true : false}
                   onValueChange={newValue =>
                     handleInputChange('save_password', String(newValue))
@@ -1062,6 +1126,7 @@ export default function App() {
                   Maximum Clipboard Size Local Limit (in bytes):
                 </Text>
                 <TextInput
+                  editable={!isLoggingIn}
                   style={styles.input}
                   value={data.max_clipboard_size_local_limit_bytes}
                   onChangeText={text =>
@@ -1080,6 +1145,7 @@ export default function App() {
                   granted):
                 </Text>
                 <CheckBox
+                  disabled={isLoggingIn}
                   value={data.relaunch_on_boot === 'true' ? true : false}
                   onValueChange={newValue =>
                     handleInputChange('relaunch_on_boot', String(newValue))
@@ -1091,6 +1157,7 @@ export default function App() {
                   Enable WebSocket Status Notification:
                 </Text>
                 <CheckBox
+                  disabled={isLoggingIn}
                   value={
                     data.enable_websocket_status_notification === 'true'
                       ? true
@@ -1107,6 +1174,7 @@ export default function App() {
               <View style={styles.row}>
                 <Text style={styles.label}>Enable Periodic Checks:</Text>
                 <CheckBox
+                  disabled={isLoggingIn}
                   value={data.enable_periodic_checks === 'true' ? true : false}
                   onValueChange={newValue =>
                     handleInputChange(
@@ -1119,6 +1187,7 @@ export default function App() {
               <View style={styles.row}>
                 <Text style={styles.label}>Enable Image Sharing:</Text>
                 <CheckBox
+                  disabled={isLoggingIn}
                   value={data.enable_image_sharing === 'true' ? true : false}
                   onValueChange={newValue =>
                     handleInputChange('enable_image_sharing', String(newValue))
@@ -1128,6 +1197,7 @@ export default function App() {
               <View style={styles.row}>
                 <Text style={styles.label}>Enable File Sharing:</Text>
                 <CheckBox
+                  disabled={isLoggingIn}
                   value={data.enable_file_sharing === 'true' ? true : false}
                   onValueChange={newValue =>
                     handleInputChange('enable_file_sharing', String(newValue))
@@ -1148,6 +1218,7 @@ export default function App() {
                 <TouchableOpacity
                   style={styles.caButton}
                   onPress={importCaBundle}
+                  disabled={isLoggingIn}
                   accessibilityRole="button"
                   accessibilityLabel="Import SSL CA bundle"
                 >
@@ -1160,6 +1231,7 @@ export default function App() {
                     style={[styles.caButton, styles.caRemoveButton]}
                     accessibilityRole="button"
                     accessibilityLabel="Remove SSL CA bundle"
+                    disabled={isLoggingIn}
                     onPress={() =>
                       setData(previous => ({
                         ...previous,

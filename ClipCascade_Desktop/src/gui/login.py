@@ -419,6 +419,30 @@ class LoginForm(tk.Tk):
         # Configure grid weights for extra_frame
         self.extra_frame.columnconfigure(1, weight=1)
 
+        # Bind after initialization so opening the form never writes defaults.
+        for field, variable in (
+            ("notification", self.notification_var),
+            ("save_password", self.save_password_var),
+            ("enable_image_sharing", self.enable_image_sharing_var),
+            ("enable_file_sharing", self.enable_file_sharing_var),
+        ):
+            variable.trace_add(
+                "write", lambda *_, key=field, var=variable:
+                self._save_preference(key, var.get())
+            )
+        self._preference_entries = []
+        for field, entry in (
+            ("max_clipboard_size_local_limit_bytes", self.local_clipboard_size_entry),
+            ("default_file_download_location", self.default_file_download_location_entry),
+        ):
+            variable = tk.StringVar(value=entry.get())
+            entry.configure(textvariable=variable)
+            variable.trace_add(
+                "write", lambda *_, key=field, var=variable:
+                self._save_preference_entry(key, var.get())
+            )
+            self._preference_entries.append(variable)
+
         # Bind mouse wheel events for scrolling
         self._bind_mousewheel()
 
@@ -553,6 +577,20 @@ class LoginForm(tk.Tk):
     def remove_trailing_slash(entry):
         return re.sub(r"/+$", "", entry)
 
+    def _save_preference(self, field, value):
+        if not self.config.save_preferences({field: value}):
+            CustomDialog("Unable to save device preferences.", msg_type="error").mainloop()
+
+    def _save_preference_entry(self, field, value):
+        value = value.strip()
+        if field == "max_clipboard_size_local_limit_bytes":
+            if value and not self.is_positive_integer(value):
+                return  # Keep incomplete/invalid edits out of persistent settings.
+            value = int(value) if value else None
+        elif value and not os.path.isdir(value):
+            return
+        self._save_preference(field, value)
+
     @staticmethod
     def is_positive_integer(value):
         if value.isdigit() and int(value) > 0:
@@ -608,7 +646,7 @@ class LoginForm(tk.Tk):
         if default_file_download_location == "":
             self.config.data["default_file_download_location"] = ""
         else:
-            if not os.path.exists(default_file_download_location):
+            if not os.path.isdir(default_file_download_location):
                 CustomDialog(
                     "Invalid Input\nDefault File Download Location does not exist.",
                     msg_type="error",
