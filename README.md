@@ -1224,6 +1224,13 @@ You can adjust these settings in the **advanced settings** section on the login 
   </table>
 
 
+## Server API Documentation
+
+To build an alternative client, see the [Server API and client implementation guide](ClipCascade_Server/API.md).
+It covers authentication and CSRF, HTTP endpoints, admin operations, P2S/STOMP and
+P2P/WebRTC protocols, clipboard encryption and payload formats, fragmentation,
+reconnection, and working examples with an interoperability checklist.
+
 ## ⇄ Reverse Proxy Setup
 
 Below is a screenshot demonstrating how to configure a reverse proxy using **Cloudflare Tunnels**. Similar configurations can be applied with other providers as well.
