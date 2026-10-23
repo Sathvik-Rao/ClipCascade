@@ -82,6 +82,13 @@ class LoginForm:
             CustomDialog("Logging in...").mainloop()
             return
 
+        self.config.data["update_notifications"] = LoginForm.str_to_bool(
+            input(
+                f"Notify when an update is available [{LoginForm.bool_to_str(self.config.data['update_notifications'])}]: "
+            ) or LoginForm.bool_to_str(self.config.data["update_notifications"])
+        )
+        self._save_preference("update_notifications")
+
         # Validate hash_rounds
         while True:
             hash_rounds = input(

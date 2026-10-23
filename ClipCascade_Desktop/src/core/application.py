@@ -9,6 +9,7 @@ from core.constants import *
 from core.config import Config
 from utils.request_manager import RequestManager
 from utils.cipher_manager import CipherManager
+from utils.update_checker import UpdateChecker, parse_version
 from stomp_ws.stomp_manager import STOMPManager
 from p2p.p2p_manager import P2PManager
 
@@ -40,6 +41,7 @@ class Application:
         mutex_identifier=MUTEX_NAME,
     ):
         self._macos_shutdown_complete = False
+        self.update_checker = UpdateChecker(self.get_version_update_status)
         try:
             self.log_file_path = os.path.join(
                 get_program_files_directory(), log_file_path
@@ -228,6 +230,8 @@ class Application:
                         else lambda: sys.exit(0)
                     ),
                 )
+                if not (PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI):
+                    login_form.watch_updates(self.update_checker)
                 login_form.mainloop()  # wait until login form is closed
                 raw_password = self.config.data[
                     "password"
@@ -289,16 +293,17 @@ class Application:
         else:
             return self.stomp_manager
 
-    def get_version_update_status(self) -> list:
+    def get_version_update_status(self) -> list | None:
         """
         Checks for a new version of the application by comparing the current version
         with the one available in a remote JSON file.
 
         Returns:
-        list: [bool, str, str, str] - [Is new version available, latest version, current version, release URL]
+        [Is new version available, latest version, current version, release URL],
+        or None when the check fails.
         """
         try:
-            response = RequestManager.get(VERSION_URL)
+            response = RequestManager.get(VERSION_URL, timeout=(5, 10))
             response_data = response.json()
             if PLATFORM == WINDOWS:
                 key = "windows"
@@ -311,12 +316,11 @@ class Application:
                     key = "linux_non_gui"
 
             latest_version = response_data[key]
-            if not isinstance(latest_version, str) or not latest_version.strip():
-                raise ValueError("Invalid latest version")
-            return [latest_version != APP_VERSION, latest_version, APP_VERSION, RELEASE_URL]
+            newer = parse_version(latest_version) > parse_version(APP_VERSION)
+            return [newer, latest_version.strip(), APP_VERSION, RELEASE_URL]
         except Exception as e:
             logging.error(f"Error checking for new version: {e}")
-        return [False, "", APP_VERSION, RELEASE_URL]
+        return None  # Unknown/offline: retain the last successful result.
 
     def get_donation_url(self) -> str:
         try:
@@ -370,22 +374,23 @@ class Application:
             self.setup_logging()
             self.ensure_single_instance()
             self.config.load()
+            self.update_checker.start()
             self.authenticate_and_connect()
             self.config.save()
-            update_available = self.get_version_update_status()
             donation_url = self.get_donation_url()
 
             sys_tray = TaskbarPanel(
                 on_connect_callback=self._get_ws_manager().manual_reconnect,
                 on_disconnect_callback=self._get_ws_manager().disconnect,
                 on_logoff_callback=self.logoff_and_exit,
-                new_version_available=update_available,
+                new_version_available=self.update_checker.status,
                 github_url=GITHUB_URL,
                 donation_url=donation_url,
                 ws_interface=self._get_ws_manager(),
                 config=self.config,
                 **({"on_shutdown_callback": self._shutdown_macos} if PLATFORM == MACOS else {}),
             )
+            sys_tray.update_checker = self.update_checker
             self._get_ws_manager().set_tray_ref(sys_tray)
             sys_tray.run()
         except Exception as e:
@@ -395,6 +400,7 @@ class Application:
                 msg + "\nCheck logs in project directory", msg_type="error"
             ).mainloop()
         finally:
+            self.update_checker.stop()
             if not (PLATFORM == MACOS and self._macos_shutdown_complete):
                 try:
                     self._get_ws_manager().disconnect()

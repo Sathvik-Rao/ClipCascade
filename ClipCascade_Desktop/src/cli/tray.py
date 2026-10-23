@@ -195,7 +195,18 @@ class TaskbarPanel:
         threading.Thread(target=self._update_stats_thread, daemon=True).start()
 
     def _update_stats_thread(self):
-        while True:
+        while not self.loop_terminate:
+            checker = getattr(self, "update_checker", None)
+            if checker:
+                if checker.status is not None and checker.status != self.new_version_available:
+                    self.new_version_available = checker.status
+                    self.update_menu(no_dialog=True)
+                status = checker.claim_alert(self.config.data.get("update_notifications", True))
+                if status:
+                    CustomDialog(
+                        f"ClipCascade {status[1]} is available. Press Enter to refresh the update menu.",
+                        msg_type="info",
+                    ).mainloop()
             current_stats = self.ws_interface.get_stats()
             if current_stats is not None and self.previous_stats != current_stats:
                 self.previous_stats = current_stats

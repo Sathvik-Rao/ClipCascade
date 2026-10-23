@@ -102,6 +102,27 @@ let CSRF_TOKEN = null;
 let MAX_MESSAGE_SIZE = null; // in MiB
 let CSRF_HEADER_NAME = "X-CSRF-TOKEN";
 
+function compareReleaseVersions(latest, installed) {
+  const parse = (value) => {
+    if (typeof value !== "string" || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(value.trim())) {
+      throw new Error("Invalid release version");
+    }
+    const parts = value.trim().split(".").map(Number);
+    if (!parts.every(Number.isSafeInteger)) {
+      throw new Error("Invalid release version");
+    }
+    return parts;
+  };
+  const remote = parse(latest);
+  const current = parse(installed);
+  for (let i = 0; i < remote.length; i++) {
+    if (remote[i] !== current[i]) {
+      return remote[i] > current[i] ? 1 : -1;
+    }
+  }
+  return 0;
+}
+
 /* -----------------------------------------
          ============  ON DOCUMENT READY  =========
          ----------------------------------------- */
@@ -138,15 +159,10 @@ $(function () {
           $(SELECTORS.serverVersion).text(`Version v${serverVersion.version}`);
           fetchLatestServerVersion()
             .then((latestServerVersion) => {
-              if (
-                typeof latestServerVersion.server !== "string" ||
-                !latestServerVersion.server.trim()
-              ) {
-                return;
-              }
-              if (serverVersion.version === latestServerVersion.server) {
+              const comparison = compareReleaseVersions(latestServerVersion.server, serverVersion.version);
+              if (comparison === 0) {
                 $(SELECTORS.serverVersion).text(`Version v${serverVersion.version} (latest)`);
-              } else if (userData.role === "ADMIN") {
+              } else if (comparison > 0 && userData.role === "ADMIN") {
                 $(SELECTORS.updateLink).text(
                   `🔄 Update (${serverVersion.version} ➞ ${latestServerVersion.server})`
                 );

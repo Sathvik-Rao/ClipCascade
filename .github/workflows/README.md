@@ -131,7 +131,7 @@ the same source constants on `main`:
 | version.json key                 | Synced into                                                                 |
 |----------------------------------|------------------------------------------------------------------------------|
 | `windows` / `macos` / `linux_*`  | `ClipCascade_Desktop/src/core/constants.py` (`APP_VERSION` per platform)     |
-| `android`                        | `ClipCascade_Mobile/src/App.js` (`APP_VERSION`)                              |
+| `android`                        | `ClipCascade_Mobile/src/AppVersion.js` (`APP_VERSION`)                       |
 | `android`                        | `…/android/app/build.gradle` (`versionName` + computed `versionCode`)        |
 | `server`                         | `…/constants/ServerConstants.java` (`APP_VERSION`)                          |
 | `server`                         | `ClipCascade_Server/docker-compose/docker-compose.yml` (image tag)           |

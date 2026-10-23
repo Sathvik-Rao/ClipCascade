@@ -181,12 +181,12 @@ class RequestManager:
             return ""
 
     @staticmethod
-    def get(url: str, headers: dict = None, verify=True) -> requests.Response:
+    def get(url: str, headers: dict = None, verify=True, timeout=None) -> requests.Response:
         """
         A generic GET mapper for handling GET requests.
         """
         try:
-            response = requests.get(url, headers=headers, verify=verify)
+            response = requests.get(url, headers=headers, verify=verify, timeout=timeout)
             response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
             return response
         except Exception as e:

@@ -633,7 +633,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add version.json \
                   ClipCascade_Desktop/src/core/constants.py \
-                  ClipCascade_Mobile/src/App.js \
+                  ClipCascade_Mobile/src/AppVersion.js \
                   ClipCascade_Mobile/src/android/app/build.gradle \
                   ClipCascade_Server/ClipCascade_Backend/src/main/java/com/acme/clipcascade/constants/ServerConstants.java \
                   ClipCascade_Server/docker-compose/docker-compose.yml

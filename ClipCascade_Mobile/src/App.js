@@ -1,5 +1,6 @@
 import {
   PermissionsAndroid,
+  AppState,
   Image,
   StyleSheet,
   Text,
@@ -40,6 +41,11 @@ import {
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
+import {APP_VERSION} from './AppVersion';
+import {
+  checkForUpdates, presentUpdate, setUpdateFocused, subscribeToUpdates,
+  RELEASE_URL, UPDATE_NOTIFICATION_ID,
+} from './UpdateChecker';
 import {
   DEVICE_PREFERENCE_FIELDS,
   isValidClipboardLimit,
@@ -64,6 +70,8 @@ const isCancel = error =>
  * (file) android\app\src\main\java\com\clipcascade\NativeBridgeModule.kt
  * (file) android\app\src\main\java\com\clipcascade\NativeBridgePackage.kt
  * (file) android\app\src\main\java\com\clipcascade\ScheduleService.kt
+ * (file) android/app/src/main/java/com/clipcascade/ServerTls.kt
+ * (file) android/app/src/main/java/com/clipcascade/ServerTlsModule.kt
  * (file) android\app\src\main\AndroidManifest.xml
  * (folder) android\app\src\main\res\
  * (file) android\app\build.gradle
@@ -73,10 +81,10 @@ const isCancel = error =>
  * (file) HeadlessTask.js
  * (file) index.js
  * (file) StartForegroundService.js
+ * (file) DevicePreferences.js
+ * (file) AppVersion.js
+ * (file) UpdateChecker.js
  */
-
-// App version
-const APP_VERSION = '3.2.0';
 
 // Main App
 function InfoLabel({style, label, info}) {
@@ -120,18 +128,40 @@ export default function App() {
   const VALIDATE_URL = '/validate-session';
   const WEBSOCKET_ENDPOINT_P2P = '/p2psignaling';
   const STUN_URL = '/stun-url';
-  const VERSION_URL =
-    'https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json';
   const GITHUB_URL = 'https://github.com/Sathvik-Rao/ClipCascade';
-  const RELEASE_URL =
-    'https://github.com/Sathvik-Rao/ClipCascade/releases/latest';
   const APP_NAME = 'ClipCascade';
   const HELP_URL = `${GITHUB_URL}/blob/main/README.md`;
   const METADATA_URL =
     'https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/metadata.json';
 
-  // Request permissions for notifications
-  PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+  useEffect(() => {
+    setUpdateFocused(true);
+    PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS)
+      .then(() => presentUpdate()).catch(console.warn);
+    const unsubscribe = subscribeToUpdates(setNewVersionAvailable);
+    // Check immediately on UI launch, sharing any in-flight service request.
+    checkForUpdates({force: true});
+    const timer = setInterval(() => checkForUpdates(), 60000);
+    const state = AppState.addEventListener('change', value => {
+      if (value === 'active') {
+        setUpdateFocused(true);
+        checkForUpdates();
+        presentUpdate();
+      }
+    });
+    const focus = AppState.addEventListener('focus', () => {
+      setUpdateFocused(true);
+      presentUpdate();
+    });
+    const blur = AppState.addEventListener('blur', () => setUpdateFocused(false));
+    return () => {
+      unsubscribe();
+      clearInterval(timer);
+      state.remove();
+      focus.remove();
+      blur.remove();
+    };
+  }, []);
 
   const fetchTimeout = async (input, init, timeout_ms = FETCH_TIMEOUT) => {
     try {
@@ -160,6 +190,7 @@ export default function App() {
     max_clipboard_size_local_limit_bytes: '',
     relaunch_on_boot: 'false',
     enable_websocket_status_notification: 'false',
+    update_notifications: 'true',
     enable_periodic_checks: 'true',
     enable_image_sharing: 'true',
     enable_file_sharing: 'true',
@@ -333,23 +364,6 @@ export default function App() {
               }
             }
           }
-        }
-
-        // check for new version
-        try {
-          const response = await fetchTimeout(VERSION_URL);
-          if (!response.ok) {
-            throw new Error('Network response was not ok');
-          }
-          const data = await response.json();
-          if (data && typeof data.android === 'string' && data.android.trim()) {
-            setNewVersionAvailable([
-              data.android !== APP_VERSION,
-              data.android,
-            ]);
-          }
-        } catch (e) {
-          // Silent catch
         }
 
         try {
@@ -837,6 +851,12 @@ export default function App() {
                 'ClipCascade_WebSocket_Status_Notification_Id',
               );
             }
+            if (field === 'update_notifications' && value === 'false') {
+              await notifee.cancelNotification(UPDATE_NOTIFICATION_ID);
+            }
+            if (field === 'update_notifications' && value === 'true') {
+              await presentUpdate();
+            }
           })
           .catch(e =>
             setLoginStatusMessage('❌ Unable to save preference: ' + e),
@@ -1296,6 +1316,18 @@ export default function App() {
                     <Text style={styles.caButtonText}>Remove</Text>
                   </TouchableOpacity>
                 )}
+              </View>
+              <View style={styles.row}>
+                <InfoLabel
+                  style={styles.label}
+                  label="Notify when an update is available:"
+                  info="Checks at startup and once a day while running. Alerts once per new version each session. Enabled by default."
+                />
+                <CheckBox
+                  disabled={isLoggingIn}
+                  value={data.update_notifications === 'true'}
+                  onValueChange={value => handleInputChange('update_notifications', String(value))}
+                />
               </View>
             </>
           )}

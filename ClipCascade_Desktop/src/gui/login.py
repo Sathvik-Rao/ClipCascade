@@ -1,11 +1,14 @@
 import re
+import threading
+import webbrowser
 import tkinter as tk
-from tkinter import ttk, font, filedialog
+from tkinter import ttk, font, filedialog, messagebox
 import gc
 import time
 import os
 
 from utils.window_manager import center_window
+from utils.notification_manager import NotificationManager
 from core.config import Config
 from gui.info import CustomDialog
 from core.constants import *
@@ -57,6 +60,24 @@ class HoverTooltip:
 
 
 class LoginForm(tk.Tk):
+    def watch_updates(self, checker):
+        """Poll on Tk's UI thread; never touch Tk from the network worker."""
+        def poll():
+            status = checker.claim_alert(self.config.data.get("update_notifications", True))
+            if status:
+                message = f"ClipCascade {status[1]} is available (installed: {status[2]})."
+                if self.focus_displayof() is not None:
+                    if messagebox.askyesno("Update available", message + "\nOpen the download page?", parent=self):
+                        webbrowser.open(status[3])
+                else:
+                    threading.Thread(
+                        target=NotificationManager(self.config).notify,
+                        args=("ClipCascade update available", message + " Use the tray menu to open the download page."),
+                        kwargs={"preference": "update_notifications"}, daemon=True,
+                    ).start()
+            self._update_poll_id = self.after(1000, poll)
+        self._update_poll_id = self.after(1000, poll)
+
     def __init__(
         self,
         config: Config,
@@ -489,12 +510,26 @@ class LoginForm(tk.Tk):
             "Clear the custom CA certificate bundle.\nLog in to use default certificate trust.",
         )
 
+        update_label = ttk.Label(self.extra_frame, text="Notify when an update is available:")
+        update_label.grid(row=8, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.update_notifications_var = tk.BooleanVar(value=self.config.data["update_notifications"])
+        update_checkbox = ttk.Checkbutton(
+            self.extra_frame, variable=self.update_notifications_var, takefocus=False,
+        )
+        update_checkbox.grid(row=8, column=1, padx=10, pady=5, sticky=tk.W)
+        self._add_tooltip(
+            [update_label, update_checkbox],
+            "Checks at startup and once a day while running.\n"
+            "Alerts once per new version each session. Enabled by default.",
+        )
+
         # Configure grid weights for extra_frame
         self.extra_frame.columnconfigure(1, weight=1)
 
         # Bind after initialization so opening the form never writes defaults.
         for field, variable in (
             ("notification", self.notification_var),
+            ("update_notifications", self.update_notifications_var),
             ("save_password", self.save_password_var),
             ("enable_image_sharing", self.enable_image_sharing_var),
             ("enable_file_sharing", self.enable_file_sharing_var),
@@ -732,6 +767,7 @@ class LoginForm(tk.Tk):
         )
         self.config.data["cipher_enabled"] = self.cipher_var.get()
         self.config.data["notification"] = self.notification_var.get()
+        self.config.data["update_notifications"] = self.update_notifications_var.get()
 
         # extra fields
 
@@ -801,6 +837,9 @@ class LoginForm(tk.Tk):
         self.close()
 
     def close(self):
+        if getattr(self, "_update_poll_id", None):
+            self.after_cancel(self._update_poll_id)
+            self._update_poll_id = None
         self.destroy()
         gc.collect()
         time.sleep(0.5)

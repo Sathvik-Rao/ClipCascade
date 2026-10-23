@@ -17,6 +17,7 @@ import {
   RTCSessionDescription,
 } from 'react-native-webrtc';
 import Clipboard from '@react-native-clipboard/clipboard';
+import {checkForUpdates} from './UpdateChecker';
 
 import {
   setDataInAsyncStorage,
@@ -1528,6 +1529,10 @@ module.exports = async (inputData = null) => {
               );
               break;
             }
+
+            // The shared checker gates requests to once a day and deduplicates
+            // concurrent screen/service checks. Never delay clipboard polling.
+            checkForUpdates();
 
             if (isP2PStatusMsgChanged) {
               isP2PStatusMsgChanged = false;

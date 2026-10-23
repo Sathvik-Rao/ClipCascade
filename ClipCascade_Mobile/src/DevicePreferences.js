@@ -5,6 +5,7 @@ export const DEVICE_PREFERENCE_FIELDS = new Set([
   'max_clipboard_size_local_limit_bytes',
   'relaunch_on_boot',
   'enable_websocket_status_notification',
+  'update_notifications',
   'enable_periodic_checks',
   'enable_image_sharing',
   'enable_file_sharing',

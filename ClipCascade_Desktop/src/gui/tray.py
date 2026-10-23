@@ -9,6 +9,7 @@ from pystray import Icon, MenuItem as item, Menu
 from PIL import Image, ImageDraw
 
 from utils.main_thread import on_main_thread
+from utils.notification_manager import NotificationManager
 from core.config import Config
 from gui.info import CustomDialog
 from core.constants import *
@@ -282,6 +283,19 @@ class TaskbarPanel:
 
     def _update_stats_thread(self):
         while not self._stopped.is_set():
+            checker = getattr(self, "update_checker", None)
+            if checker:
+                if checker.status is not None and checker.status != self.new_version_available:
+                    self.new_version_available = checker.status
+                    self.update_menu()
+                status = checker.claim_alert(self.config.data.get("update_notifications", True))
+                if status:
+                    # The desktop client has no visible main window in tray mode.
+                    NotificationManager(self.config).notify(
+                        "ClipCascade update available",
+                        f"Version {status[1]} is available. Open the tray menu to update.",
+                        preference="update_notifications",
+                    )
             current_stats = self.ws_interface.get_stats()
             if current_stats is not None and self.previous_stats != current_stats:
                 self.previous_stats = current_stats
