@@ -261,7 +261,7 @@ To install the ClipCascade Windows desktop application, follow these steps:
     - Open ClipCascade after installation and **log in** to start syncing your clipboard across devices.
     - When prompted, enter your **server's IP address, port number, or domain name**.
     - If encryption is enabled, ensure it is **enabled on all devices**.
-    - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+    - In the **advanced settings** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
 4. **Network Access Prompt (P2P Mode)**
     - If the server is running in **P2P mode**, you will see a Windows security prompt asking, **"Do you want to allow public and private networks to access this app?"**
 
@@ -323,7 +323,7 @@ To install the ClipCascade macOS desktop application, follow these steps:
 6. **Configure the application**
     - When prompted, enter your **server's IP address, port number, or domain name**.
     - If encryption is enabled, ensure it is **enabled on all devices**.
-    - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+    - In the **advanced settings** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
 
 7. **Network Access Prompt (P2P Mode)**
     - If the server is running in **P2P mode**, you will see a macOS security prompt asking, **"Allow "ClipCascade" to find devices on local networks?"**
@@ -365,7 +365,7 @@ To install the ClipCascade mobile application on your Android device, follow the
 4. **Open** ClipCascade and log in to begin syncing your clipboard across devices.
     - When prompted, enter your **server's IP address, port number, or domain name**.
     - If encryption is enabled, ensure it is **enabled on all devices**.
-    - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+    - In the **advanced settings** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
 
 #### Android Automatic Clipboard Monitoring Setup:
 
@@ -508,7 +508,7 @@ sudo pacman -S --noconfirm ffmpeg
 Start ClipCascade by running (use sudo if needed):
    - When prompted, enter your **server's IP address, port number, or domain name**.
    - If encryption is enabled, ensure it is **enabled on all devices**.
-   - In the **Extra Config** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
+   - In the **advanced settings** section, you can set a local clipboard size limit. By default, no limit is enforced (note: large file transfers may cause temporary unresponsiveness).
 ```
 python3 main.py
 ```
@@ -676,7 +676,7 @@ Defines the maximum message size (in MiB) that the server can handle.
 - Desktop supports larger clipboard sizes across text, images, and files.
 <br><br>
 <strong>Additional Notes:</strong><br>
-- Clients can set their own limits via the "Extra Config" on the login page.<br>
+- Clients can set their own limits via **Show advanced settings** on the login page.<br>
 - If <code>CC_P2P_ENABLED</code> is <code>true</code>, this setting is ignored.
 </td>
 <td>1</td>
@@ -1073,26 +1073,35 @@ Defines the STOMP broker password for external message handling.
     </tr>
    </table>
   
-#### Extra Config/Advanced Settings (Desktop/Mobile):
-- **Maximum Clipboard Size Local Limit (in bytes)**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. You can set a local size limit by specifying a value in bytes (e.g., 512 KiB = 524288 bytes) to test different thresholds suitable for your device. This local limit works alongside the server-specified limit to ensure smoother operation without crashes. For example, on Android (particularly on the Pixel 6a as of 2024), the platform limit(for text) is typically less than 1 MiB. Since the server limit cannot go below 1 MiB, setting the local limit to around 900,000 bytes on the Pixel 6a can help prevent crashes.
+<a name="extra-configadvanced-settings-desktopmobile"></a>
+
+#### Login and advanced settings (Desktop/Mobile):
+
+Use **Log in** to connect. Select **Show advanced settings** to expand additional options and **Hide advanced settings** to collapse them. On desktop, hover over settings for explanations. On Android, tap a label with a small **?** to see its explanation, or use **HELP** to open this documentation.
+
+Connection status notifications appear on the main login screen, outside advanced settings, on both desktop and Android. Desktop enables them by default; Android disables them by default. Encryption is also on the main login screen and is enabled by default on both platforms.
+
+- **Local clipboard size limit (bytes)**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. You can set a local size limit by specifying a value in bytes (e.g., 512 KiB = 524288 bytes) to test different thresholds suitable for your device. This local limit works alongside the server-specified limit to ensure smoother operation without crashes. For example, on Android (particularly on the Pixel 6a as of 2024), the platform limit(for text) is typically less than 1 MiB. Since the server limit cannot go below 1 MiB, setting the local limit to around 900,000 bytes on the Pixel 6a can help prevent crashes.
 - **Store Password Locally (not recommended)**: Enable this option if you frequently encounter session logouts. While the app stores session cookies for an extended period, a server restart may prompt a re-login. If re-entering the password becomes tedious, you can use this option to store your password locally for convenience.
    > Note: This option will only work if encryption is disabled, as encryption requires the raw password to generate a password hash.
 - **Enable Image Sharing and Enable File Sharing**: Enabling these options allows the app to send images or files. However, the app will continue to receive images and files even if these options are disabled.
-- **Enable Notification**: Turn on this option to receive notifications about WebSocket disconnections and reconnections.
-- **Enable Encryption (recommended)**: Enabling this option activates end-to-end encryption for clipboard data. This ensures that all clipboard content is encrypted before leaving your device. Refer to the section below on E2E encryption for detailed instructions on how it works and how to configure the `salt` and `hash rounds`.
+- **Show connection status notifications** (Desktop): Turn on this option to receive notifications about WebSocket disconnections and reconnections.
+- **Enable encryption (recommended)**: Enabling this option activates end-to-end encryption for clipboard data. This ensures that all clipboard content is encrypted before leaving your device. Refer to the section below on E2E encryption for detailed instructions on how it works and how to configure the encryption salt and key derivation iterations.
 
-- **SSL CA bundle**: Use a PEM/CRT certificate bundle when your server uses a private/internal CA (for example, corporate PKI). Leave it empty to use default public CA/OS trust. The bundle affects HTTPS/WSS verification only; HTTP/WS connections are still allowed, and TLS certificate and hostname verification remain enabled.
+- **Custom CA certificate bundle**: Use a PEM/CRT certificate bundle when your server uses a private/internal CA (for example, corporate PKI). Leave it empty to use default public CA/OS trust. The bundle affects HTTPS/WSS verification only; HTTP/WS connections are still allowed, and TLS certificate and hostname verification remain enabled.
 
-  **Desktop:** Enter the path to a PEM file containing your root CA or certificate chain.
+  **Desktop:** Enter the path to a PEM file containing your root CA or certificate chain, or use **Browse…** to select it. The picker offers PEM/CRT filters and an **All files** option; the bundle must contain PEM-encoded certificates. Cancelling keeps the current path unchanged. Use the **trash button** to remove the path and log in to use default certificate verification.
 
   **Android:** Tap **Import** to select a certificate bundle (up to 1 MiB). The app saves a copy after successful login and restores it for background connections. Imported certificates are trusted alongside system CAs only for the configured server hostname; other hostnames use system trust. Tap **Replace** to import another bundle, or **Remove** and log in to return to system trust only.
 
   #### Desktop (Specific):
-  - **Default File Download Location**: When this path is set, the app will save files directly to the specified location without prompting the user each time the "Download Files" button is clicked.
+  - **Default download folder**: Type an existing folder path or use **Browse…** to select one. When this path is set, the app will save files directly to the specified location without prompting the user each time the "Download Files" button is clicked. Cancelling the picker keeps the current path unchanged. Use the **trash button** to choose a folder for each download.
+
+  The **Browse…** buttons use Tkinter dialogs on Windows, macOS, and Linux desktop sessions. Manual path entry remains available. The Linux CLI continues to use typed paths and does not require a graphical picker.
   
   #### Android (Specific):
-  - **Run on System Startup**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
-  - **Enable WebSocket Status Notification**: Receive alerts when the WebSocket connection is lost or restored, ensuring you're informed about any connection disruptions.
+  - **Start on device restart (disable if the READ_LOGS permission is granted via ADB)**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
+  - **Show connection status notifications**: Receive alerts when the WebSocket connection is lost or restored, ensuring you're informed about any connection disruptions.
     
     <img src="https://github.com/user-attachments/assets/6a8b903c-ee52-444c-a14e-bed70e31dcee" alt="periodic_check_notification" width="250" />
 
@@ -1108,13 +1117,13 @@ When encryption is enabled, clipboard data is encrypted directly on the client d
 
 Enabling the encryption option is all that's needed to activate encryption by default. However, advanced users have the option to further customize the encryption process by adjusting the following parameters:
 
-- **Salt**: An optional string used as an additional input in the hashing process. For example, you could use a unique string like `"myCustomSalt123"` to enhance encryption security.
+- **Encryption salt**: An optional string used as an additional input in the hashing process. For example, you could use a unique string like `"myCustomSalt123"` to enhance encryption security.
   
-- **Hash Rounds**: An integer that specifies the number of hashing iterations. Increasing the hash rounds strengthens encryption by making it more computationally demanding. You can increase the default value of 664,937 to a higher number, such as 1,000,000, to boost security.
+- **Key derivation iterations**: An integer that specifies the number of hashing iterations. Increasing the number of iterations strengthens encryption by making it more computationally demanding. You can increase the default value of 664,937 to a higher number, such as 1,000,000, to boost security.
 
-It is crucial to ensure the same **salt** and **hash rounds** are used across all client devices to maintain compatibility.
+It is crucial to ensure the same **encryption salt** and **key derivation iterations** are used across all client devices to maintain compatibility.
 
-You can adjust these settings in the **Extra Config** section on the login page for users who require enhanced encryption options.
+You can adjust these settings in the **advanced settings** section on the login page for users who require enhanced encryption options.
 
 <img src="https://github.com/user-attachments/assets/59252f1c-c149-43c2-b0a2-c09ca075a5c1" alt="e2e_p2s" />
 

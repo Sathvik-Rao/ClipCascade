@@ -13,6 +13,7 @@ import {
   Alert,
   SafeAreaView,
   StatusBar,
+  useColorScheme,
 } from 'react-native';
 
 import { useEffect, useState, useRef } from 'react';
@@ -78,6 +79,25 @@ const isCancel = error =>
 const APP_VERSION = '3.2.0';
 
 // Main App
+function InfoLabel({style, label, info}) {
+  const infoColor = useColorScheme() === 'dark' ? '#64b5f6' : '#005ea8';
+  return (
+    <Text
+      style={style}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint="Shows information about this setting"
+      onPress={() => Alert.alert(
+        label.replace(/:$/, ''),
+        info,
+        [{text: 'OK'}],
+        {cancelable: true},
+      )}>
+      {label}{' '}<Text style={[styles.labelInfoMark, {color: infoColor}]}>?</Text>
+    </Text>
+  );
+}
+
 export default function App() {
   const { NativeBridgeModule } = NativeModules;
 
@@ -323,7 +343,10 @@ export default function App() {
           }
           const data = await response.json();
           if (data && typeof data.android === 'string' && data.android.trim()) {
-            setNewVersionAvailable([data.android !== APP_VERSION, data.android]);
+            setNewVersionAvailable([
+              data.android !== APP_VERSION,
+              data.android,
+            ]);
           }
         } catch (e) {
           // Silent catch
@@ -815,7 +838,9 @@ export default function App() {
               );
             }
           })
-          .catch(e => setLoginStatusMessage('❌ Unable to save preference: ' + e));
+          .catch(e =>
+            setLoginStatusMessage('❌ Unable to save preference: ' + e),
+          );
       }
     } catch (e) {
       setLoginStatusMessage('❌ Error: ' + e);
@@ -906,7 +931,10 @@ export default function App() {
         }
 
         // Save password in async storage
-        if (data_s.save_password === 'true' && data_s.cipher_enabled !== 'true') {
+        if (
+          data_s.save_password === 'true' &&
+          data_s.cipher_enabled !== 'true'
+        ) {
           await setDataInAsyncStorage('password', password_s);
         } else {
           await setDataInAsyncStorage('password', '');
@@ -1034,7 +1062,11 @@ export default function App() {
             />
           </View>
           <View style={styles.row}>
-            <Text style={styles.label}>Server URL:</Text>
+            <InfoLabel
+              style={styles.label}
+              label="Server URL:"
+              info={"Address of your ClipCascade server, including http:// or https://.\n\nExamples:\n• Local network: http://192.168.1.70:8080\n• Domain: https://clipcascade.example.com\n\nUse your server’s address, not your phone’s address. Do not add /login or /clipsocket."}
+            />
             <TextInput
               editable={!isLoggingIn}
               style={styles.input}
@@ -1046,12 +1078,34 @@ export default function App() {
             />
           </View>
           <View style={styles.row}>
-            <Text style={styles.label}>Enable Encryption (recommended):</Text>
+            <InfoLabel
+              style={styles.label}
+              label="Enable encryption (recommended):"
+              info={"Encrypts clipboard content on your device before sending it. Enabled by default.\n\nNote: all devices sharing clipboard data must use matching encryption settings, including the password, encryption salt, and key derivation iterations."}
+            />
             <CheckBox
               disabled={isLoggingIn}
               value={data.cipher_enabled === 'true' ? true : false}
               onValueChange={newValue =>
                 handleInputChange('cipher_enabled', String(newValue))
+              }
+            />
+          </View>
+
+          <View style={styles.row}>
+            <Text style={styles.label}>Show connection status notifications:</Text>
+            <CheckBox
+              disabled={isLoggingIn}
+              value={
+                data.enable_websocket_status_notification === 'true'
+                  ? true
+                  : false
+              }
+              onValueChange={newValue =>
+                handleInputChange(
+                  'enable_websocket_status_notification',
+                  String(newValue),
+                )
               }
             />
           </View>
@@ -1069,7 +1123,7 @@ export default function App() {
               handleLogin(null, null);
             }}
           >
-            <Text style={styles.loginButtonText}>Login</Text>
+            <Text style={styles.loginButtonText}>Log in</Text>
           </TouchableOpacity>
 
           {/* Toggle Extra Config as Text */}
@@ -1077,7 +1131,9 @@ export default function App() {
             onPress={() => setShowExtraConfig(!showExtraConfig)}
           >
             <Text style={styles.linkText}>
-              {showExtraConfig ? 'Hide Extra Config' : 'Enable Extra Config'}
+              {showExtraConfig
+                ? 'Hide advanced settings'
+                : 'Show advanced settings'}
             </Text>
           </TouchableOpacity>
 
@@ -1085,7 +1141,11 @@ export default function App() {
           {showExtraConfig && (
             <>
               <View style={styles.row}>
-                <Text style={styles.label}>Hash Rounds:</Text>
+                <InfoLabel
+                  style={styles.label}
+                  label="Key derivation iterations:"
+                  info={"Number of iterations used to derive your encryption key. Higher values increase resistance to password guessing, but take longer.\n\nDefault: 664937. Keep the default unless you need a different value.\n\nNote: must be a positive integer and must match on every device."}
+                />
                 <TextInput
                   editable={!isLoggingIn}
                   style={styles.input}
@@ -1099,7 +1159,11 @@ export default function App() {
                 />
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>Salt:</Text>
+                <InfoLabel
+                  style={styles.label}
+                  label="Encryption salt:"
+                  info={"Optional extra text mixed into encryption key derivation. Letters, numbers, symbols, and spaces are allowed.\n\nExample: myCustomSalt123\n\nNote: use exactly the same salt on every device, including capitalization and spaces. Leave blank to keep the default. Changing it on only one device prevents decryption between devices."}
+                />
                 <TextInput
                   editable={!isLoggingIn}
                   style={styles.input}
@@ -1109,10 +1173,7 @@ export default function App() {
                 />
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>
-                  Store Password Locally (not recommended; only works if
-                  encryption is disabled):
-                </Text>
+                <Text style={styles.label}>Store Password Locally (not recommended; only works if encryption is disabled):</Text>
                 <CheckBox
                   disabled={isLoggingIn}
                   value={data.save_password === 'true' ? true : false}
@@ -1122,9 +1183,11 @@ export default function App() {
                 />
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>
-                  Maximum Clipboard Size Local Limit (in bytes):
-                </Text>
+                <InfoLabel
+                  style={styles.label}
+                  label="Local clipboard size limit (bytes):"
+                  info={"Optional local limit for incoming and outgoing clipboard content. Must be a positive integer. Server and platform limits still apply.\n\nExamples:\n• 512 KiB = 524288 bytes\n• 1 MiB = 1048576 bytes\n\nLeave blank for no local limit. A smaller limit can help if large clipboard content causes problems on your device."}
+                />
                 <TextInput
                   editable={!isLoggingIn}
                   style={styles.input}
@@ -1140,10 +1203,11 @@ export default function App() {
                 />
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>
-                  Run on system startup (disable if the READ_LOGS permission is
-                  granted):
-                </Text>
+                <InfoLabel
+                  style={styles.label}
+                  label="Start on device restart (disable if the READ_LOGS permission is granted via ADB):"
+                  info={"Starts ClipCascade after your device restarts. Off by default.\n\nNote: keep this disabled if you granted READ_LOGS via ADB for automatic clipboard monitoring, to avoid interfering with the permission prompt. After restarting, open ClipCascade manually and allow the log-access prompt when shown."}
+                />
                 <CheckBox
                   disabled={isLoggingIn}
                   value={data.relaunch_on_boot === 'true' ? true : false}
@@ -1153,26 +1217,11 @@ export default function App() {
                 />
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>
-                  Enable WebSocket Status Notification:
-                </Text>
-                <CheckBox
-                  disabled={isLoggingIn}
-                  value={
-                    data.enable_websocket_status_notification === 'true'
-                      ? true
-                      : false
-                  }
-                  onValueChange={newValue =>
-                    handleInputChange(
-                      'enable_websocket_status_notification',
-                      String(newValue),
-                    )
-                  }
+                <InfoLabel
+                  style={styles.label}
+                  label="Enable Periodic Checks:"
+                  info={"Checks that clipboard monitoring and the foreground service are running when monitoring starts and periodically in the background, approximately every 15 minutes. Enabled by default.\n\nIf the service has stopped, a notification lets you restart it. Tap the notification to restart the service."}
                 />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Enable Periodic Checks:</Text>
                 <CheckBox
                   disabled={isLoggingIn}
                   value={data.enable_periodic_checks === 'true' ? true : false}
@@ -1206,7 +1255,11 @@ export default function App() {
               </View>
               <View style={styles.row}>
                 <View style={styles.caDetails}>
-                  <Text style={styles.caLabel}>SSL CA bundle:</Text>
+                  <InfoLabel
+                    style={styles.caLabel}
+                    label="Custom CA certificate bundle:"
+                    info={"Use this if your server’s HTTPS certificate was issued by a private or internal certificate authority.\n\nExample file: corp-root.pem, containing PEM-encoded CA certificates supplied by your administrator.\n\nLeave empty to use system certificates. Imported certificates are trusted alongside system certificates for your configured server hostname.\n\nNote: log in to save changes. Use Remove and log in to return to system trust only."}
+                  />
                   <Text
                     style={styles.caFileName}
                     numberOfLines={1}
@@ -1220,7 +1273,7 @@ export default function App() {
                   onPress={importCaBundle}
                   disabled={isLoggingIn}
                   accessibilityRole="button"
-                  accessibilityLabel="Import SSL CA bundle"
+                  accessibilityLabel="Import custom CA certificate bundle"
                 >
                   <Text style={styles.caButtonText}>
                     {data.ssl_ca_bundle ? 'Replace' : 'Import'}
@@ -1230,7 +1283,7 @@ export default function App() {
                   <TouchableOpacity
                     style={[styles.caButton, styles.caRemoveButton]}
                     accessibilityRole="button"
-                    accessibilityLabel="Remove SSL CA bundle"
+                    accessibilityLabel="Remove custom CA certificate bundle"
                     disabled={isLoggingIn}
                     onPress={() =>
                       setData(previous => ({
@@ -1270,7 +1323,8 @@ export default function App() {
             )}
           </View>
           <Text style={styles.versionText}>
-            v{APP_VERSION}{newVersionAvailable[1] === APP_VERSION ? ' (latest)' : ''}
+            v{APP_VERSION}
+            {newVersionAvailable[1] === APP_VERSION ? ' (latest)' : ''}
           </Text>
         </ScrollView>
       )}
@@ -1522,7 +1576,8 @@ export default function App() {
             </TouchableOpacity>
           </View>
           <Text style={styles.versionText}>
-            v{APP_VERSION}{newVersionAvailable[1] === APP_VERSION ? ' (latest)' : ''}
+            v{APP_VERSION}
+            {newVersionAvailable[1] === APP_VERSION ? ' (latest)' : ''}
           </Text>
         </ScrollView>
       )}
@@ -1560,6 +1615,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  labelInfoMark: {
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   label: {
     flex: 1,
