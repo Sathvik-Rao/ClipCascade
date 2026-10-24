@@ -17,6 +17,7 @@ import {
   RTCSessionDescription,
 } from 'react-native-webrtc';
 import Clipboard from '@react-native-clipboard/clipboard';
+import {checkForUpdates} from './UpdateChecker';
 
 import {
   setDataInAsyncStorage,
@@ -39,12 +40,19 @@ module.exports = async (inputData = null) => {
   const RECONNECT_WS_TIMER = 10000; // 10 seconds
   const HEARTBEAT_INTERVAL = 20000; // 20 seconds
   const FRAGMENT_SIZE = 15360; // 15 KiB
+  const FRAGMENT_TTL_MS = 60000; // drop partial fragment buffers idle for 60s
+  const STOMP_DEACTIVATE_TIMEOUT_MS = 5000; // bound the STOMP deactivate() wait
 
   // forground service
   notifee.registerForegroundService(notification => {
     return new Promise(async () => {
       try {
         const { NativeBridgeModule } = NativeModules;
+        // Restore trust before either WebSocket mode starts, including headless boot.
+        await NativeModules.ServerTlsModule.configure(
+          await getDataFromAsyncStorage('server_url'),
+          (await getDataFromAsyncStorage('ssl_ca_bundle')) || '',
+        );
         const textEncoder = new TextEncoder();
         const textDecoder = new TextDecoder();
 
@@ -146,11 +154,23 @@ module.exports = async (inputData = null) => {
 
         // fragment string into chunks
         const fragmentString = async (str, fragmentSize) => {
+          if (!Number.isInteger(fragmentSize) || fragmentSize < 4) {
+            throw new Error(
+              'fragmentSize must be an integer of at least 4 bytes',
+            );
+          }
           const bytes = textEncoder.encode(str); // convert to UTF-8 bytes
           const fragments = [];
-          for (let i = 0; i < bytes.length; i += fragmentSize) {
-            const chunk = bytes.slice(i, i + fragmentSize);
+          let start = 0;
+          while (start < bytes.length) {
+            let end = Math.min(start + fragmentSize, bytes.length);
+            // Move the boundary back to the start of any split UTF-8 character.
+            while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) {
+              end -= 1;
+            }
+            const chunk = bytes.slice(start, end);
             fragments.push(textDecoder.decode(chunk));
+            start = end;
           }
           return fragments;
         };
@@ -598,9 +618,16 @@ module.exports = async (inputData = null) => {
               stompClient.onWebSocketError = null;
               stompClient.onWebSocketClose = () => {};
 
-              // Deactivate the stomp connection
+              // Deactivate the stomp connection, but don't hang here forever:
+              // some socket states cause deactivate() to never resolve, which
+              // would prevent the foreground service from stopping.
               try {
-                await stompClient.deactivate();
+                await Promise.race([
+                  stompClient.deactivate(),
+                  new Promise(resolve =>
+                    setTimeout(resolve, STOMP_DEACTIVATE_TIMEOUT_MS),
+                  ),
+                ]);
               } catch (e) {
                 // no-op
               }
@@ -655,6 +682,24 @@ module.exports = async (inputData = null) => {
             receivingFragments = {};
             receivingFragmentStats = null;
             await resetP2PMsg();
+          };
+
+          // Drop partial fragment buffers idle for FRAGMENT_TTL_MS so a peer
+          // that disconnects mid-transfer can't leak memory forever.
+          const pruneStaleReceivingFragments = () => {
+            const now = Date.now();
+            let pruned = 0;
+            for (const fid of Object.keys(receivingFragments)) {
+              const entry = receivingFragments[fid];
+              if (entry && typeof entry.lastReceivedAt === 'number'
+                  && (now - entry.lastReceivedAt) > FRAGMENT_TTL_MS) {
+                delete receivingFragments[fid];
+                pruned += 1;
+              }
+            }
+            if (pruned > 0 && Object.keys(receivingFragments).length === 0) {
+              receivingFragmentStats = null;
+            }
           };
 
           const resetP2PMsg = async () => {
@@ -1048,22 +1093,24 @@ module.exports = async (inputData = null) => {
 
               // Fragmented message handling
               if (metadata != null && metadata.isFragmented) {
+                pruneStaleReceivingFragments();
                 receivingFragmentStats = `${metadata.index + 1}/${
                   metadata.totalFragments
                 }`;
                 await p2pStatusMessageChanged();
 
                 if (metadata.id in receivingFragments) {
-                  receivingFragments[metadata.id][metadata.index] = cb;
+                  const entry = receivingFragments[metadata.id];
+                  entry.fragments[metadata.index] = cb;
+                  entry.lastReceivedAt = Date.now();
 
                   // If this is the last fragment, try to combine
                   if (metadata.index === metadata.totalFragments - 1) {
                     // Check if all fragments are present (none is empty)
-                    if (
-                      receivingFragments[metadata.id].every(frag => frag !== '')
-                    ) {
+                    if (entry.fragments.every(frag => frag !== '')) {
                       // Join them all together into one payload
-                      cb = receivingFragments[metadata.id].join('');
+                      cb = entry.fragments.join('');
+                      delete receivingFragments[metadata.id];
                     } else {
                       // Missing fragment(s): error out
                       await resetReceivingFragments();
@@ -1078,10 +1125,11 @@ module.exports = async (inputData = null) => {
                   }
                 } else {
                   await resetReceivingFragments();
-                  receivingFragments[metadata.id] = Array(
-                    metadata.totalFragments,
-                  ).fill('');
-                  receivingFragments[metadata.id][metadata.index] = cb;
+                  receivingFragments[metadata.id] = {
+                    lastReceivedAt: Date.now(),
+                    fragments: Array(metadata.totalFragments).fill(''),
+                  };
+                  receivingFragments[metadata.id].fragments[metadata.index] = cb;
                   return;
                 }
               }
@@ -1481,6 +1529,10 @@ module.exports = async (inputData = null) => {
               );
               break;
             }
+
+            // The shared checker gates requests to once a day and deduplicates
+            // concurrent screen/service checks. Never delay clipboard polling.
+            checkForUpdates();
 
             if (isP2PStatusMsgChanged) {
               isP2PStatusMsgChanged = false;

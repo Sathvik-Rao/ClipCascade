@@ -40,23 +40,57 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
     private final Logger logger;
     private final long MAX_GLOBAL_CONNECTIONS;
     private final long MAX_CONNECTIONS_PER_USER;
+    private final int SIGNALING_RATE_LIMIT_PER_SEC;
 
     private final Map<String, Map<String, WebSocketSession>> sessions = new ConcurrentHashMap<>();
     private final Map<String, Map<String, String>> sessionsUUID = new ConcurrentHashMap<>();
     private final Map<String, ReentrantLock> userLocks = new ConcurrentHashMap<>();
     private final Map<String, Long> lastHeartbeat = new ConcurrentHashMap<>();
     private final Map<String, ReentrantLock> sessionLocks = new ConcurrentHashMap<>();
+    // Per-session token bucket for signaling messages. Each entry holds [tokens, lastRefillMs].
+    private final Map<String, double[]> rateBuckets = new ConcurrentHashMap<>();
 
     private final AtomicLong activeConnections = new AtomicLong();
     private final AtomicLong totalConnections = new AtomicLong();
     private final AtomicLong totalInboundMessages = new AtomicLong();
     private final AtomicLong totalOutboundMessages = new AtomicLong();
+    private final AtomicLong totalRateLimitedMessages = new AtomicLong();
 
     public P2PWebSocketHandler(ObjectMapper objectMapper, ClipCascadeProperties clipCascadeProperties) {
         this.objectMapper = objectMapper;
         this.MAX_GLOBAL_CONNECTIONS = clipCascadeProperties.getMaxWsGlobalConnections();
         this.MAX_CONNECTIONS_PER_USER = clipCascadeProperties.getMaxWsConnectionsPerUser();
+        this.SIGNALING_RATE_LIMIT_PER_SEC = clipCascadeProperties.getP2pSignalingRateLimitPerSec();
         this.logger = (Logger) LoggerFactory.getLogger(P2PWebSocketHandler.class);
+    }
+
+    /**
+     * Token-bucket rate check. Returns true if the message is allowed, false if
+     * it should be dropped. Disabled (always allows) when the configured limit
+     * is <= 0 to keep behavior identical to pre-rate-limit deployments.
+     *
+     * Bucket capacity equals the per-second rate, so short bursts are tolerated.
+     */
+    private boolean isWithinRateLimit(String sessionId) {
+        int ratePerSec = SIGNALING_RATE_LIMIT_PER_SEC;
+        if (ratePerSec <= 0) {
+            return true;
+        }
+        long now = System.currentTimeMillis();
+        double[] bucket = rateBuckets.computeIfAbsent(
+                sessionId, sid -> new double[] { ratePerSec, now });
+        synchronized (bucket) {
+            double elapsedSec = (now - (long) bucket[1]) / 1000.0;
+            if (elapsedSec > 0) {
+                bucket[0] = Math.min(ratePerSec, bucket[0] + elapsedSec * ratePerSec);
+                bucket[1] = now;
+            }
+            if (bucket[0] >= 1.0) {
+                bucket[0] -= 1.0;
+                return true;
+            }
+            return false;
+        }
     }
 
     @Override
@@ -157,6 +191,7 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
 
             lastHeartbeat.remove(session.getId());
             sessionLocks.remove(session.getId());
+            rateBuckets.remove(session.getId());
 
             // Notify everyone else in that user's room
             broadcastPeerList(username);
@@ -214,6 +249,12 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
         incrementCounter(totalInboundMessages);
 
         if (message.getPayload().isEmpty()) {
+            return;
+        }
+
+        if (!isWithinRateLimit(session.getId())) {
+            incrementCounter(totalRateLimitedMessages);
+            logger.debug("Rate-limited signaling message from session {}", session.getId());
             return;
         }
 
@@ -347,6 +388,31 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
     }
 
     /**
+     * Snapshot of every currently-connected user and how many active sessions
+     * they hold. Returned as a fresh map so callers (admin UI) can iterate
+     * safely.
+     */
+    public Map<String, Integer> getOnlineUsers() {
+        Map<String, Integer> snapshot = new HashMap<>();
+        for (Map.Entry<String, Map<String, WebSocketSession>> entry : sessions.entrySet()) {
+            Map<String, WebSocketSession> userSessions = entry.getValue();
+            if (userSessions == null) {
+                continue;
+            }
+            int liveCount = 0;
+            for (WebSocketSession s : userSessions.values()) {
+                if (s != null && s.isOpen()) {
+                    liveCount++;
+                }
+            }
+            if (liveCount > 0) {
+                snapshot.put(entry.getKey(), liveCount);
+            }
+        }
+        return snapshot;
+    }
+
+    /**
      * Acquire a ReentrantLock for a given username from the userLocks map.
      * If it doesn't exist, create it. This ensures the same username uses the same
      * lock.
@@ -375,6 +441,10 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
         return totalOutboundMessages.get();
     }
 
+    public Long getTotalRateLimitedMessages() {
+        return totalRateLimitedMessages.get();
+    }
+
     private void incrementCounter(AtomicLong counter) {
         counter.incrementAndGet();
     }
@@ -390,6 +460,7 @@ public class P2PWebSocketHandler extends AbstractWebSocketHandler {
                 ",\n Total Connections=" + getTotalConnections() +
                 ",\n Total Inbound Messages=" + getTotalInboundMessages() +
                 ",\n Total Outbound Messages=" + getTotalOutboundMessages() +
+                ",\n Total Rate Limited Messages=" + getTotalRateLimitedMessages() +
                 "\n }\n";
     }
 

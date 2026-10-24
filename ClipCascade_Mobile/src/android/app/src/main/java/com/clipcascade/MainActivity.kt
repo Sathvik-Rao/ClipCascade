@@ -2,6 +2,7 @@
 package com.clipcascade
 
 import android.content.Intent
+import android.content.Context
 import android.os.Bundle
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -16,7 +17,6 @@ import androidx.work.WorkManager
 import androidx.work.PeriodicWorkRequestBuilder
 import java.util.concurrent.TimeUnit
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequest
 import android.util.Log
 import android.net.Uri
 
@@ -25,6 +25,15 @@ class MainActivity : ReactActivity() {
     companion object {
         const val TAG = "ClipCascade"
         const val WORK_NAME = "schedule_work"
+
+        fun scheduleJob(context: Context) {
+            val request = PeriodicWorkRequestBuilder<ScheduleService>(15, TimeUnit.MINUTES)
+                .addTag(WORK_NAME)
+                .build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request
+            )
+        }
     }
 
     /**
@@ -48,7 +57,7 @@ class MainActivity : ReactActivity() {
             val bridgeData = AsyncStorageBridge(applicationContext)
             val enablePeriodicChecks = bridgeData.getValue("enable_periodic_checks")?.toBoolean() ?: true
             if(enablePeriodicChecks) { 
-                scheduleJob()
+                scheduleJob(applicationContext)
                 if(ScheduleService.hasNotificationPermission(applicationContext) == true) {
                     ScheduleService.removeNotificationIfPresent(applicationContext)
                 }
@@ -57,26 +66,6 @@ class MainActivity : ReactActivity() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error scheduling job", e)
-        }
-    }
-
-    private fun scheduleJob() {
-        // Check if the work is already scheduled
-        val workInfos = WorkManager.getInstance(applicationContext).getWorkInfosByTag(WORK_NAME).get()
-        if (workInfos.isEmpty() || 
-            (workInfos[0].state != androidx.work.WorkInfo.State.RUNNING && 
-            workInfos[0].state != androidx.work.WorkInfo.State.ENQUEUED)) {
-            // Periodic work request to run every 15 minutes
-            val periodicWorkRequest: PeriodicWorkRequest = PeriodicWorkRequestBuilder<ScheduleService>(15, TimeUnit.MINUTES)
-                .addTag(WORK_NAME)
-                .build()
-
-            WorkManager.getInstance(applicationContext)
-                .enqueueUniquePeriodicWork(
-                    WORK_NAME, 
-                    ExistingPeriodicWorkPolicy.REPLACE, 
-                    periodicWorkRequest
-                )
         }
     }
 

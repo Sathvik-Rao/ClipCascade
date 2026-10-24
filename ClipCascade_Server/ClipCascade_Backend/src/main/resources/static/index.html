@@ -1,6 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <!-- Apply the saved or system theme before the page is painted. -->
+    <script src="/assets/js/theme.js"></script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ClipCascade</title>
@@ -13,8 +15,9 @@
 
     <!-- Your custom CSS (external) -->
     <link rel="stylesheet" href="/assets/css/style.css" />
+    <link rel="stylesheet" href="/assets/css/theme.css" />
   </head>
-  <body>
+  <body class="dashboard-page">
     <!-- =======================================
        ===========  NAVIGATION BAR  ===========
        ======================================= -->
@@ -34,6 +37,16 @@
           </span>
         </div>
         <ul class="nav navbar-nav navbar-right">
+          <li class="theme-nav-item"><button type="button" id="theme-toggle" class="theme-toggle" role="switch"
+        aria-label="Dark mode" aria-checked="false" title="Switch to dark mode">
+        <svg class="theme-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" />
+        </svg>
+        <svg class="theme-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M20.5 14A9 9 0 0 1 10 3.5 9 9 0 1 0 20.5 14Z" />
+        </svg>
+      </button></li>
           <!-- Update Link (ONLY SHOW IF ADMIN and new version is available) -->
           <li>
             <a
@@ -178,15 +191,14 @@
         <hr />
         <p>
           <strong>Note:</strong> After editing or deleting a user, the server
-          will automatically log out the associated session. If the user has an
-          active WebSocket connection, a server restart will be required to
-          terminate the connection. Additionally, the server enforces a unique
-          username policy, preventing the creation of usernames that are
-          currently in use or have been used. These usernames will be available
-          for reuse after the server is restarted.
+          will automatically revoke their login sessions and disconnect their
+          active WebSocket connections on this server. No restart is needed for
+          this. Deleted or renamed usernames remain reserved until the server
+          restarts. Usernames still assigned to an existing account cannot be
+          reused, even after a restart.
         </p>
 
-        <div>
+        <div class="admin-toolbar">
           <button id="load-users-btn" class="btn btn-primary">
             Load Users
           </button>
@@ -197,6 +209,16 @@
           >
             Add New User
           </button>
+          <button id="revoke-all-sessions-btn" class="btn btn-warning" style="margin-left: 10px">
+            Revoke All Sessions
+          </button>
+          <input
+            id="admin-users-search"
+            type="text"
+            class="form-control admin-search-input"
+            placeholder="Search users..."
+            style="margin-left: 10px"
+          />
         </div>
 
         <div class="table-wrapper">
@@ -207,9 +229,9 @@
           >
             <thead>
               <tr>
-                <th>Username</th>
-                <th>Enabled</th>
-                <th>Actions</th>
+                <th data-key="username" class="sortable" style="width: 250px">Username<span class="sort-indicator"></span></th>
+                <th data-key="enabled" class="sortable" style="width: 120px">Enabled<span class="sort-indicator"></span></th>
+                <th data-key="actions" data-sortable="false" style="width: 320px">Actions</th>
               </tr>
             </thead>
             <tbody id="users-tbody">
@@ -217,6 +239,7 @@
             </tbody>
           </table>
         </div>
+        <div id="admin-users-pager" class="admin-pager"></div>
       </div>
       <!-- /#admin-section -->
     </div>
@@ -341,6 +364,7 @@
           >
         </li>
       </ul>
+      <span id="server-version" aria-live="polite"></span>
     </footer>
 
     <!-- ========================================

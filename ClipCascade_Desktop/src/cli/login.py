@@ -63,28 +63,36 @@ class LoginForm:
 
         self.config.data["cipher_enabled"] = LoginForm.str_to_bool(
             input(
-                f"enabled encryption(recommended) [{LoginForm.bool_to_str(self.config.data['cipher_enabled'])}]: "
+                f"Enable encryption (recommended) [{LoginForm.bool_to_str(self.config.data['cipher_enabled'])}]: "
             )
             or LoginForm.bool_to_str(self.config.data["cipher_enabled"])
         )
 
         self.config.data["notification"] = LoginForm.str_to_bool(
             input(
-                f"enabled notification [{LoginForm.bool_to_str(self.config.data['notification'])}]: "
+                f"Show connection status notifications [{LoginForm.bool_to_str(self.config.data['notification'])}]: "
             )
             or LoginForm.bool_to_str(self.config.data["notification"])
         )
+        self._save_preference("notification")
 
         # extra fields
-        show_extra_fields = input(f"show extra fields [n]: ") or "n"
+        show_extra_fields = input(f"Show advanced settings [n]: ") or "n"
         if not LoginForm.str_to_bool(show_extra_fields):
             CustomDialog("Logging in...").mainloop()
             return
 
+        self.config.data["update_notifications"] = LoginForm.str_to_bool(
+            input(
+                f"Notify when an update is available [{LoginForm.bool_to_str(self.config.data['update_notifications'])}]: "
+            ) or LoginForm.bool_to_str(self.config.data["update_notifications"])
+        )
+        self._save_preference("update_notifications")
+
         # Validate hash_rounds
         while True:
             hash_rounds = input(
-                f"hash rounds [{self.config.data['hash_rounds']}]: "
+                f"Key derivation iterations [{self.config.data['hash_rounds']}]: "
             ) or str(
                 ""
                 if self.config.data["hash_rounds"] is None
@@ -94,7 +102,7 @@ class LoginForm:
 
             if not LoginForm.is_positive_integer(hash_rounds):
                 CustomDialog(
-                    "Invalid Input\nHash Rounds must be a positive integer.",
+                    "Invalid Input\nKey derivation iterations must be a positive integer.",
                     msg_type="error",
                 )
                 continue
@@ -103,7 +111,7 @@ class LoginForm:
             break
 
         self.config.data["salt"] = (
-            input(f"salt [{self.config.data['salt']}]: ") or self.config.data["salt"]
+            input(f"Encryption salt [{self.config.data['salt']}]: ") or self.config.data["salt"]
         )
 
         self.config.data["save_password"] = LoginForm.str_to_bool(
@@ -112,6 +120,7 @@ class LoginForm:
             )
             or LoginForm.bool_to_str(self.config.data["save_password"])
         )
+        self._save_preference("save_password")
 
         # Validate max_clipboard_size_local_limit_bytes
         while True:
@@ -123,7 +132,7 @@ class LoginForm:
 
             max_clipboard_size_local_limit_bytes = (
                 input(
-                    f"maximum clipboard size local limit (in bytes) [{saved_mcsll}]: "
+                    f"Local clipboard size limit (bytes) [{saved_mcsll}]: "
                 )
                 or saved_mcsll
             )
@@ -132,11 +141,12 @@ class LoginForm:
             )
             if max_clipboard_size_local_limit_bytes == "":
                 self.config.data["max_clipboard_size_local_limit_bytes"] = None
+                self._save_preference("max_clipboard_size_local_limit_bytes")
                 break
 
             if not LoginForm.is_positive_integer(max_clipboard_size_local_limit_bytes):
                 CustomDialog(
-                    "Invalid Input\nMax Clipboard Size Local Limit must be a positive integer.",
+                    "Invalid Input\nLocal clipboard size limit must be a positive integer.",
                     msg_type="error",
                 )
                 continue
@@ -144,6 +154,7 @@ class LoginForm:
             self.config.data["max_clipboard_size_local_limit_bytes"] = int(
                 max_clipboard_size_local_limit_bytes
             )
+            self._save_preference("max_clipboard_size_local_limit_bytes")
             break
 
         self.config.data["enable_image_sharing"] = LoginForm.str_to_bool(
@@ -152,6 +163,7 @@ class LoginForm:
             )
             or LoginForm.bool_to_str(self.config.data["enable_image_sharing"])
         )
+        self._save_preference("enable_image_sharing")
 
         self.config.data["enable_file_sharing"] = LoginForm.str_to_bool(
             input(
@@ -159,12 +171,13 @@ class LoginForm:
             )
             or LoginForm.bool_to_str(self.config.data["enable_file_sharing"])
         )
+        self._save_preference("enable_file_sharing")
 
         # Validate default file download location
         while True:
             default_file_download_location = (
                 input(
-                    f"default file download location [{self.config.data['default_file_download_location']}]: "
+                    f"Default download folder [{self.config.data['default_file_download_location']}]: "
                 )
                 or self.config.data["default_file_download_location"]
             )
@@ -172,6 +185,7 @@ class LoginForm:
             default_file_download_location = default_file_download_location.strip()
             if default_file_download_location == "":
                 self.config.data["default_file_download_location"] = ""
+                self._save_preference("default_file_download_location")
                 break
 
             if not os.path.isdir(default_file_download_location):
@@ -184,12 +198,13 @@ class LoginForm:
             self.config.data["default_file_download_location"] = (
                 default_file_download_location
             )
+            self._save_preference("default_file_download_location")
             break
 
         while True:
             ssl_ca_bundle = (
                 input(
-                    f"ssl ca bundle path (optional) [{self.config.data.get('ssl_ca_bundle') or ''}]: "
+                    f"Custom CA certificate bundle path [{self.config.data.get('ssl_ca_bundle') or ''}]: "
                 )
                 or (self.config.data.get("ssl_ca_bundle") or "")
             ).strip()
@@ -198,7 +213,7 @@ class LoginForm:
                 break
             if not os.path.isfile(ssl_ca_bundle):
                 CustomDialog(
-                    "Invalid Input\nSSL CA bundle path is not a file or does not exist.",
+                    "Invalid Input\nCustom CA certificate bundle path is not a file or does not exist.",
                     msg_type="error",
                 ).mainloop()
                 continue
@@ -206,6 +221,10 @@ class LoginForm:
             break
 
         CustomDialog("Logging in...").mainloop()
+
+    def _save_preference(self, field):
+        if not self.config.save_preferences({field: self.config.data[field]}):
+            CustomDialog("Unable to save device preferences.", msg_type="error").mainloop()
 
     def on_quit(self):
         pass

@@ -35,6 +35,7 @@ import com.acme.clipcascade.service.FacadeUserService;
 import com.acme.clipcascade.service.SessionService;
 import com.acme.clipcascade.service.UserInfoService;
 import com.acme.clipcascade.service.UserService;
+import com.acme.clipcascade.service.OnlineUsersService;
 import com.acme.clipcascade.service.WebSocketStatsService;
 import com.acme.clipcascade.utils.ResponseEntityUtil;
 import com.acme.clipcascade.utils.TimeUtility;
@@ -50,6 +51,7 @@ import jakarta.transaction.Transactional;
 
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -66,6 +68,7 @@ public class ClipCascadeController {
     private final CaptchaService captchaService;
     private final BruteForceProtectionService bruteForceProtectionService;
     private final WebSocketStatsService webSocketStatsService;
+    private final OnlineUsersService onlineUsersService;
     private final DonationService donationService;
 
     public ClipCascadeController(
@@ -78,6 +81,7 @@ public class ClipCascadeController {
             SessionService sessionService,
             BruteForceProtectionService bruteForceProtectionService,
             WebSocketStatsService webSocketStatsService,
+            OnlineUsersService onlineUsersService,
             DonationService donationService) {
 
         this.clipCascadeProperties = clipCascadeProperties;
@@ -89,6 +93,7 @@ public class ClipCascadeController {
         this.sessionService = sessionService;
         this.bruteForceProtectionService = bruteForceProtectionService;
         this.webSocketStatsService = webSocketStatsService;
+        this.onlineUsersService = onlineUsersService;
         this.donationService = donationService;
     }
 
@@ -311,14 +316,19 @@ public class ClipCascadeController {
         return ResponseEntityUtil.executeWithResponse(() -> "OK");
     }
 
+    @GetMapping("/server-version")
+    public ResponseEntity<?> getServerVersion() {
+        return ResponseEntityUtil.executeWithResponse(
+                () -> Collections.singletonMap("version", ServerConstants.APP_VERSION));
+    }
+
     @GetMapping("/admin/server-version")
     public ResponseEntity<?> getServerVersion(
             @AuthenticationPrincipal UserPrincipal userPrincipal) {
 
         return ResponseEntityUtil.conditionalExecuteOrError(
                 userPrincipal.isAdmin(),
-                () -> ResponseEntityUtil.executeWithResponse(
-                        () -> Collections.singletonMap("version", ServerConstants.APP_VERSION)),
+                this::getServerVersion,
                 "Forbidden");
     }
 
@@ -328,23 +338,23 @@ public class ClipCascadeController {
 
         return ResponseEntityUtil.conditionalExecuteOrError(
                 userPrincipal.isAdmin(),
-                () -> ResponseEntityUtil.executeWithResponse(
-                        () -> {
-                            try {
-                                // get latest version
-                                RestTemplate restTemplate = new RestTemplate();
-                                String versionJson = restTemplate.getForObject(
-                                        ServerConstants.VERSION_URL,
-                                        String.class);
-
-                                // convert json string to map
-                                ObjectMapper objectMapper = new ObjectMapper();
-                                return objectMapper.readValue(versionJson, Map.class);
-                            } catch (Exception e) {
-                                throw new RuntimeException(e);
-                            }
-                        }),
+                this::getLatestServerVersion,
                 "Forbidden");
+    }
+
+    @GetMapping("/latest-server-version")
+    public ResponseEntity<?> getLatestServerVersion() {
+        return ResponseEntityUtil.executeWithResponse(() -> {
+            try {
+                RestTemplate restTemplate = new RestTemplate();
+                String versionJson = restTemplate.getForObject(
+                        ServerConstants.VERSION_URL, String.class);
+                ObjectMapper objectMapper = new ObjectMapper();
+                return objectMapper.readValue(versionJson, Map.class);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     @GetMapping("/admin/websocket-stats")
@@ -355,6 +365,17 @@ public class ClipCascadeController {
                 userPrincipal.isAdmin(),
                 () -> ResponseEntityUtil
                         .executeWithResponse(() -> webSocketStatsService.getWebSocketStats()),
+                "Forbidden");
+    }
+
+    @GetMapping("/admin/online-users")
+    public ResponseEntity<?> getOnlineUsers(
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+
+        return ResponseEntityUtil.conditionalExecuteOrError(
+                userPrincipal.isAdmin(),
+                () -> ResponseEntityUtil
+                        .executeWithResponse(() -> onlineUsersService.getOnlineUsers()),
                 "Forbidden");
     }
 
@@ -384,6 +405,74 @@ public class ClipCascadeController {
                 userPrincipal.isAdmin(),
                 () -> ResponseEntityUtil.executeWithResponse(
                         () -> userInfoService.getAllUserDetails()),
+                "Forbidden");
+    }
+
+    @GetMapping("/admin/user-details/page")
+    public ResponseEntity<?> getUserDetailsPage(
+            @AuthenticationPrincipal UserPrincipal userPrincipal,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction,
+            @RequestParam(required = false) String search) {
+
+        return ResponseEntityUtil.conditionalExecuteOrError(
+                userPrincipal.isAdmin(),
+                () -> ResponseEntityUtil.executeWithResponse(
+                        () -> facadeUserService.getUserDetailsPage(
+                                page, size, sort, direction, search)),
+                "Forbidden");
+    }
+
+    @GetMapping("/admin/online-users/page")
+    public ResponseEntity<?> getOnlineUsersPage(
+            @AuthenticationPrincipal UserPrincipal userPrincipal,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction,
+            @RequestParam(required = false) String search) {
+
+        return ResponseEntityUtil.conditionalExecuteOrError(
+                userPrincipal.isAdmin(),
+                () -> ResponseEntityUtil.executeWithResponse(
+                        () -> onlineUsersService.getOnlineUsersPage(
+                                page, size, sort, direction, search)),
+                "Forbidden");
+    }
+
+    @GetMapping("/admin/bfa-snapshot/page")
+    public ResponseEntity<?> getBfaSnapshotPage(
+            @AuthenticationPrincipal UserPrincipal userPrincipal,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction,
+            @RequestParam(required = false) String search) {
+
+        return ResponseEntityUtil.conditionalExecuteOrError(
+                userPrincipal.isAdmin(),
+                () -> ResponseEntityUtil.executeWithResponse(
+                        () -> bruteForceProtectionService.getTrackerPage(
+                                page, size, sort, direction, search)),
+                "Forbidden");
+    }
+
+    @GetMapping("/admin/users/page")
+    public ResponseEntity<?> getUsersPage(
+            @AuthenticationPrincipal UserPrincipal userPrincipal,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String direction,
+            @RequestParam(required = false) String search) {
+
+        return ResponseEntityUtil.conditionalExecuteOrError(
+                userPrincipal.isAdmin(),
+                () -> ResponseEntityUtil.executeWithResponse(
+                        () -> userService.getUsersPage(
+                                RoleConstants.USER, page, size, sort, direction, search)),
                 "Forbidden");
     }
 
@@ -475,16 +564,25 @@ public class ClipCascadeController {
                 "Forbidden");
     }
 
+    @DeleteMapping("/admin/logout-all-sessions")
+    public ResponseEntity<String> logoutAllUserSessions(
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        if (!userPrincipal.isAdmin()) {
+            return ResponseEntity.status(403).body("Forbidden");
+        }
+        return ResponseEntityUtil.executeWithResponse(sessionService::logoutAllUsers);
+    }
+
     @DeleteMapping("/admin/logout-user-session")
     public ResponseEntity<String> logoutUserSession(
             @AuthenticationPrincipal UserPrincipal userPrincipal,
             @RequestBody Map<String, String> payload) {
 
-        return ResponseEntityUtil.conditionalExecuteOrError(
-                userPrincipal.isAdmin(),
-                () -> ResponseEntityUtil.executeWithResponse(
-                        () -> sessionService.logoutAllSessions(payload.get("username"))),
-                "Forbidden");
+        if (!userPrincipal.isAdmin()) {
+            return ResponseEntity.status(403).body("Forbidden");
+        }
+        return ResponseEntityUtil.executeWithResponse(
+                () -> sessionService.logoutAllSessions(payload.get("username")));
     }
 
     @DeleteMapping("/logout-session")
@@ -544,7 +642,7 @@ public class ClipCascadeController {
         return ResponseEntityUtil.buildResponse(
                 facadeUserService.updatePassword(
                         userPrincipal.getUsername(),
-                        payload.get("newPassword")) != null,
+                        payload.get("newPassword"), sessionService) != null,
                 "Password updated successfully",
                 "Invalid user or password");
     }
@@ -560,7 +658,7 @@ public class ClipCascadeController {
                 () -> ResponseEntityUtil.buildResponse(
                         facadeUserService.updatePassword(
                                 payload.get("username"),
-                                payload.get("newPassword")) != null,
+                                payload.get("newPassword"), sessionService) != null,
                         "Password updated successfully",
                         "Invalid user or password"),
                 "Forbidden");

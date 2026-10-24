@@ -102,7 +102,9 @@ class TaskbarPanel:
         for item in self.menu_items:
             if isinstance(item, tuple):
                 width = max_width
-                if "disconnect" in item[0].lower() or "logs" in item[0].lower():
+                # The version icon uses the same variation selector as Open Logs,
+                # so both rows need the extra padding to align the right border.
+                if any(label in item[0].lower() for label in ("disconnect", "logs", "version")):
                     if "disconnecting" in item[0].lower():
                         width -= 1
                     else:
@@ -118,6 +120,12 @@ class TaskbarPanel:
 
     def create_menu(self, item_: tuple = None):
         # Menu items
+        version_suffix = (
+            " (latest)"
+            if self.new_version_available is not None
+            and self.new_version_available[1] == APP_VERSION
+            else ""
+        )
         menu_items = [
             "",  # Menu Separator
             ("🗒️  Open Logs", self._open_logs),
@@ -127,6 +135,8 @@ class TaskbarPanel:
             ("❓ Help", self._open_help),
             ("💟 Donate", self._open_donate),
             ("🌐 GitHub", self._open_github),
+            "",  # Menu Separator
+            (f"ℹ️  Version v{APP_VERSION}{version_suffix}", None),  # Read-only version display
             "",  # Menu Separator
             ("🔒 Logoff and Quit", self._on_logoff),
             ("❌ Quit", self._on_quit),
@@ -187,7 +197,18 @@ class TaskbarPanel:
         threading.Thread(target=self._update_stats_thread, daemon=True).start()
 
     def _update_stats_thread(self):
-        while True:
+        while not self.loop_terminate:
+            checker = getattr(self, "update_checker", None)
+            if checker:
+                if checker.status is not None and checker.status != self.new_version_available:
+                    self.new_version_available = checker.status
+                    self.update_menu(no_dialog=True)
+                status = checker.claim_alert(self.config.data.get("update_notifications", True))
+                if status:
+                    CustomDialog(
+                        f"ClipCascade {status[1]} is available. Press Enter to refresh the update menu.",
+                        msg_type="info",
+                    ).mainloop()
             current_stats = self.ws_interface.get_stats()
             if current_stats is not None and self.previous_stats != current_stats:
                 self.previous_stats = current_stats

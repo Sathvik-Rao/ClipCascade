@@ -14,6 +14,7 @@ const SELECTORS = {
 
   // Header / Common
   updateLink: "#update-link",
+  serverVersion: "#server-version",
   advanceLink: "#advance-link",
   changeUsernameLink: "#change-username-link",
   changePasswordLink: "#change-password-link",
@@ -26,7 +27,11 @@ const SELECTORS = {
   // Admin Section
   adminSection: "#admin-section",
   loadUsersBtn: "#load-users-btn",
+  revokeAllSessionsBtn: "#revoke-all-sessions-btn",
   usersTableBody: "#users-tbody",
+  usersTable: "#users-table",
+  adminUsersSearch: "#admin-users-search",
+  adminUsersPager: "#admin-users-pager",
   openAddUserModalBtn: "#open-add-user-modal-btn",
 
   // Modals: Add User
@@ -51,6 +56,7 @@ const ENDPOINTS = {
   logoutAllDevices: "/logout-session",
   csrfToken: "/csrf-token",
   adminUsers: "/admin/users",
+  adminUsersPage: "/admin/users/page",
   adminRegisterUser: "/admin/register-user",
   adminDeleteUser: "/admin/delete-user",
   adminToggleUserStatus: "/admin/toggle-user-status",
@@ -61,8 +67,9 @@ const ENDPOINTS = {
   websocketSend: "/app/cliptext",
   websocketReceive: "/user/queue/cliptext",
   adminLogoutUserSession: "/admin/logout-user-session",
-  serverVersion: "/admin/server-version",
-  latestServerVersion: "/admin/latest-server-version",
+  adminLogoutAllSessions: "/admin/logout-all-sessions",
+  serverVersion: "/server-version",
+  latestServerVersion: "/latest-server-version",
   serverMode: "/server-mode",
   stunUrl: "/stun-url",
   donationStatus: "/donation-status",
@@ -85,9 +92,36 @@ let heartbeatIntervalId = null; // for 20s keep-alive on P2P
 let stunConfig = { iceServers: [] }; // will be loaded from /stun-url
 
 // Common
+let monitoringRequested = false;
+let monitoringGeneration = 0;
+let reconnectTimer = null;
+let connectionTimer = null;
+let reconnectAttempts = 0;
+
 let CSRF_TOKEN = null;
 let MAX_MESSAGE_SIZE = null; // in MiB
 let CSRF_HEADER_NAME = "X-CSRF-TOKEN";
+
+function compareReleaseVersions(latest, installed) {
+  const parse = (value) => {
+    if (typeof value !== "string" || !/^[0-9]+\.[0-9]+\.[0-9]+$/.test(value.trim())) {
+      throw new Error("Invalid release version");
+    }
+    const parts = value.trim().split(".").map(Number);
+    if (!parts.every(Number.isSafeInteger)) {
+      throw new Error("Invalid release version");
+    }
+    return parts;
+  };
+  const remote = parse(latest);
+  const current = parse(installed);
+  for (let i = 0; i < remote.length; i++) {
+    if (remote[i] !== current[i]) {
+      return remote[i] > current[i] ? 1 : -1;
+    }
+  }
+  return 0;
+}
 
 /* -----------------------------------------
          ============  ON DOCUMENT READY  =========
@@ -117,23 +151,27 @@ $(function () {
         showSection(SELECTORS.advanceLink);
         showSection(SELECTORS.changeUsernameLink);
         showSection(SELECTORS.adminSection);
-
-        // check for server updates
-        fetchServerVersion()
-          .then((serverVersion) => {
-            fetchLatestServerVersion()
-              .then((latestServerVersion) => {
-                if (serverVersion.version !== latestServerVersion.server) {
-                  $(SELECTORS.updateLink).text(
-                    `🔄 Update (${serverVersion.version} ➞ ${latestServerVersion.server})`
-                  );
-                  showSection(SELECTORS.updateLink);
-                }
-              })
-              .catch(() => {});
-          })
-          .catch(() => {});
       }
+
+      // Show the read-only server version to every signed-in user.
+      fetchServerVersion()
+        .then((serverVersion) => {
+          $(SELECTORS.serverVersion).text(`Version v${serverVersion.version}`);
+          fetchLatestServerVersion()
+            .then((latestServerVersion) => {
+              const comparison = compareReleaseVersions(latestServerVersion.server, serverVersion.version);
+              if (comparison === 0) {
+                $(SELECTORS.serverVersion).text(`Version v${serverVersion.version} (latest)`);
+              } else if (comparison > 0 && userData.role === "ADMIN") {
+                $(SELECTORS.updateLink).text(
+                  `🔄 Update (${serverVersion.version} ➞ ${latestServerVersion.server})`
+                );
+                showSection(SELECTORS.updateLink);
+              }
+            })
+            .catch(() => {});
+        })
+        .catch(() => {});
 
       // Initialize event handlers
       initEventHandlers();
@@ -171,6 +209,7 @@ function initEventHandlers() {
 
   // Admin Section
   $(SELECTORS.loadUsersBtn).click(loadAllUsers);
+  $(SELECTORS.revokeAllSessionsBtn).click(revokeAllUserSessions);
   $(SELECTORS.openAddUserModalBtn).click(() =>
     showModal(SELECTORS.addUserModal)
   );
@@ -186,12 +225,60 @@ function initEventHandlers() {
                 ==========  MODE DECISION  =========
                 ----------------------------------------- */
 function onConnectClick() {
-  $(SELECTORS.statusMessage).hide();
-  if (CURRENT_MODE === "P2S") {
-    connectStomp();
-  } else {
-    connectP2P();
+  if (monitoringRequested) return;
+  monitoringRequested = true;
+  reconnectAttempts = 0;
+  const generation = ++monitoringGeneration;
+  updateMonitoringControls(false);
+  showStatusMessage("Connecting to monitoring…", "info");
+  connectMonitoring(generation);
+}
+
+async function connectMonitoring(generation) {
+  try {
+    // A failed WebSocket handshake does not expose HTTP authentication status.
+    // Probe the session before each attempt so expired logins stop retrying.
+    const user = await $.ajax({ url: ENDPOINTS.whoami, dataType: "json", cache: false });
+    if (!monitoringRequested || generation !== monitoringGeneration) return;
+    if (!user || typeof user.username !== "string") {
+      monitoringSessionExpired();
+      return;
+    }
+    if (CURRENT_MODE === "P2S") connectStomp(generation);
+    else await connectP2P(generation);
+  } catch (error) {
+    if (!monitoringRequested || generation !== monitoringGeneration) return;
+    if (error.status === 401 || error.status === 403 || error.status === 200) {
+      // Redirects to the HTML login page produce a JSON parse error with HTTP 200.
+      monitoringSessionExpired();
+    } else {
+      scheduleMonitoringReconnect(generation);
+    }
   }
+}
+
+function updateMonitoringControls(connected) {
+  $(SELECTORS.connectBtn).prop("disabled", monitoringRequested);
+  $(SELECTORS.disconnectBtn).prop("disabled", !monitoringRequested);
+  $(SELECTORS.sendBtn).prop("disabled", !connected);
+  if (connected) $(SELECTORS.conversationTable).show();
+}
+
+function scheduleMonitoringReconnect(generation) {
+  if (!monitoringRequested || generation !== monitoringGeneration || reconnectTimer !== null) return;
+  updateMonitoringControls(false);
+  const delay = Math.min(1000 * 2 ** Math.min(reconnectAttempts++, 5), 30000);
+  showStatusMessage(`Connection lost. Retrying in ${delay / 1000} seconds…`, "warning");
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectMonitoring(generation);
+  }, delay);
+}
+
+function monitoringSessionExpired() {
+  onDisconnectClick();
+  showStatusMessage("Your session expired or was revoked. Please log in again.", "warning");
+  window.location.href = "/login?expired";
 }
 
 function onSendClick() {
@@ -210,11 +297,17 @@ function onSendClick() {
 }
 
 function onDisconnectClick() {
-  if (CURRENT_MODE === "P2S") {
-    disconnectStomp();
-  } else {
-    disconnectP2P();
-  }
+  monitoringRequested = false;
+  ++monitoringGeneration;
+  clearTimeout(reconnectTimer);
+  clearTimeout(connectionTimer);
+  reconnectTimer = connectionTimer = null;
+  disconnectStomp();
+  disconnectP2P();
+  updateMonitoringControls(false);
+  $(SELECTORS.conversationTable).hide();
+  $(SELECTORS.conversationBody).empty();
+  showStatusMessage("Monitoring disconnected.", "warning");
 }
 
 /* -----------------------------------------
@@ -468,46 +561,48 @@ function fetchDonationStatus() {
 /* -----------------------------------------
                ==========  STOMP (P2S)  ==========
                ----------------------------------------- */
-function connectStomp() {
-  const brokerURL = $(SELECTORS.brokerUrlInput).val();
-  stompClient = new StompJs.Client({
-    brokerURL,
+function connectStomp(generation) {
+  const client = new StompJs.Client({
+    brokerURL: $(SELECTORS.brokerUrlInput).val(),
     heartbeatIncoming: 20000,
     heartbeatOutgoing: 0,
+    connectionTimeout: 15000,
+    reconnectDelay: 0, // Both modes use the authenticated retry loop above.
   });
-
-  stompClient.onConnect = (frame) => {
-    setStompConnected(true);
+  stompClient = client;
+  const current = () => monitoringRequested && generation === monitoringGeneration && stompClient === client;
+  client.onConnect = () => {
+    if (!current()) return;
+    reconnectAttempts = 0;
+    updateMonitoringControls(true);
     showStatusMessage("Connected to WebSocket server (P2S).", "success");
-    console.log("Connected (P2S): " + frame);
-
-    // Subscribe to personal queue
-    stompClient.subscribe(ENDPOINTS.websocketReceive, (res) => {
-      displayIncomingMessage(JSON.parse(res.body));
+    client.subscribe(ENDPOINTS.websocketReceive, (res) => {
+      if (current()) displayIncomingMessage(JSON.parse(res.body));
     });
   };
-
-  stompClient.onWebSocketError = (error) => {
+  client.onWebSocketClose = () => {
+    if (!current()) return;
+    stompClient = null;
+    client.deactivate();
+    scheduleMonitoringReconnect(generation);
+  };
+  client.onWebSocketError = (error) => {
+    if (current()) showStatusMessage("WebSocket connection failed. Waiting to retry…", "warning");
     console.error("WebSocket error:", error);
-    showStatusMessage("WebSocket error. Check console for details.", "danger");
   };
-
-  stompClient.onStompError = (frame) => {
-    console.error("STOMP error:", frame.headers["message"]);
-    console.error("Details:", frame.body);
-    showStatusMessage("STOMP error. Check console for details.", "danger");
+  client.onStompError = () => {
+    if (!current()) return;
+    stompClient = null;
+    client.deactivate();
+    scheduleMonitoringReconnect(generation);
   };
-
-  stompClient.activate();
+  client.activate();
 }
 
 function disconnectStomp() {
-  if (stompClient) {
-    stompClient.deactivate();
-    setStompConnected(false);
-    showStatusMessage("Disconnected from WebSocket server (P2S).", "warning");
-    console.log("Disconnected (P2S)");
-  }
+  const client = stompClient;
+  stompClient = null;
+  if (client) client.deactivate();
 }
 
 function sendTextToServerStomp(textVal) {
@@ -518,91 +613,57 @@ function sendTextToServerStomp(textVal) {
   });
 }
 
-function setStompConnected(connected) {
-  $(SELECTORS.connectBtn).prop("disabled", connected);
-  $(SELECTORS.disconnectBtn).prop("disabled", !connected);
-  $(SELECTORS.conversationTable).toggle(connected);
-  if (!connected) {
-    $(SELECTORS.conversationBody).empty();
-  }
-}
-
 /* -----------------------------------------
                ==========  P2P WEBRTC  ==========
                ----------------------------------------- */
-function connectP2P() {
+async function connectP2P(generation) {
   const signalingUrl = $(SELECTORS.brokerUrlInput).val();
-  if (!signalingUrl) {
-    showStatusMessage("Signaling URL is required for P2P mode.", "danger");
-    return;
-  }
-
-  // first fetch STUN url (async), then connect
-  fetchStunUrl().then(() => {
-    // WebSocket for signaling
-    p2pSignalingWebSocket = new WebSocket(signalingUrl);
-
-    p2pSignalingWebSocket.onopen = () => {
-      setP2PConnected(true);
-      showStatusMessage("Connected to Signaling server (P2P).", "success");
-      // Start heartbeat(stay alive) every 20 seconds
-      /*
-       * heartbeatIntervalId = setInterval(() => {
-       * if (
-       * p2pSignalingWebSocket &&
-       * p2pSignalingWebSocket.readyState === WebSocket.OPEN
-       * ) {
-       * p2pSignalingWebSocket.send("\n");
-       * }
-       * }, 20000);
-       */
-    };
-
-    p2pSignalingWebSocket.onmessage = (evt) => {
-      const data = JSON.parse(evt.data);
-      handleSignalingMessage(data);
-    };
-
-    p2pSignalingWebSocket.onclose = () => {
-      console.log("Signaling WebSocket closed (P2P).");
-      showStatusMessage("Disconnected from Signaling server (P2P).", "warning");
-    };
-
-    p2pSignalingWebSocket.onerror = (err) => {
-      console.error("Signaling WebSocket error:", err);
-      showStatusMessage("Signaling error (P2P). Check console.", "danger");
-    };
-  });
+  await fetchStunUrl();
+  if (!monitoringRequested || generation !== monitoringGeneration) return;
+  const socket = new WebSocket(signalingUrl);
+  p2pSignalingWebSocket = socket;
+  const current = () => monitoringRequested && generation === monitoringGeneration && p2pSignalingWebSocket === socket;
+  connectionTimer = setTimeout(() => {
+    if (current()) socket.close();
+  }, 15000);
+  socket.onopen = () => {
+    if (!current()) return;
+    clearTimeout(connectionTimer);
+    connectionTimer = null;
+    reconnectAttempts = 0;
+    updateMonitoringControls(true);
+    showStatusMessage("Connected to Signaling server (P2P).", "success");
+  };
+  socket.onmessage = (evt) => {
+    if (current()) handleSignalingMessage(JSON.parse(evt.data));
+  };
+  socket.onclose = () => {
+    if (!current()) return;
+    clearTimeout(connectionTimer);
+    connectionTimer = null;
+    p2pSignalingWebSocket = null;
+    closePeerConnections();
+    scheduleMonitoringReconnect(generation);
+  };
+  socket.onerror = () => {
+    if (current()) socket.close();
+  };
 }
 
-function disconnectP2P() {
-  if (p2pSignalingWebSocket) {
-    p2pSignalingWebSocket.close();
-    p2pSignalingWebSocket = null;
-  }
-  if (heartbeatIntervalId) {
-    clearInterval(heartbeatIntervalId);
-    heartbeatIntervalId = null;
-  }
-  for (const peerId in peerConnections) {
-    peerConnections[peerId].close();
-  }
+function closePeerConnections() {
+  for (const peerId in peerConnections) peerConnections[peerId].close();
   peerConnections = {};
   dataChannels = {};
   myPeerId = null;
-
-  // Only on explicit user disconnect do we hide/clear the conversation:
-  setP2PConnected(false);
-  showStatusMessage("Disconnected from P2P mesh.", "warning");
 }
 
-function setP2PConnected(connected) {
-  $(SELECTORS.connectBtn).prop("disabled", connected);
-  $(SELECTORS.disconnectBtn).prop("disabled", !connected);
-  $(SELECTORS.conversationTable).toggle(connected);
-  if (!connected) {
-    $(SELECTORS.conversationBody).empty();
-  }
+function disconnectP2P() {
+  const socket = p2pSignalingWebSocket;
+  p2pSignalingWebSocket = null;
+  if (socket) socket.close();
+  if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
+  heartbeatIntervalId = null;
+  closePeerConnections();
 }
 
 function handleSignalingMessage(msg) {
@@ -789,6 +850,9 @@ function sendTextToPeers(textVal) {
              ========== COMMON MONITORING =========
          ----------------------------------------- */
 function displayIncomingMessage(message) {
+  // Peer keep-alives are connection traffic, not clipboard entries.
+  if (message && message._cc_keepalive === true) return;
+
   const timestamp = new Date().toISOString().replace(/[-:.]/g, "");
   const filename = `${timestamp}.txt`;
   const payload = message.payload || "";
@@ -902,43 +966,242 @@ function logoutAllDevices(successCallback) {
                ============  ADMIN LOGIC  =========
                ----------------------------------------- */
 function loadAllUsers() {
-  $.ajax({
-    url: ENDPOINTS.adminUsers,
-    method: "GET",
-    success: (data) => {
-      populateUsersTable(data);
-    },
-    error: (err) => {
-      alert("Failed to load users");
-      console.error(err);
-    },
+  adminUsersTableController.reload();
+}
+
+/**
+ * Make table columns drag-resizable. Switches the table to fixed layout,
+ * locks each <th> at its current width, and adds a right-edge drag handle.
+ */
+function enableColumnResize(tableEl) {
+  if (!tableEl || tableEl.dataset.resizableInit === "1") return;
+  tableEl.dataset.resizableInit = "1";
+  tableEl.classList.add("table-resizable");
+
+  tableEl.querySelectorAll("thead th").forEach((th) => {
+    if (!th.style.width) th.style.width = th.offsetWidth + "px";
+
+    const handle = document.createElement("div");
+    handle.className = "col-resizer";
+    th.appendChild(handle);
+
+    let startX = 0;
+    let startW = 0;
+    const onMove = (e) => {
+      const dx = e.clientX - startX;
+      th.style.width = Math.max(40, startW + dx) + "px";
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.userSelect = "";
+    };
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      startX = e.clientX;
+      startW = th.offsetWidth;
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+    handle.addEventListener("click", (e) => e.stopPropagation());
   });
 }
 
-function populateUsersTable(users) {
-  const tbody = $(SELECTORS.usersTableBody);
-  tbody.empty();
-  if (!Array.isArray(users)) return;
+/**
+ * Admin Users table controller — server-driven sort/filter/paginate.
+ * Built lazily on first reload so it can attach handlers once. State is
+ * thin (no client-side rows cache) since the backend owns every query.
+ */
+const adminUsersTableController = (() => {
+  const state = {
+    initialized: false,
+    content: [],
+    totalElements: 0,
+    totalPages: 1,
+    page: 0, // 0-based to match backend
+    pageSize: 10, // -1 means "All"
+    sortKey: "username",
+    sortDir: "asc",
+    search: "",
+    searchDebounce: null,
+  };
 
-  users.forEach((user) => {
-    const row = $("<tr></tr>");
-    row.append($("<td></td>").text(user.username));
-    row.append($("<td></td>").text(user.enabled ? "Enabled" : "Disabled"));
+  function reload() {
+    init();
+    const params = {
+      page: state.page,
+      size: state.pageSize,
+      sort: state.sortKey,
+      direction: state.sortDir,
+      search: state.search,
+    };
+    return $.ajax({
+      url: ENDPOINTS.adminUsersPage,
+      method: "GET",
+      data: params,
+    })
+      .done((data) => {
+        state.content = Array.isArray(data.content) ? data.content : [];
+        state.totalElements =
+          typeof data.totalElements === "number"
+            ? data.totalElements
+            : state.content.length;
+        state.totalPages =
+          typeof data.totalPages === "number" && data.totalPages > 0
+            ? data.totalPages
+            : 1;
+        if (typeof data.page === "number") state.page = data.page;
+        render();
+      })
+      .fail((err) => {
+        alert("Failed to load users");
+        console.error(err);
+      });
+  }
 
-    const actionTd = $("<td></td>");
-    const editBtn = $("<button class='btn btn-primary btn-sm'>Edit</button>");
-    editBtn.click(() => showEditUserModal(user));
+  function render() {
+    const tbody = $(SELECTORS.usersTableBody);
+    tbody.empty();
 
-    const deleteBtn = $(
-      "<button class='btn btn-danger btn-sm' style='margin-left:5px;'>Delete</button>"
+    state.content.forEach((user) => {
+      const row = $("<tr></tr>");
+      row.append($("<td></td>").text(user.username));
+      row.append($("<td></td>").text(user.enabled ? "Enabled" : "Disabled"));
+
+      const actionTd = $("<td></td>");
+      const editBtn = $("<button class='btn btn-primary btn-sm'>Edit</button>");
+      editBtn.click(() => showEditUserModal(user));
+
+      const deleteBtn = $(
+        "<button class='btn btn-danger btn-sm' style='margin-left:5px;'>Delete</button>"
+      );
+      deleteBtn.click(() => deleteUser(user.username));
+
+      const revokeBtn = $("<button class='btn btn-warning btn-sm' style='margin-left:5px;'>Revoke sessions</button>");
+      revokeBtn.click(() => {
+        if (!confirm(`Revoke all sessions for '${user.username}'?`)) return;
+        logoutUserFromAllDevices(user.username, () => {
+          if (user.username === $(SELECTORS.user).text()) window.location.href = "/login?expired";
+          else alert(`Sessions revoked for '${user.username}'.`);
+        });
+      });
+      actionTd.append(editBtn).append(revokeBtn).append(deleteBtn);
+      row.append(actionTd);
+      tbody.append(row);
+    });
+
+    // Header sort indicators
+    $(SELECTORS.usersTable + " thead th[data-key]").each(function () {
+      const $th = $(this);
+      $th.removeClass("sort-asc sort-desc");
+      if ($th.data("key") === state.sortKey) {
+        $th.addClass(state.sortDir === "asc" ? "sort-asc" : "sort-desc");
+      }
+    });
+
+    // Pager
+    const $pager = $(SELECTORS.adminUsersPager);
+    $pager.empty();
+    const total = state.totalElements;
+    const usingAll = state.pageSize <= 0;
+    const lo =
+      total === 0 ? 0 : usingAll ? 1 : state.page * state.pageSize + 1;
+    const hi = usingAll
+      ? total
+      : Math.min((state.page + 1) * state.pageSize, total);
+
+    const $prev = $(
+      "<button class='btn btn-default btn-sm'>Prev</button>"
+    ).prop("disabled", usingAll || state.page <= 0);
+    $prev.click(() => {
+      state.page = Math.max(0, state.page - 1);
+      reload();
+    });
+
+    const $pageLabel = $("<span class='page-info'></span>").text(
+      `Page ${state.page + 1} / ${state.totalPages}`
     );
-    deleteBtn.click(() => deleteUser(user.username));
 
-    actionTd.append(editBtn).append(deleteBtn);
-    row.append(actionTd);
-    tbody.append(row);
-  });
-}
+    const $next = $(
+      "<button class='btn btn-default btn-sm'>Next</button>"
+    ).prop("disabled", usingAll || state.page >= state.totalPages - 1);
+    $next.click(() => {
+      state.page = Math.min(state.totalPages - 1, state.page + 1);
+      reload();
+    });
+
+    const $size = $("<select class='form-control'></select>").css({
+      display: "inline-block",
+      width: "auto",
+    });
+    const pageSizeOptions = [
+      { value: 10, label: "10 / page" },
+      { value: 25, label: "25 / page" },
+      { value: 50, label: "50 / page" },
+      { value: 100, label: "100 / page" },
+      { value: -1, label: "All" },
+    ];
+    pageSizeOptions.forEach(({ value, label }) => {
+      $size.append(
+        $("<option></option>")
+          .val(value)
+          .text(label)
+          .prop("selected", value === state.pageSize)
+      );
+    });
+    $size.change(function () {
+      state.pageSize = Number($(this).val());
+      state.page = 0;
+      reload();
+    });
+
+    const $info = $("<span class='page-info'></span>").text(
+      `${lo}-${hi} of ${total}`
+    );
+
+    $pager
+      .append($prev)
+      .append($pageLabel)
+      .append($next)
+      .append($size)
+      .append($info);
+  }
+
+  function init() {
+    if (state.initialized) return;
+    state.initialized = true;
+
+    enableColumnResize(document.querySelector(SELECTORS.usersTable));
+
+    // Header click → toggle sort + reload from backend
+    $(SELECTORS.usersTable + " thead th.sortable").on("click", function () {
+      const key = $(this).data("key");
+      if (!key) return;
+      if (state.sortKey === key) {
+        state.sortDir = state.sortDir === "asc" ? "desc" : "asc";
+      } else {
+        state.sortKey = key;
+        state.sortDir = "asc";
+      }
+      state.page = 0;
+      reload();
+    });
+
+    // Search input (debounced) → reload from backend
+    $(SELECTORS.adminUsersSearch).on("input", function () {
+      state.search = $(this).val();
+      state.page = 0;
+      clearTimeout(state.searchDebounce);
+      state.searchDebounce = setTimeout(reload, 250);
+    });
+  }
+
+  return {
+    reload,
+  };
+})();
 
 function deleteUser(username) {
   if (!confirm(`Are you sure you want to delete user '${username}'?`)) {
@@ -958,6 +1221,16 @@ function deleteUser(username) {
       alert("Failed to delete user");
       console.error(err);
     },
+  });
+}
+
+function revokeAllUserSessions() {
+  if (!confirm("Revoke sessions for every user? This also logs you out.")) return;
+  $.ajax({
+    url: ENDPOINTS.adminLogoutAllSessions,
+    method: "DELETE",
+    success: () => { window.location.href = "/login?expired"; },
+    error: () => alert("Failed to revoke all sessions."),
   });
 }
 

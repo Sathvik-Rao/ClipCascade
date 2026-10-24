@@ -1,11 +1,14 @@
 import re
+import threading
+import webbrowser
 import tkinter as tk
-from tkinter import ttk, font
+from tkinter import ttk, font, filedialog, messagebox
 import gc
 import time
 import os
 
 from utils.window_manager import center_window
+from utils.notification_manager import NotificationManager
 from core.config import Config
 from gui.info import CustomDialog
 from core.constants import *
@@ -57,6 +60,24 @@ class HoverTooltip:
 
 
 class LoginForm(tk.Tk):
+    def watch_updates(self, checker):
+        """Poll on Tk's UI thread; never touch Tk from the network worker."""
+        def poll():
+            status = checker.claim_alert(self.config.data.get("update_notifications", True))
+            if status:
+                message = f"ClipCascade {status[1]} is available (installed: {status[2]})."
+                if self.focus_displayof() is not None:
+                    if messagebox.askyesno("Update available", message + "\nOpen the download page?", parent=self):
+                        webbrowser.open(status[3])
+                else:
+                    threading.Thread(
+                        target=NotificationManager(self.config).notify,
+                        args=("ClipCascade update available", message + " Use the tray menu to open the download page."),
+                        kwargs={"preference": "update_notifications"}, daemon=True,
+                    ).start()
+            self._update_poll_id = self.after(1000, poll)
+        self._update_poll_id = self.after(1000, poll)
+
     def __init__(
         self,
         config: Config,
@@ -87,6 +108,16 @@ class LoginForm(tk.Tk):
         style.configure("TLabel", font=("Helvetica", 13), padding=5)
         style.configure("TEntry", font=("Helvetica", 13), padding=5)
         style.configure("TButton", font=("Helvetica", 13), padding=5)
+        style.configure("Path.TButton", font=("Helvetica", 11), padding=(2, 1))
+
+        # Draw a small trash icon without depending on platform emoji fonts.
+        self.clear_path_icon = tk.PhotoImage(master=self, width=12, height=14)
+        for rectangle in (
+            (4, 0, 8, 1), (1, 2, 11, 3),
+            (2, 4, 3, 12), (9, 4, 10, 12), (2, 12, 10, 13),
+            (5, 5, 6, 10), (7, 5, 8, 10),
+        ):
+            self.clear_path_icon.put("#888888", to=rectangle)
         style.configure("TCheckbutton", font=("Helvetica", 13), padding=5)
 
         # Main frame with padding
@@ -96,7 +127,7 @@ class LoginForm(tk.Tk):
         # Title Label
         title_label = ttk.Label(
             main_frame,
-            text="Please Log In",
+            text="Log in",
             font=("Helvetica", 16, "bold"),
             takefocus=False,
         )
@@ -114,7 +145,8 @@ class LoginForm(tk.Tk):
         self.username_entry.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
         self._add_tooltip(
             [user_label, self.username_entry],
-            "Username used to log in to your ClipCascade account.\n\n"
+            "Username used to log in to your ClipCascade account.\n"
+            "\n"
             "Use the same account name on all devices that should share clipboard data.",
         )
 
@@ -136,9 +168,11 @@ class LoginForm(tk.Tk):
         self.eye_icon.bind("<Button-1>", self._toggle_password)
         self._add_tooltip(
             [pass_label, self.password_entry, self.eye_icon],
-            "Account password used for server authentication.\n\n"
-            "If encryption is enabled, this password is also used to derive your encryption key.\n"
-            "Use the same password on all devices for successful decrypt/sync.",
+            "Account password used for server authentication.\n"
+            "\n"
+            "When encryption is enabled, this password also derives your encryption key. Use the same password on every device.\n"
+            "\n"
+            "Note: after changing your account password, log in again on each device so their encryption keys match.",
         )
 
         # Server URL
@@ -168,33 +202,32 @@ class LoginForm(tk.Tk):
         self.cipher_var = tk.BooleanVar(value=self.config.data["cipher_enabled"])
         self.cipher_checkbox = ttk.Checkbutton(
             checks_frame,
-            text="Enable Encryption (recommended)",
+            text="Enable encryption (recommended)",
             variable=self.cipher_var,
             takefocus=False,
         )
         self.cipher_checkbox.pack(pady=3, anchor=tk.W)
         self._add_tooltip(
             [self.cipher_checkbox],
-            "Enables end-to-end encryption for clipboard content (recommended).\n\n"
-            "When enabled, clipboard data is encrypted on-device before sending.\n"
-            "All devices in the same account must use the same encryption settings "
-            "(password, salt, and hash rounds) to decrypt data correctly.",
+            "Encrypts clipboard content on your device before sending it. Recommended.\n"
+            "\n"
+            "Note: all devices sharing clipboard data must use matching encryption settings, including the password, encryption salt, and key derivation iterations.",
         )
 
         # Notification Checkbox
         self.notification_var = tk.BooleanVar(value=self.config.data["notification"])
         self.notification_checkbox = ttk.Checkbutton(
             checks_frame,
-            text="Enable Notification",
+            text="Show connection status notifications",
             variable=self.notification_var,
             takefocus=False,
         )
         self.notification_checkbox.pack(pady=3, anchor=tk.W)
         self._add_tooltip(
             [self.notification_checkbox],
-            "Shows local notifications for connection status events.\n\n"
-            "Useful to know when WebSocket disconnects/reconnects happen.\n"
-            "Turn this off if you prefer a quieter experience with fewer popups.",
+            "Shows local notifications when the server connection is lost or restored.\n"
+            "\n"
+            "Turn this off if you prefer fewer popups.",
         )
 
         # Button frame
@@ -202,17 +235,16 @@ class LoginForm(tk.Tk):
         button_frame.pack(pady=(10, 0))
 
         # Login Button
-        self.login_button = ttk.Button(button_frame, text="Login", command=self.on_login)
+        self.login_button = ttk.Button(button_frame, text="Log in", command=self.on_login)
         self.login_button.pack()
 
         # Extra Configurations Toggle Label
-        # macOS: show advanced fields by default
-        self.show_extra = PLATFORM == MACOS
+        self.show_extra = False
         self.toggle_normal_color = "#007acc"  # neutral blue with strong contrast
         self.toggle_hover_color = "#005a9e"  # slightly darker for hover feedback
         self.toggle_label = tk.Label(
             main_frame,
-            text="Hide Extra Config" if PLATFORM == MACOS else "Enable Extra Config",
+            text="Show advanced settings",
             fg=self.toggle_normal_color,
             cursor="hand2",
             font=font.Font(family="Helvetica", size=13, underline=True),
@@ -222,8 +254,9 @@ class LoginForm(tk.Tk):
         self.toggle_label.bind("<Button-1>", self._toggle_extra_config)
         self._add_tooltip(
             [self.toggle_label],
-            "Shows advanced settings for encryption and clipboard behavior.\n\n"
-            "Most users can keep defaults. Open this section only if you need custom tuning.",
+            "Shows advanced settings for encryption, clipboard limits, sharing, download location, and certificate trust.\n"
+            "\n"
+            "Most users can keep the defaults.",
         )
 
         # hover effects for the toggle label
@@ -232,10 +265,6 @@ class LoginForm(tk.Tk):
 
         # Extra Configuration Frame with Scrollbar
         self.extra_frame_container = ttk.Frame(main_frame)
-        if PLATFORM == MACOS:
-            self.extra_frame_container.pack(fill=tk.BOTH, expand=True)
-        else:
-            self.extra_frame_container.pack_forget()
 
         # Create a canvas inside the extra_frame_container
         self.extra_canvas = tk.Canvas(
@@ -274,32 +303,33 @@ class LoginForm(tk.Tk):
         self.extra_frame_container.bind("<Configure>", self._on_extra_container_configure)
 
         # Hash Rounds
-        hash_rounds_label = ttk.Label(self.extra_frame, text="Hash Rounds:")
+        hash_rounds_label = ttk.Label(self.extra_frame, text="Key derivation iterations:")
         hash_rounds_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.hash_rounds_entry = ttk.Entry(self.extra_frame, width=50, font=("Helvetica", 13))
         self.hash_rounds_entry.insert(0, str(self.config.data["hash_rounds"]))
         self.hash_rounds_entry.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
         self._add_tooltip(
             [hash_rounds_label, self.hash_rounds_entry],
-            "Number of hash iterations used for encryption key derivation.\n\n"
-            "Higher value = stronger brute-force resistance, but slower processing.\n"
-            "Default is tuned for balance. Keep default unless you know why to change.\n"
-            "Must be a positive integer and must match on every device.",
+            "Number of iterations used to derive your encryption key. Higher values increase resistance to password guessing, but take longer.\n"
+            "\n"
+            "Default: 664937. Keep the default unless you need a different value.\n"
+            "\n"
+            "Note: must be a positive integer and must match on every device.",
         )
 
         # Salt
-        salt_label = ttk.Label(self.extra_frame, text="Salt:")
+        salt_label = ttk.Label(self.extra_frame, text="Encryption salt:")
         salt_label.grid(row=1, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.salt_entry = ttk.Entry(self.extra_frame, width=50, font=("Helvetica", 13))
         self.salt_entry.insert(0, self.config.data["salt"])
         self.salt_entry.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
         self._add_tooltip(
             [salt_label, self.salt_entry],
-            "Optional extra text mixed into encryption key generation.\n\n"
-            "It can be any combination of letters and numbers (you can also include symbols/spaces if desired).\n"
-            "Use the same exact salt on all devices if encryption is enabled.\n"
-            "If left blank, encryption still works using password + hash rounds.\n"
-            "Changing salt later will prevent old devices from decrypting new clipboard data.",
+            "Optional extra text mixed into encryption key derivation. Letters, numbers, symbols, and spaces are allowed.\n"
+            "\n"
+            "Example: myCustomSalt123\n"
+            "\n"
+            "Note: use exactly the same salt on every device, including capitalization and spaces. Leave blank to keep the default. Changing it on only one device prevents decryption between devices.",
         )
 
         # Save Password Locally Checkbox
@@ -317,14 +347,14 @@ class LoginForm(tk.Tk):
         self.save_password_checkbox.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
         self._add_tooltip(
             [save_password_label, self.save_password_checkbox],
-            "Stores your plain password locally for automatic login convenience.\n\n"
-            "Security trade-off: avoid this on shared or untrusted machines.\n"
-            "This only works when encryption is disabled.",
+            "Stores your password locally for automatic login convenience.\n"
+            "\n"
+            "Note: only works when encryption is disabled. Not recommended on shared or untrusted devices.",
         )
 
         # Maximum Clipboard Size - Local Limit
         local_clipboard_size_label = ttk.Label(
-            self.extra_frame, text="Maximum Clipboard Size\nLocal Limit (in bytes):"
+            self.extra_frame, text="Local clipboard size limit (bytes):"
         )
         local_clipboard_size_label.grid(row=3, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.local_clipboard_size_entry = ttk.Entry(
@@ -336,11 +366,13 @@ class LoginForm(tk.Tk):
         self.local_clipboard_size_entry.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
         self._add_tooltip(
             [local_clipboard_size_label, self.local_clipboard_size_entry],
-            "Optional local safety limit for clipboard payload size (incoming and outgoing) in bytes.\n\n"
-            "Example: 1 MiB = 1048576 bytes.\n"
-            "Leave empty for no local limit.\n"
-            "Use a lower value if your device struggles with very large clipboard data "
-            "(large text/images/files). Must be a positive integer.",
+            "Optional local limit for incoming and outgoing clipboard content, in bytes. Must be a positive integer.\n"
+            "\n"
+            "Examples:\n"
+            "- 512 KiB = 524288 bytes\n"
+            "- 1 MiB = 1048576 bytes\n"
+            "\n"
+            "Leave blank for no local limit. Server and platform limits still apply. A smaller limit can help if large clipboard content causes problems on your device.",
         )
 
         # Enable Image Sharing Checkbox
@@ -357,8 +389,9 @@ class LoginForm(tk.Tk):
         self.enable_image_sharing_checkbox.grid(row=4, column=1, padx=10, pady=5, sticky=tk.W)
         self._add_tooltip(
             [enable_image_sharing_label, self.enable_image_sharing_checkbox],
-            "Controls whether this device sends copied images to other devices.\n\n"
-            "If disabled, this device can still receive images sent from other devices.",
+            "Allows this device to send copied images to other devices.\n"
+            "\n"
+            "Note: turning this off does not prevent receiving images from other devices.",
         )
 
         # Enable File Sharing Checkbox
@@ -373,56 +406,150 @@ class LoginForm(tk.Tk):
         self.enable_file_sharing_checkbox.grid(row=5, column=1, padx=10, pady=5, sticky=tk.W)
         self._add_tooltip(
             [enable_file_sharing_label, self.enable_file_sharing_checkbox],
-            "Controls whether this device sends copied/shared files to other devices.\n\n"
-            "If disabled, this device can still receive files sent from other devices.",
+            "Allows this device to send copied or shared files to other devices.\n"
+            "\n"
+            "Note: turning this off does not prevent receiving files from other devices.",
         )
 
         # Default File Download Location
         default_file_download_location_label = ttk.Label(
-            self.extra_frame, text="Default File Download Location:"
+            self.extra_frame, text="Default download folder:"
         )
         default_file_download_location_label.grid(
             row=6, column=0, padx=(0, 10), pady=5, sticky=tk.W
         )
+        download_path_frame = ttk.Frame(self.extra_frame)
+        download_path_frame.grid(row=6, column=1, padx=10, pady=5, sticky=tk.EW)
+        download_path_frame.columnconfigure(0, weight=1)
         self.default_file_download_location_entry = ttk.Entry(
-            self.extra_frame, width=50, font=("Helvetica", 13)
+            download_path_frame, width=30, font=("Helvetica", 13)
         )
         self.default_file_download_location_entry.insert(
             0, self.config.data["default_file_download_location"]
         )
-        self.default_file_download_location_entry.grid(
-            row=6, column=1, padx=10, pady=5, sticky=tk.W + tk.E
+        self.default_file_download_location_entry.grid(row=0, column=0, sticky=tk.EW)
+        self.download_folder_browse_button = ttk.Button(
+            download_path_frame,
+            text="Browse…",
+            width=0,
+            style="Path.TButton",
+            command=lambda: self._browse_path(
+                self.default_file_download_location_entry, directory=True
+            ),
         )
+        self.download_folder_browse_button.grid(row=0, column=1, padx=(4, 0))
+        self.download_folder_clear_button = ttk.Button(
+            download_path_frame,
+            image=self.clear_path_icon,
+            width=0,
+            style="Path.TButton",
+            command=lambda: self._clear_path(self.default_file_download_location_entry),
+        )
+        self.download_folder_clear_button.grid(row=0, column=2, padx=(4, 0))
         self._add_tooltip(
-            [default_file_download_location_label, self.default_file_download_location_entry],
-            "Optional default folder to save incoming files automatically.\n\n"
+            [default_file_download_location_label, self.default_file_download_location_entry,
+             self.download_folder_browse_button],
+            "Optional default folder for saving incoming files. Type a path or use Browse… to select an existing folder.\n"
+            "\n"
             "Examples:\n"
             "- Windows: C:\\Users\\YourName\\Downloads\n"
-            "- macOS/Linux: /Users/yourname/Downloads\n\n"
-            "Leave blank to choose a location manually when downloading files.\n"
-            "Path must already exist on this device.",
+            "- macOS: /Users/yourname/Downloads\n"
+            "- Linux: /home/yourname/Downloads\n"
+            "\n"
+            "Use the trash button or leave blank to choose a folder for each download.",
         )
 
         # SSL CA bundle (private / corporate PKI)
-        ssl_ca_label = ttk.Label(self.extra_frame, text="SSL CA bundle (optional):")
+        ssl_ca_label = ttk.Label(self.extra_frame, text="Custom CA certificate bundle:")
         ssl_ca_label.grid(row=7, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        ca_path_frame = ttk.Frame(self.extra_frame)
+        ca_path_frame.grid(row=7, column=1, padx=10, pady=5, sticky=tk.EW)
+        ca_path_frame.columnconfigure(0, weight=1)
         self.ssl_ca_bundle_entry = ttk.Entry(
-            self.extra_frame, width=50, font=("Helvetica", 13)
+            ca_path_frame, width=30, font=("Helvetica", 13)
         )
         self.ssl_ca_bundle_entry.insert(
             0, self.config.data.get("ssl_ca_bundle") or ""
         )
-        self.ssl_ca_bundle_entry.grid(row=7, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self.ssl_ca_bundle_entry.grid(row=0, column=0, sticky=tk.EW)
+        self.ca_bundle_browse_button = ttk.Button(
+            ca_path_frame,
+            text="Browse…",
+            width=0,
+            style="Path.TButton",
+            command=lambda: self._browse_path(self.ssl_ca_bundle_entry),
+        )
+        self.ca_bundle_browse_button.grid(row=0, column=1, padx=(4, 0))
+        self.ca_bundle_clear_button = ttk.Button(
+            ca_path_frame,
+            image=self.clear_path_icon,
+            width=0,
+            style="Path.TButton",
+            command=lambda: self._clear_path(self.ssl_ca_bundle_entry),
+        )
+        self.ca_bundle_clear_button.grid(row=0, column=2, padx=(4, 0))
         self._add_tooltip(
-            [ssl_ca_label, self.ssl_ca_bundle_entry],
-            "Path to a PEM file that contains your root CA (or full chain) for HTTPS/WSS.\n\n"
-            "Leave empty for default verification (public CAs / OS defaults).\n"
-            "Use this when your server uses a certificate from a private or internal CA.\n\n"
-            "Example: /etc/ssl/corp-root.pem or C:\\\\certs\\\\corp-root.pem",
+            [ssl_ca_label, self.ssl_ca_bundle_entry, self.ca_bundle_browse_button],
+            "Path to a PEM-encoded certificate bundle for a private or internal certificate authority. Used to verify HTTPS/WSS connections.\n"
+            "\n"
+            "Type a path or use Browse… to select a file.\n"
+            "\n"
+            "Examples:\n"
+            "- Windows: C:\\certs\\corp-root.pem\n"
+            "- macOS/Linux: /etc/ssl/corp-root.pem\n"
+            "\n"
+            "Use the trash button or leave blank, then log in, to use default certificate trust.",
+        )
+
+        self._add_tooltip(
+            [self.download_folder_clear_button],
+            "Clear the default download folder.\nChoose a folder for each download instead.",
+        )
+        self._add_tooltip(
+            [self.ca_bundle_clear_button],
+            "Clear the custom CA certificate bundle.\nLog in to use default certificate trust.",
+        )
+
+        update_label = ttk.Label(self.extra_frame, text="Notify when an update is available:")
+        update_label.grid(row=8, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.update_notifications_var = tk.BooleanVar(value=self.config.data["update_notifications"])
+        update_checkbox = ttk.Checkbutton(
+            self.extra_frame, variable=self.update_notifications_var, takefocus=False,
+        )
+        update_checkbox.grid(row=8, column=1, padx=10, pady=5, sticky=tk.W)
+        self._add_tooltip(
+            [update_label, update_checkbox],
+            "Checks at startup and once a day while running.\n"
+            "Alerts once per new version each session. Enabled by default.",
         )
 
         # Configure grid weights for extra_frame
         self.extra_frame.columnconfigure(1, weight=1)
+
+        # Bind after initialization so opening the form never writes defaults.
+        for field, variable in (
+            ("notification", self.notification_var),
+            ("update_notifications", self.update_notifications_var),
+            ("save_password", self.save_password_var),
+            ("enable_image_sharing", self.enable_image_sharing_var),
+            ("enable_file_sharing", self.enable_file_sharing_var),
+        ):
+            variable.trace_add(
+                "write", lambda *_, key=field, var=variable:
+                self._save_preference(key, var.get())
+            )
+        self._preference_entries = []
+        for field, entry in (
+            ("max_clipboard_size_local_limit_bytes", self.local_clipboard_size_entry),
+            ("default_file_download_location", self.default_file_download_location_entry),
+        ):
+            variable = tk.StringVar(value=entry.get())
+            entry.configure(textvariable=variable)
+            variable.trace_add(
+                "write", lambda *_, key=field, var=variable:
+                self._save_preference_entry(key, var.get())
+            )
+            self._preference_entries.append(variable)
 
         # Bind mouse wheel events for scrolling
         self._bind_mousewheel()
@@ -452,17 +579,65 @@ class LoginForm(tk.Tk):
             self.after(400, self._macos_restore_focus)
 
     def _sync_login_tab_order(self):
-        """Tab cycles username → password → server → Login → [extra entries if shown] → repeat.
+        """Tab cycles through login fields and visible advanced entries/pickers.
         Checkboxes and chrome are excluded from keyboard focus."""
         extra_entries = (
             self.hash_rounds_entry,
             self.salt_entry,
             self.local_clipboard_size_entry,
             self.default_file_download_location_entry,
+            self.download_folder_browse_button,
+            self.download_folder_clear_button,
             self.ssl_ca_bundle_entry,
+            self.ca_bundle_browse_button,
+            self.ca_bundle_clear_button,
         )
         for w in extra_entries:
             w.configure(takefocus=bool(self.show_extra))
+
+    def _clear_path(self, entry):
+        # Entry deletion also updates its StringVar and saved device preference.
+        entry.delete(0, tk.END)
+        entry.focus_set()
+
+    def _browse_path(self, entry, directory=False):
+        current_path = os.path.expanduser(entry.get().strip())
+        initial_dir = current_path if directory else os.path.dirname(current_path)
+        if not os.path.isdir(initial_dir):
+            initial_dir = os.path.expanduser("~")
+        options = {"parent": self, "initialdir": initial_dir}
+        try:
+            if directory:
+                selected = filedialog.askdirectory(
+                    title="Select default download folder", mustexist=True, **options
+                )
+            else:
+                selected = filedialog.askopenfilename(
+                    title="Select custom CA certificate bundle",
+                    filetypes=(
+                        ("PEM certificates", "*.pem"),
+                        ("CRT certificates", "*.crt"),
+                        ("All files", "*"),
+                    ),
+                    **options,
+                )
+        except (tk.TclError, RuntimeError, OSError) as error:
+            CustomDialog(
+                f"Unable to open the path picker: {error}\n\n"
+                "You can still enter the path manually.",
+                msg_type="error",
+            ).mainloop()
+            return
+        if selected:
+            variable = entry.cget("textvariable")
+            if variable:
+                # Update once so download-folder preference saving never sees a
+                # temporary empty path between deleting and inserting text.
+                self.setvar(variable, selected)
+            else:
+                entry.delete(0, tk.END)
+                entry.insert(0, selected)
+            entry.focus_set()
 
     def _add_tooltip(self, widgets, text):
         for widget in widgets:
@@ -496,17 +671,21 @@ class LoginForm(tk.Tk):
             self.salt_entry,
             self.local_clipboard_size_entry,
             self.default_file_download_location_entry,
+            self.download_folder_browse_button,
+            self.download_folder_clear_button,
             self.ssl_ca_bundle_entry,
+            self.ca_bundle_browse_button,
+            self.ca_bundle_clear_button,
         )
         if self.show_extra:
             focused = self.focus_get()
             if focused in extra_entries:
                 self.login_button.focus_set()
             self.extra_frame_container.pack_forget()
-            self.toggle_label.config(text="Enable Extra Config")
+            self.toggle_label.config(text="Show advanced settings")
         else:
             self.extra_frame_container.pack(fill=tk.BOTH, expand=True)
-            self.toggle_label.config(text="Hide Extra Config")
+            self.toggle_label.config(text="Hide advanced settings")
         self.show_extra = not self.show_extra
         self._sync_login_tab_order()
 
@@ -558,6 +737,20 @@ class LoginForm(tk.Tk):
     def remove_trailing_slash(entry):
         return re.sub(r"/+$", "", entry)
 
+    def _save_preference(self, field, value):
+        if not self.config.save_preferences({field: value}):
+            CustomDialog("Unable to save device preferences.", msg_type="error").mainloop()
+
+    def _save_preference_entry(self, field, value):
+        value = value.strip()
+        if field == "max_clipboard_size_local_limit_bytes":
+            if value and not self.is_positive_integer(value):
+                return  # Keep incomplete/invalid edits out of persistent settings.
+            value = int(value) if value else None
+        elif value and not os.path.isdir(value):
+            return
+        self._save_preference(field, value)
+
     @staticmethod
     def is_positive_integer(value):
         if value.isdigit() and int(value) > 0:
@@ -574,6 +767,7 @@ class LoginForm(tk.Tk):
         )
         self.config.data["cipher_enabled"] = self.cipher_var.get()
         self.config.data["notification"] = self.notification_var.get()
+        self.config.data["update_notifications"] = self.update_notifications_var.get()
 
         # extra fields
 
@@ -581,7 +775,7 @@ class LoginForm(tk.Tk):
         hash_rounds_input = self.hash_rounds_entry.get().strip()
         if not LoginForm.is_positive_integer(hash_rounds_input):
             CustomDialog(
-                "Invalid Input\nHash Rounds must be a positive integer.",
+                "Invalid Input\nKey derivation iterations must be a positive integer.",
                 msg_type="error",
             ).mainloop()
             return  # retry login
@@ -597,7 +791,7 @@ class LoginForm(tk.Tk):
         else:
             if not LoginForm.is_positive_integer(max_clipboard_size_local_limit_bytes_input):
                 CustomDialog(
-                    "Invalid Input\nMax Clipboard Size Local Limit must be a positive integer.",
+                    "Invalid Input\nLocal clipboard size limit must be a positive integer.",
                     msg_type="error",
                 ).mainloop()
                 return  # retry login
@@ -613,9 +807,9 @@ class LoginForm(tk.Tk):
         if default_file_download_location == "":
             self.config.data["default_file_download_location"] = ""
         else:
-            if not os.path.exists(default_file_download_location):
+            if not os.path.isdir(default_file_download_location):
                 CustomDialog(
-                    "Invalid Input\nDefault File Download Location does not exist.",
+                    "Invalid Input\nDefault download folder does not exist.",
                     msg_type="error",
                 ).mainloop()
                 return  # retry login
@@ -625,7 +819,7 @@ class LoginForm(tk.Tk):
         if ssl_ca_bundle:
             if not os.path.isfile(ssl_ca_bundle):
                 CustomDialog(
-                    "Invalid Input\nSSL CA bundle path is not a file or does not exist.",
+                    "Invalid Input\nCustom CA certificate bundle path is not a file or does not exist.",
                     msg_type="error",
                 ).mainloop()
                 return
@@ -643,6 +837,9 @@ class LoginForm(tk.Tk):
         self.close()
 
     def close(self):
+        if getattr(self, "_update_poll_id", None):
+            self.after_cancel(self._update_poll_id)
+            self._update_poll_id = None
         self.destroy()
         gc.collect()
         time.sleep(0.5)

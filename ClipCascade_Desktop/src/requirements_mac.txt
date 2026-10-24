@@ -1,12 +1,19 @@
+# Official cryptography wheels include a private, statically linked OpenSSL.
+# A source build can collide with Python's libssl.3.dylib after freezing.
+--only-binary cryptography
 certifi
 pyobjus==1.2.3
 pasteboard==0.4.0
-Pillow==11.0.0
+Pillow==11.0.0; python_version < "3.14"
+Pillow==12.0.0; python_version >= "3.14"
 pycryptodome==3.20.0
 pyperclip==1.8.2
 pystray==0.19.5
 Requests==2.32.3
 websocket_client==1.8.0
-xxhash==3.5.0
+xxhash>=3.5.0,<5
 beautifulsoup4==4.12.3
-aiortc==1.10.0
+aiortc==1.10.0; python_version < "3.14"
+aiortc==1.14.0; python_version >= "3.14"
+av>=16.0.0,<17; python_version >= "3.14"
+pyobjc-framework-Cocoa>=10

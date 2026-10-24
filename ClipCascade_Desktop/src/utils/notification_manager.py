@@ -16,8 +16,9 @@ class NotificationManager:
     def __init__(self, config: Config):
         self.config = config
 
-    def notify(self, title: str, message: str, app_name: str = APP_NAME, timeout=10):
-        if self.config.data["notification"]:  # Check if notifications are enabled
+    def notify(self, title: str, message: str, app_name: str = APP_NAME, timeout=10,
+               preference="notification"):
+        if self.config.data.get(preference, True):
             try:
                 if PLATFORM == WINDOWS or (
                     PLATFORM.startswith(LINUX) and not LINUX_USE_CLI_UI
@@ -35,8 +36,12 @@ class NotificationManager:
                         [
                             "osascript",
                             "-e",
-                            f'display notification "{message}" with title "{title}"',
-                        ]
+                            "on run argv\n"
+                            "display notification (item 2 of argv) with title (item 1 of argv)\n"
+                            "end run",
+                            title, message,
+                        ],
+                        timeout=10,
                     )
             except Exception as e:
                 logging.error(f"Failed to handle notification: {e}")
