@@ -1,4 +1,5 @@
 import atexit
+import errno
 import logging
 import signal
 import sys
@@ -24,13 +25,11 @@ if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     from cli.login import LoginForm
     from cli.info import CustomDialog
     from cli.tray import TaskbarPanel
-    from cli.message_box import MessageBox
     from cli.echo import Echo
 else:
     from gui.login import LoginForm
     from gui.info import CustomDialog
     from gui.tray import TaskbarPanel
-    from gui.message_box import MessageBox
 
 
 class Application:
@@ -102,67 +101,40 @@ class Application:
                         ).mainloop()
                         sys.exit(1)
 
-            # If a previous run died without cleaning up, the lock *file* may be
-            # left over even though the kernel released the flock. Remove it if
-            # the recorded PID is no longer alive — flock would still succeed,
-            # but this keeps the file tidy and avoids confusing the user.
-            self._remove_stale_lock_file_if_dead()
-
-            # Create the lock file
+            # The kernel lock determines ownership, not the file's existence or PID.
+            # Keep the same file in place so all launches lock the same inode.
             try:
                 self.create_lock_file()
-            except IOError:
-                run_anyway = MessageBox().askquestion(
-                    "ClipCascade",
-                    "Another instance of ClipCascade is already running. Do you want to run anyway?",
-                )
-                if run_anyway == "yes":
-                    try:
-                        os.remove(self.mutex_identifier)
-                    except OSError:
-                        pass
-                    self.create_lock_file()
-                else:
-                    self.lock_file = None
-                    sys.exit(0)
+            except OSError as error:
+                if error.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                    raise
+                CustomDialog(
+                    "Another instance of ClipCascade is already running.",
+                    msg_type="warning",
+                ).mainloop()
+                sys.exit(0)
 
             # Backup cleanup paths for crashes / signals — finally in run() only
             # runs on normal completion or handled exceptions.
             atexit.register(self._cleanup_lock_file)
             self._install_signal_handlers()
 
-    def _remove_stale_lock_file_if_dead(self):
-        if not os.path.exists(self.mutex_identifier):
-            return
-        try:
-            with open(self.mutex_identifier, "r") as f:
-                content = f.read().strip()
-            if not content:
-                return
-            pid = int(content)
-            if pid == os.getpid():
-                return
-            # os.kill(pid, 0) raises if the process is gone or unreachable.
-            os.kill(pid, 0)
-        except (ValueError, ProcessLookupError, PermissionError, OSError):
-            # Stale or unreadable lock file — safe to remove.
-            try:
-                os.remove(self.mutex_identifier)
-            except OSError:
-                pass
-
     def create_lock_file(self, path=None):
         if path is None:
             path = self.mutex_identifier
 
         if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
-            self.lock_file = open(path, "w")
-            fcntl.flock(self.lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            lock_file = open(path, "a+")
             try:
-                self.lock_file.write(str(os.getpid()))
-                self.lock_file.flush()
-            except Exception:
-                pass
+                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                lock_file.seek(0)
+                lock_file.truncate()
+                lock_file.write(str(os.getpid()))
+                lock_file.flush()
+            except BaseException:
+                lock_file.close()
+                raise
+            self.lock_file = lock_file
 
     def _install_signal_handlers(self):
         def _handler(signum, _frame):
@@ -183,19 +155,13 @@ class Application:
             return
         if self.lock_file is None:
             return
-        try:
-            fcntl.flock(self.lock_file, fcntl.LOCK_UN)
-        except Exception:
-            pass
+        # Closing releases the kernel lock, including after a crash. Never unlink
+        # the file: another process may already have it open or acquire it next.
         try:
             self.lock_file.close()
         except Exception:
             pass
         self.lock_file = None
-        try:
-            os.remove(self.mutex_identifier)
-        except OSError:
-            pass
 
     def authenticate_and_connect(self):
         # Attempt to connect with existing cookie
