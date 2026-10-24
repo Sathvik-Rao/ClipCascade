@@ -1,3 +1,6 @@
+# Official cryptography wheels include a private, statically linked OpenSSL.
+# A source build can collide with Python's libssl.3.dylib after freezing.
+--only-binary cryptography
 certifi
 pyobjus==1.2.3
 pasteboard==0.4.0

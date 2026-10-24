@@ -200,9 +200,15 @@ dependency installation if the Python version or running architecture differs
 from the required values. Tcl/Tk versions are not separately checked.
 This replaces the previous Intel Python 3.11.2 pin.
 
-Each job also checks aiortc/PyAV imports, uses the existing PyInstaller
-specification, and verifies the packaged executable's architecture before uploading
-its ZIP. These checks do not replace testing P2P in the packaged app.
+Each job also checks aiortc/PyAV imports, builds with PyInstaller's `--clean`
+option, and verifies the packaged executable's architecture. Before uploading,
+it runs the actual bundled executable with `--self-test`, allowing up to 5
+minutes for launch and execution to accommodate macOS first-launch security
+checks. The CI step has a separate 6-minute limit. These limits do not bypass
+security checks or approve interactive prompts; a launch requiring manual
+approval still needs attention. This headless check imports the native TLS/media dependencies,
+generates a certificate, and creates a P2P data-channel offer without starting
+the GUI. These checks do not replace testing P2P between devices.
 Both builds must succeed for the release to publish. When macOS is
 unchanged, both ZIPs are carried over from the previous release.
 
@@ -211,6 +217,34 @@ dependencies to provide native build tools and libraries. Pip can still use
 prebuilt PyAV wheels. If PyAV falls back to source, its supported FFmpeg version
 must match the installed libraries; installing the tools alone does not guarantee
 source-build compatibility.
+
+`requirements_mac.txt` requires a binary wheel for `cryptography`; CI disables
+pip's cache for this installation. The official macOS wheels statically link
+OpenSSL. A dynamically linked source build can load a different `libssl.3.dylib`
+after PyInstaller rewrites library paths, causing errors such as
+`Symbol not found: _SSL_get0_group_name` at startup. The macOS spec checks the
+Rust binding with `otool -L` and rejects shared OpenSSL dependencies before
+packaging. Installing another OpenSSL on the user's Mac does not repair the
+library already embedded in the executable.
+
+For a local rebuild, start with a **new** virtual environment using the same
+python.org Python 3.12.10 interpreter as CI. From `ClipCascade_Desktop/src`:
+
+```sh
+/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 -m venv .venv-macos
+source .venv-macos/bin/activate
+python3 -m pip install --upgrade pip
+python3 -m pip install --upgrade pyinstaller pyinstaller-hooks-contrib
+python3 -m pip install --no-cache-dir -r requirements_mac.txt
+python3 -m PyInstaller --clean --noconfirm ClipCascade_macos.spec
+dist/ClipCascade.app/Contents/MacOS/ClipCascade --self-test
+```
+
+Use a new venv name if `.venv-macos` already exists. Reusing an environment with
+an installed source build can leave that build in place even with
+`--only-binary`. Run the self-test on each target architecture and test the GUI
+on the oldest macOS release you intend to support; a successful build on a newer
+GitHub runner does not establish compatibility with macOS 12.
 
 Include `macos` (or `desktop` / `all`) in the first releasing PR after adding Intel
 support so the new Intel ZIP is generated; older releases may not contain it.
