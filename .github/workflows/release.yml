@@ -223,7 +223,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             arch: arm64
             archive: ClipCascade-Apple_macOS(ARM_M-Series).zip
           - runner: macos-15-intel
