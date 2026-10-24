@@ -246,6 +246,7 @@ jobs:
             --output "$PKG"
           pkgutil --check-signature "$PKG"
           sudo installer -pkg "$PKG" -target /
+          sudo "/Applications/Python 3.12/Install Certificates.command"
           /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12 \
             -m venv "$RUNNER_TEMP/clipcascade-python"
           echo "$RUNNER_TEMP/clipcascade-python/bin" >> "$GITHUB_PATH"
