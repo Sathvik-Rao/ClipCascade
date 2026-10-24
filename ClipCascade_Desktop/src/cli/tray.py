@@ -102,7 +102,9 @@ class TaskbarPanel:
         for item in self.menu_items:
             if isinstance(item, tuple):
                 width = max_width
-                if "disconnect" in item[0].lower() or "logs" in item[0].lower():
+                # The version icon uses the same variation selector as Open Logs,
+                # so both rows need the extra padding to align the right border.
+                if any(label in item[0].lower() for label in ("disconnect", "logs", "version")):
                     if "disconnecting" in item[0].lower():
                         width -= 1
                     else:
