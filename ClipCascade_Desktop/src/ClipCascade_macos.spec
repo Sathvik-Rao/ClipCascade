@@ -1,6 +1,26 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import certifi
+import importlib.util
+import re
+import subprocess
+
+# PyInstaller rewrites dylib paths inside the bundle. A dynamically linked
+# cryptography can then resolve to Python's different OpenSSL with the same
+# filename, even when imports in the unfrozen environment succeed.
+rust_binding = importlib.util.find_spec('cryptography.hazmat.bindings._rust')
+if rust_binding is None or not rust_binding.origin:
+    raise SystemExit('cryptography Rust binding is missing; install requirements_mac.txt')
+linked_libraries = subprocess.check_output(
+    ['otool', '-L', rust_binding.origin], text=True
+)
+if re.search(r'/lib(?:ssl|crypto)[^/\s]*\.dylib', linked_libraries):
+    raise SystemExit(
+        'cryptography links to a shared OpenSSL library, which can collide with '
+        'the bundled Python OpenSSL. Reinstall official wheels in a fresh venv: '
+        'python3 -m pip install --no-cache-dir -r requirements_mac.txt\n'
+        + linked_libraries
+    )
 
 a = Analysis(
     ['main.py'],
@@ -10,7 +30,7 @@ a = Analysis(
     hiddenimports=['tkinter'],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['packaging/macos_self_test.py'],
     excludes=[],
     noarchive=False,
     optimize=0,

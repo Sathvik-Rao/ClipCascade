@@ -14,6 +14,7 @@ import org.springframework.web.socket.config.annotation.WebSocketTransportRegist
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
 
 import com.acme.clipcascade.constants.ServerConstants;
+import com.acme.clipcascade.service.LiveWebSocketService;
 
 @Configuration
 @EnableWebSocketMessageBroker
@@ -22,8 +23,11 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final ClipCascadeProperties clipCascadeProperties;
 
-    public StompWebSocketConfig(ClipCascadeProperties clipCascadeProperties) {
+    private final LiveWebSocketService liveWebSockets;
+
+    public StompWebSocketConfig(ClipCascadeProperties clipCascadeProperties, LiveWebSocketService liveWebSockets) {
         this.clipCascadeProperties = clipCascadeProperties;
+        this.liveWebSockets = liveWebSockets;
     }
 
     @Override
@@ -106,6 +110,7 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     // STOMP WebSocket transport settings
     @Override
     public void configureWebSocketTransport(@SuppressWarnings("null") WebSocketTransportRegistration registration) {
+        registration.addDecoratorFactory(liveWebSockets::decorate);
         int maxMessageSizeInBytes = (int) clipCascadeProperties.getOverheadMaxMessageSizeInBytes();
 
         /*

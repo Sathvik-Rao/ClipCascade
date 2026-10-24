@@ -37,7 +37,15 @@ class RequestManager:
                 return False, msg, None
 
             soup = BeautifulSoup(response.text, "html.parser")
-            csrf_token = soup.find("input", {"name": "_csrf"})["value"]
+            csrf_input = soup.find("input", {"name": "_csrf"})
+            if csrf_input is None or not csrf_input.get("value"):
+                msg = (
+                    "Login page did not contain a CSRF token. "
+                    "Verify the server URL points to a ClipCascade server."
+                )
+                logging.error(msg)
+                return False, msg, None
+            csrf_token = csrf_input["value"]
 
             # Login with the credentials
             form_data = {
@@ -173,12 +181,12 @@ class RequestManager:
             return ""
 
     @staticmethod
-    def get(url: str, headers: dict = None, verify=True) -> requests.Response:
+    def get(url: str, headers: dict = None, verify=True, timeout=None) -> requests.Response:
         """
         A generic GET mapper for handling GET requests.
         """
         try:
-            response = requests.get(url, headers=headers, verify=verify)
+            response = requests.get(url, headers=headers, verify=verify, timeout=timeout)
             response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
             return response
         except Exception as e:

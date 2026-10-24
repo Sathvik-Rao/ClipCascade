@@ -47,8 +47,24 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     }
     
     @ReactMethod
-    fun stopWorkManager() {
-        WorkManager.getInstance(reactApplicationContext).cancelAllWorkByTag(MainActivity.WORK_NAME)
+    fun startWorkManager(promise: Promise) {
+        try {
+            MainActivity.scheduleJob(reactApplicationContext)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("SCHEDULE_ERROR", "Failed to start periodic checks", e)
+        }
+    }
+
+    @ReactMethod
+    fun stopWorkManager(promise: Promise) {
+        try {
+            WorkManager.getInstance(reactApplicationContext).cancelAllWorkByTag(MainActivity.WORK_NAME)
+            ScheduleService.removeNotificationIfPresent(reactApplicationContext)
+            promise.resolve(null)
+        } catch (e: Exception) {
+            promise.reject("SCHEDULE_ERROR", "Failed to stop periodic checks", e)
+        }
     }
 
     @ReactMethod

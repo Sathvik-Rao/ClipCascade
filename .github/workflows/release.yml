@@ -286,7 +286,7 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip certifi
           python3 -m pip install pyinstaller
-          python3 -m pip install -r requirements_mac.txt
+          python3 -m pip install --no-cache-dir -r requirements_mac.txt
 
       - name: Check aiortc before packaging
         run: |
@@ -303,13 +303,28 @@ jobs:
 
       - name: Build ClipCascade.app with PyInstaller
         working-directory: ClipCascade_Desktop/src
-        run: python3 -m PyInstaller ClipCascade_macos.spec --noconfirm
+        run: python3 -m PyInstaller ClipCascade_macos.spec --clean --noconfirm
 
       - name: Verify packaged executable architecture
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
           lipo -verify_arch "$EXPECTED_ARCH" ClipCascade_Desktop/src/dist/ClipCascade.app/Contents/MacOS/ClipCascade
+
+      - name: Test packaged native dependencies
+        timeout-minutes: 6
+        run: |
+          python3 - <<'PY'
+          import subprocess
+
+          # Allow extra time for macOS security checks on the first launch.
+          print("Starting packaged self-test; allowing up to 5 minutes for launch and checks.", flush=True)
+          subprocess.run(
+              ["ClipCascade_Desktop/src/dist/ClipCascade.app/Contents/MacOS/ClipCascade", "--self-test"],
+              check=True,
+              timeout=300,
+          )
+          PY
 
       - name: Stage and zip (on macOS to preserve attributes)
         env:
@@ -633,7 +648,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add version.json \
                   ClipCascade_Desktop/src/core/constants.py \
-                  ClipCascade_Mobile/src/App.js \
+                  ClipCascade_Mobile/src/AppVersion.js \
                   ClipCascade_Mobile/src/android/app/build.gradle \
                   ClipCascade_Server/ClipCascade_Backend/src/main/java/com/acme/clipcascade/constants/ServerConstants.java \
                   ClipCascade_Server/docker-compose/docker-compose.yml

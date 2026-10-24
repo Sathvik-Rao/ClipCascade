@@ -9,6 +9,7 @@ from threading import Lock, Thread
 from typing import Dict, List, Optional
 from core.config import Config
 from interfaces.ws_interface import WSInterface
+from utils.reconnect import ReconnectMixin
 from utils.cipher_manager import CipherManager
 from clipboard.clipboard_manager import ClipboardManager
 from utils.notification_manager import NotificationManager
@@ -29,7 +30,7 @@ if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
 else:
     from gui.tray import TaskbarPanel
 
-class P2PManager(WSInterface):
+class P2PManager(ReconnectMixin, WSInterface):
     def __init__(self, config: Config, is_login_phase=True):
         self.config = config
         self.clipboard_manager = ClipboardManager(self.config)
@@ -42,12 +43,16 @@ class P2PManager(WSInterface):
         self.is_connected = False
         self.disconnected = False
         self.is_auto_reconnecting = False
-        self._suppress_auto_reconnect_once = False
         self.is_clipboard_monitoring_on = False
+        self._init_reconnect()
+        self._disconnect_future = None
 
         # Fragment variables
         self.sending_fragment_id = ""  # The id of the fragment currently being sent
-        self.receiving_fragments: dict = {}  # Mapping: fragmentid:str -> fragment:list[str]
+        # Mapping: fragment_id:str -> {"last_received_at": float, "fragments": list[str]}
+        # Refresh the timestamp on each fragment so a dropped final
+        # fragment doesn't leak memory forever.
+        self.receiving_fragments: dict = {}
         self.sending_fragment_stats: str = None
         self.receiving_fragment_stats: str = None
 
@@ -89,6 +94,7 @@ class P2PManager(WSInterface):
         self._dc_heartbeat_handle = None
         if self.disconnected or self._p2p_shutting_down or not self.is_connected:
             return
+        self._prune_stale_receiving_fragments()
         ping = json.dumps({"_cc_keepalive": True})
         for ch in list(self.data_channels.values()):
             try:
@@ -122,11 +128,13 @@ class P2PManager(WSInterface):
         """Set live_connections from open data channels (avoids +/- drift and negatives)."""
         with self._live_connections_lock:
             self.live_connections = sum(
-                1 for ch in self.data_channels.values() if getattr(ch, "readyState", "") == "open"
+                1 for ch in list(self.data_channels.values()) if getattr(ch, "readyState", "") == "open"
             )
 
     def get_stats(self) -> str:
         self._sync_live_connections_count()
+        if not self.is_connected:
+            return "Disconnected" if self.disconnected else "Reconnecting…"
         stats = "📊"
         with self._live_connections_lock:
             n = self.live_connections
@@ -142,20 +150,24 @@ class P2PManager(WSInterface):
         Returns the total timeout value in milliseconds."""
         return (RECONNECT_WS_TIMER * 1000) + WEBSOCKET_TIMEOUT
 
-    def connect(self) -> tuple[bool, str]:
+    def _connect_once(self) -> tuple[bool, str]:
         """
         Connects to the P2P websocket signaling server.
         """
         try:
+            if self._disconnect_future is not None:
+                self._disconnect_future.result(timeout=90)
+                self._disconnect_future = None
             if self.ws_client is not None:
                 if self.is_connected:
                     return True, ""
-                try:
-                    self.ws_client.close()
-                except Exception:
-                    pass
-                self.ws_client = None
+                self.ws_close()
 
+            # Cleanup must finish before starting the socket: doing this in
+            # on_open can consume the entire WebSocket handshake timeout.
+            self.schedule_task(self._prepare_reconnect_bootstrap()).result(timeout=90)
+            if self.disconnected:
+                return False, "Websocket disconnected"
             self.ws_client = websocket.WebSocketApp(
                 url=self.config.data["websocket_url"],
                 header={"Cookie": RequestManager.format_cookie(self.config.data["cookie"])},
@@ -183,21 +195,22 @@ class P2PManager(WSInterface):
                 self.is_clipboard_monitoring_on = True
                 self.clipboard_manager.on_copy(self.send)
 
-            if not self.is_login_phase:
-                return True, ""
-
             total_ms = 0
             while self.is_connected is False:
+                if self.disconnected:
+                    self.ws_close()
+                    return False, "Websocket disconnected"
                 time.sleep(0.25)
                 total_ms += 250
                 if 0 < WEBSOCKET_TIMEOUT < total_ms:
-                    self.ws_client.close()
+                    self.ws_close()
                     raise TimeoutError(
                         f"Connection to {self.config.data['websocket_url']} timed out"
                     )
 
             return True, "Websocket connected"
         except Exception as e:
+            self.is_connected = False
             msg = f"Failed to connect websocket: {e}"
             logging.error(msg)
             try:
@@ -207,11 +220,9 @@ class P2PManager(WSInterface):
             return False, msg
 
     def _on_ws_close(self, ws, *args):
-        self.ws_client = None
-        self.is_connected = False
-        if self._suppress_auto_reconnect_once:
-            self._suppress_auto_reconnect_once = False
+        if ws is not self.ws_client:
             return
+        self.is_connected = False
         # Auto Reconnect
         if not self.is_login_phase and not self.disconnected:
             self.is_auto_reconnecting = True
@@ -221,18 +232,11 @@ class P2PManager(WSInterface):
                     message="Check your internet connection. Retrying...",
                 )
                 self.first_conn_lost = False
-            time.sleep(RECONNECT_WS_TIMER)  # seconds
-            self.connect()
-
-    def manual_reconnect(self):
-        if not self.is_auto_reconnecting:
-            self.disconnected = False
-            self._suppress_auto_reconnect_once = self.ws_client is not None
-            self.ws_close()
-            self.is_connected = False
-            self.connect()
+            self._start_reconnect()
 
     def _on_ws_message(self, ws, message):
+        if ws is not self.ws_client:
+            return
         self.schedule_task(self._on_ws_message_async(message))
 
     async def _on_ws_message_async(self, message):
@@ -274,26 +278,18 @@ class P2PManager(WSInterface):
         await self._cleanup_peer_connections(clear_bootstrap_state=False)
 
     def _on_ws_open(self, ws, *args):
+        if ws is not self.ws_client:
+            return
         try:
             if self.disconnected:
                 self.disconnect()
                 return
 
-            # Tear down WebRTC after any signaling reconnect so PEER_LIST recreates PCs.
-            try:
-                fut = asyncio.run_coroutine_threadsafe(
-                    self._prepare_reconnect_bootstrap(), self.loop
-                )
-                # Upper bound: N peers * P2P_PC_CLOSE_TIMEOUT + margin;
-                fut.result(timeout=90)
-            except Exception as e:
-                logging.warning(
-                    "P2P peer cleanup on signaling open: %s",
-                    e if str(e) else type(e).__name__,
-                )
-
+            if ws is not self.ws_client or self.disconnected:
+                return
             self.is_connected = True
             self.is_auto_reconnecting = False
+            self._reconnect_attempts = 0
             self.loop.call_soon_threadsafe(self._restart_dc_heartbeat)
             if not self.first_conn_lost:
                 self.first_conn_lost = True
@@ -320,11 +316,44 @@ class P2PManager(WSInterface):
 
     def ws_close(self):
         if self.ws_client is not None:
-            self.ws_client.close()
+            ws = self.ws_client
             self.ws_client = None
+            ws.close()
 
     def disconnect(self):
-        self.schedule_task(self._disconnect())
+        self._stop_reconnect()
+        self.is_connected = False
+        self._disconnect_future = self.schedule_task(self._disconnect())
+
+    def shutdown(self, timeout=5):
+        """Finish pending disconnect work and stop the loop at application exit.
+
+        Called from the shutdown worker, never from AppKit or the asyncio loop.
+        Ordinary tray Disconnect keeps the loop alive for reconnection.
+        """
+        self._stop_reconnect()
+        deadline = time.monotonic() + timeout
+        try:
+            if self._disconnect_future is not None:
+                self._disconnect_future.result(timeout=timeout * 0.8)
+        finally:
+            try:
+                # Signaling/ICE tasks can still be alive after peers close.
+                # Cancel them on their own loop before releasing the loop.
+                self.schedule_task(self._cancel_shutdown_tasks()).result(
+                    timeout=max(0, deadline - time.monotonic())
+                )
+            finally:
+                self.loop.call_soon_threadsafe(self.loop.stop)
+                self.loop_thread.join(timeout=max(0, deadline - time.monotonic()))
+                if not self.loop_thread.is_alive():
+                    self.loop.close()
+
+    async def _cancel_shutdown_tasks(self):
+        tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _disconnect(self):
         """
@@ -334,7 +363,6 @@ class P2PManager(WSInterface):
         """
         try:
             self.clipboard_manager.previous_clipboard_hash = 0
-            self.disconnected = True
             self.first_conn_lost = True
 
             # Close the websocket
@@ -357,6 +385,7 @@ class P2PManager(WSInterface):
     async def _cleanup_peer_connections(self, clear_bootstrap_state: bool = True):
         self._p2p_shutting_down = True
         self._cancel_dc_heartbeat()
+        self.reset_receiving_fragments()
         try:
             try:
                 for dc in list(self.data_channels.values()):
@@ -769,6 +798,26 @@ class P2PManager(WSInterface):
         self.receiving_fragments = {}
         self.receiving_fragment_stats = None
 
+    def _prune_stale_receiving_fragments(self) -> None:
+        """Drop partial fragment buffers idle for P2P_FRAGMENT_TTL_SEC.
+        Why: if a peer disconnects mid-transfer, the final fragment never arrives
+        and the buffer would leak indefinitely otherwise.
+        """
+        if not self.receiving_fragments:
+            return
+        now = time.monotonic()
+        stale = [
+            fid
+            for fid, entry in self.receiving_fragments.items()
+            if isinstance(entry, dict)
+            and (now - entry.get("last_received_at", now)) > P2P_FRAGMENT_TTL_SEC
+        ]
+        for fid in stale:
+            logging.debug("P2P: dropping stale fragment buffer %s", fid)
+            self.receiving_fragments.pop(fid, None)
+        if not self.receiving_fragments:
+            self.receiving_fragment_stats = None
+
     def _receive(self, frame: any) -> str:
         try:
             body = json.loads(frame)
@@ -794,14 +843,18 @@ class P2PManager(WSInterface):
 
             # Fragmented message handling
             if metadata is not None and metadata["isFragmented"]:
+                self._prune_stale_receiving_fragments()
                 self.receiving_fragment_stats = (
                     f"{metadata['index'] + 1}/{metadata['totalFragments']}"
                 )
                 if metadata["id"] in self.receiving_fragments:
-                    self.receiving_fragments[metadata["id"]][metadata["index"]] = payload
+                    entry = self.receiving_fragments[metadata["id"]]
+                    entry["fragments"][metadata["index"]] = payload
+                    entry["last_received_at"] = time.monotonic()
                     if metadata["index"] == metadata["totalFragments"] - 1:
-                        if all(s != "" for s in self.receiving_fragments[metadata["id"]]):
-                            payload = "".join(self.receiving_fragments[metadata["id"]])
+                        if all(s != "" for s in entry["fragments"]):
+                            payload = "".join(entry["fragments"])
+                            self.receiving_fragments.pop(metadata["id"], None)
                         else:
                             self.reset_receiving_fragments()
                             logging.error(
@@ -812,8 +865,13 @@ class P2PManager(WSInterface):
                         return
                 else:
                     self.reset_receiving_fragments()
-                    self.receiving_fragments[metadata["id"]] = [""] * metadata["totalFragments"]
-                    self.receiving_fragments[metadata["id"]][metadata["index"]] = payload
+                    self.receiving_fragments[metadata["id"]] = {
+                        "last_received_at": time.monotonic(),
+                        "fragments": [""] * metadata["totalFragments"],
+                    }
+                    self.receiving_fragments[metadata["id"]]["fragments"][
+                        metadata["index"]
+                    ] = payload
                     return
 
             if self.config.data["cipher_enabled"]:
@@ -843,12 +901,17 @@ class P2PManager(WSInterface):
         Returns:
             list[str]: A list of string fragments.
         """
-        # Encode the string to bytes to accurately split by byte size
-        s_bytes = s.encode("utf-8")
-        fragments = [
-            s_bytes[i : i + fragment_size].decode("utf-8", errors="ignore")
-            for i in range(0, len(s_bytes), fragment_size)
-        ]
+        if fragment_size < 4:
+            raise ValueError("fragment_size must allow a complete UTF-8 character (at least 4 bytes)")
+        encoded = s.encode("utf-8")
+        fragments = []
+        start = 0
+        while start < len(encoded):
+            end = min(start + fragment_size, len(encoded))
+            while end < len(encoded) and encoded[end] & 0xC0 == 0x80:
+                end -= 1
+            fragments.append(encoded[start:end].decode("utf-8"))
+            start = end
         return fragments
 
     @staticmethod

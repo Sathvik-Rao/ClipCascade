@@ -1,5 +1,5 @@
 import time
-from threading import Thread
+from threading import Event, Thread
 
 from .frame import Frame
 import websocket
@@ -24,6 +24,9 @@ class Client:
         self.on_close_callback = on_close_callback
 
         self.opened = False
+        self._closed = Event()
+        self._ready = Event()
+        self._error = None
 
         self.connected = False
 
@@ -34,33 +37,38 @@ class Client:
         self.errorCallback = None
 
     def _connect(self, timeout=0):
+        # Detect half-open sockets after sleep/network loss even when no
+        # clipboard traffic is being sent.
+        kwargs = {"ping_interval": 25, "ping_timeout": 20}
         if self._ws_sslopt:
-            thread = Thread(
-                target=lambda: self.ws.run_forever(sslopt=self._ws_sslopt)
-            )
-        else:
-            thread = Thread(target=self.ws.run_forever)
+            kwargs["sslopt"] = self._ws_sslopt
+        thread = Thread(target=self.ws.run_forever, kwargs=kwargs)
         thread.daemon = True
         thread.start()
 
         total_ms = 0
         while self.opened is False:
-            time.sleep(0.25)
+            if self._closed.wait(0.25):
+                raise ConnectionError(self._error or "WebSocket closed during connection")
             total_ms += 250
             if 0 < timeout < total_ms:
+                self.disconnect()
                 raise TimeoutError(f"Connection to {self.url} timed out")
 
     def _on_open(self, ws_app, *args):
+        if self._closed.is_set():
+            ws_app.close()
+            return
         self.opened = True
 
     def _on_close(self, ws_app, *args):
-        self.connected = False
+        self._clean_up()
         logging.debug("Whoops! Lost connection to " + self.ws.url)
         if self.on_close_callback is not None:
             self.on_close_callback()
-        self._clean_up()
 
     def _on_error(self, ws_app, error, *args):
+        self._error = str(error)
         logging.debug(error)
 
     def _on_message(self, ws_app, message, *args):
@@ -72,19 +80,27 @@ class Client:
 
         logging.debug("\n<<< " + str(message))
         frame = Frame.unmarshall_single(message)
+        if frame is None:
+            # Malformed frame — log and continue rather than killing the receive loop.
+            logging.warning("STOMP: dropped malformed/unparseable frame")
+            return []
         _results = []
         if frame.command == "CONNECTED":
-            self.connected = True
             logging.debug("connected to server " + self.url)
             if self._connectCallback is not None:
                 _results.append(self._connectCallback(frame))
+            self.connected = True
+            self._ready.set()
         elif frame.command == "MESSAGE":
 
-            subscription = frame.headers["subscription"]
+            subscription = frame.headers.get("subscription")
+            if subscription is None:
+                logging.warning("STOMP: MESSAGE frame missing 'subscription' header; dropping")
+                return []
 
             if subscription in self.subscriptions:
                 onreceive = self.subscriptions[subscription]
-                messageID = frame.headers["message-id"]
+                messageID = frame.headers.get("message-id", "")
 
                 def ack(headers):
                     if headers is None:
@@ -107,6 +123,9 @@ class Client:
         elif frame.command == "RECEIPT":
             pass
         elif frame.command == "ERROR":
+            self._error = frame.body or "STOMP connection rejected"
+            self._clean_up()
+            self.ws.close()
             if self.errorCallback is not None:
                 _results.append(self.errorCallback(frame))
         else:
@@ -148,6 +167,16 @@ class Client:
         self.errorCallback = errorCallback
 
         self._transmit("CONNECT", headers)
+        deadline = time.monotonic() + timeout / 1000 if timeout > 0 else None
+        while not self._ready.wait(0.05):
+            if self._closed.is_set():
+                self.disconnect()
+                raise ConnectionError(self._error or "STOMP connection closed")
+            if deadline is not None and time.monotonic() >= deadline:
+                self.disconnect()
+                raise TimeoutError(f"STOMP handshake with {self.url} timed out")
+        if self._closed.is_set():
+            raise ConnectionError(self._error or "STOMP connection closed")
 
     def disconnect(self, disconnectCallback=None, headers=None):
         if headers is None:
@@ -163,6 +192,8 @@ class Client:
 
     def _clean_up(self):
         self.connected = False
+        self.opened = False
+        self._closed.set()
 
     def send(self, destination, headers=None, body=None):
         if headers is None:

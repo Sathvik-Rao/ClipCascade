@@ -8,12 +8,23 @@ import webbrowser
 from pystray import Icon, MenuItem as item, Menu
 from PIL import Image, ImageDraw
 
+from utils.main_thread import on_main_thread
+from utils.notification_manager import NotificationManager
 from core.config import Config
 from gui.info import CustomDialog
 from core.constants import *
 
+if PLATFORM == MACOS:
+    from PyObjCTools import AppHelper
+    from gui.macos_tray import MacOSTrayIcon as TrayIcon
+    from clipboard import clipboard_monitor_mac
+else:
+    TrayIcon = Icon
+
 if PLATFORM != WINDOWS:
     import subprocess
+
+MACOS_SHUTDOWN_TIMEOUT = 15
 
 
 class TaskbarPanel:
@@ -27,6 +38,7 @@ class TaskbarPanel:
         donation_url: str = None,
         ws_interface=None,  # type= interfaces.ws_interface.WSInterface
         config: Config = None,
+        on_shutdown_callback: callable = None,
     ):
         self.on_connect_callback = on_connect_callback
         self.on_disconnect_callback = on_disconnect_callback
@@ -36,11 +48,15 @@ class TaskbarPanel:
         self.donation_url = donation_url
         self.ws_interface = ws_interface
         self.config = config
+        self.on_shutdown_callback = on_shutdown_callback
+        self._shutdown_done = threading.Event()
+        self._shutdown_watchdog = None
 
         self.is_disconnecting = False
         self.disconnecting_items = None
         self.is_file_download_enabled = False
         self.file_download_items = None
+        self._stopped = threading.Event()
         self.previous_stats: str = ""
         self.previous_stats_items = None
 
@@ -59,7 +75,7 @@ class TaskbarPanel:
         self.is_connected = True
 
         # Create the tray icon
-        self.icon = Icon(
+        self.icon = TrayIcon(
             "ClipCascade", self.create_clipboard_icon(), menu=self.create_menu()
         )
 
@@ -68,7 +84,56 @@ class TaskbarPanel:
         self.update_stats()  # Start the stats update thread
 
     def run(self):
-        self.icon.run()
+        if PLATFORM != MACOS:
+            self.icon.run()
+            return
+
+        # PyObjC callbacks re-entering Tk's macOS mainloop can corrupt its
+        # saved Python thread state. Let AppKit own the tray's event loop.
+        try:
+            self.icon.run_with_shutdown(lambda: self._on_quit(None, None))
+        finally:
+            self._stopped.set()
+            try:
+                self.icon.stop()
+            finally:
+                self.root.destroy()
+
+    def _begin_macos_shutdown(self, logoff=False):
+        if self._stopped.is_set():
+            return
+        self._stopped.set()
+        logging.info("macOS shutdown requested (logoff=%s)", logoff)
+        # Leave the watchdog armed after the UI closes, including while Python
+        # waits for remaining threads. Normal process exit kills this daemon.
+        self._shutdown_watchdog = threading.Timer(MACOS_SHUTDOWN_TIMEOUT, os._exit, args=(1,))
+        self._shutdown_watchdog.daemon = True
+        self._shutdown_watchdog.start()
+
+        # Release native pasteboard objects on the main thread before workers
+        # start closing connections. Their later stop() calls are idempotent.
+        clipboard_monitor_mac.stop()
+
+        def cleanup():
+            try:
+                if self.on_shutdown_callback:
+                    self.on_shutdown_callback(logoff)
+            except Exception:
+                logging.exception("macOS shutdown cleanup failed")
+            finally:
+                self._shutdown_done.set()
+
+        threading.Thread(target=cleanup, name="MacOSShutdown", daemon=True).start()
+        self._poll_macos_shutdown()
+
+    def _poll_macos_shutdown(self):
+        # Network cleanup may dispatch pasteboard work back to the main thread.
+        # Keep servicing AppKit until it finishes; never join it here.
+        if self._shutdown_done.is_set():
+            logging.info("macOS shutdown cleanup finished")
+            self.icon.stop()
+        else:
+            AppHelper.callLater(0.05, self._poll_macos_shutdown)
 
     def _create_clipboard_base_image(self):
         """Shared clipboard artwork for normal tray icon and file-download badge variant."""
@@ -140,6 +205,12 @@ class TaskbarPanel:
             Menu: The menu for the tray icon.
         """
         # Menu items
+        version_suffix = (
+            " (latest)"
+            if self.new_version_available is not None
+            and self.new_version_available[1] == APP_VERSION
+            else ""
+        )
         menu_items = [
             Menu.SEPARATOR,
             item("🗒️ Open Logs", self._open_logs),
@@ -149,6 +220,8 @@ class TaskbarPanel:
             item("❓ Help", self._open_help),
             item("💟 Donate", self._open_donate),
             item("🌐 GitHub", self._open_github),
+            Menu.SEPARATOR,
+            item(f"ℹ️ Version v{APP_VERSION}{version_suffix}", None, enabled=False),
             Menu.SEPARATOR,
             item("🔒 Logoff and Quit", self._on_logoff),
             item("❌ Quit", self._on_quit),
@@ -200,20 +273,35 @@ class TaskbarPanel:
 
         return Menu(*menu_items)
 
+    @on_main_thread
     def update_menu(self, item_: tuple = None):
-        self.icon.menu = self.create_menu(item_=item_)
+        if not self._stopped.is_set():
+            self.icon.menu = self.create_menu(item_=item_)
 
     def update_stats(self):
         threading.Thread(target=self._update_stats_thread, daemon=True).start()
 
     def _update_stats_thread(self):
-        while True:
+        while not self._stopped.is_set():
+            checker = getattr(self, "update_checker", None)
+            if checker:
+                if checker.status is not None and checker.status != self.new_version_available:
+                    self.new_version_available = checker.status
+                    self.update_menu()
+                status = checker.claim_alert(self.config.data.get("update_notifications", True))
+                if status:
+                    # The desktop client has no visible main window in tray mode.
+                    NotificationManager(self.config).notify(
+                        "ClipCascade update available",
+                        f"Version {status[1]} is available. Open the tray menu to update.",
+                        preference="update_notifications",
+                    )
             current_stats = self.ws_interface.get_stats()
             if current_stats is not None and self.previous_stats != current_stats:
                 self.previous_stats = current_stats
                 self.previous_stats_items = (current_stats, 0, None)
                 self.update_menu()
-            time.sleep(1)  # Sleep for 1 second
+            self._stopped.wait(1)
 
     @staticmethod
     def open_webbrowser(url):
@@ -318,6 +406,7 @@ class TaskbarPanel:
                 msg_type="error",
             ).mainloop()
 
+    @on_main_thread
     def enable_files_download(self, files):
         self.is_file_download_enabled = True
         self.icon.icon = self.create_clipboard_icon_with_dot()
@@ -328,6 +417,7 @@ class TaskbarPanel:
         )
         self.update_menu()
 
+    @on_main_thread
     def disable_files_download(self):
         self.is_file_download_enabled = False
         self.file_download_items = None
@@ -382,6 +472,10 @@ class TaskbarPanel:
             ).mainloop()
 
     def _on_logoff(self, icon, item):
+        if PLATFORM == MACOS:
+            self._begin_macos_shutdown(logoff=True)
+            return
+        self._stopped.set()
         try:
             if self.on_logoff_callback:
                 self.on_logoff_callback()
@@ -393,5 +487,9 @@ class TaskbarPanel:
             ).mainloop()
 
     def _on_quit(self, icon, item):
+        if PLATFORM == MACOS:
+            self._begin_macos_shutdown()
+            return
+        self._stopped.set()
         self.icon.stop()
         self.root.quit()

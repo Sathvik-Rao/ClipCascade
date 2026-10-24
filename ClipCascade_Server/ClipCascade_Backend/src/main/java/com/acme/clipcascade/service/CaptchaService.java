@@ -33,6 +33,7 @@ public class CaptchaService {
     private final List<BackgroundProducer> BACKGROUNDS;
     private final List<NoiseProducer> NOISES;
     private final List<GimpyRenderer> GIMPYS;
+    private final int DIFFICULTY_PERCENT;
 
     public CaptchaService(@Autowired ClipCascadeProperties clipCascadeProperties) {
 
@@ -45,6 +46,7 @@ public class CaptchaService {
             BACKGROUNDS = bgProds();
             NOISES = noiseProds();
             GIMPYS = gimpyRends();
+            DIFFICULTY_PERCENT = clipCascadeProperties.getCaptchaDifficultyPercent();
         } else {
             RANDOM = null;
             FONTS = null;
@@ -53,6 +55,7 @@ public class CaptchaService {
             BACKGROUNDS = null;
             NOISES = null;
             GIMPYS = null;
+            DIFFICULTY_PERCENT = 100;
         }
     }
 
@@ -97,16 +100,53 @@ public class CaptchaService {
     }
 
     public Captcha createCaptcha(int width, int height, int sizeOfCaptcha) {
-        return new Captcha.Builder(width, height)
-                .addBackground(getRandomBackgroundProducer(BACKGROUNDS)) // background
+        return createCaptcha(width, height, sizeOfCaptcha, DIFFICULTY_PERCENT);
+    }
+
+    /**
+     * Build a captcha whose visual obstacles scale with {@code difficultyPercent}
+     * (0 = easiest, 100 = current/hardest behavior). The thresholds below map
+     * the percentage to a small number of discrete steps so the appearance is
+     * predictable:
+     *
+     *   >= 75%: complex background + 2 noise lines + gimpy distortion (current default)
+     *   >= 50%: complex background + 1 noise line + gimpy distortion
+     *   >= 25%: complex background + 1 noise line, no distortion
+     *    <25%: flat background, no noise, no distortion (just text + border)
+     *
+     * Text and border are always present so the challenge is never trivially
+     * blank.
+     */
+    public Captcha createCaptcha(int width, int height, int sizeOfCaptcha, int difficultyPercent) {
+        int d = Math.max(0, Math.min(100, difficultyPercent));
+
+        BackgroundProducer background = (d >= 25)
+                ? getRandomBackgroundProducer(BACKGROUNDS)
+                : new FlatColorBackgroundProducer();
+
+        int noiseLines;
+        if (d >= 75) {
+            noiseLines = 2;
+        } else if (d >= 25) {
+            noiseLines = 1;
+        } else {
+            noiseLines = 0;
+        }
+
+        boolean applyGimpy = d >= 50;
+
+        Captcha.Builder builder = new Captcha.Builder(width, height)
+                .addBackground(background)
                 .addText(
                         new DefaultTextProducer(sizeOfCaptcha, SRC_CHARS),
-                        new DefaultWordRenderer(COLORS, FONTS)) // text, colors, fonts
-                .addNoise(getRandomNoiseProducer(NOISES)) // lines
-                .addNoise(getRandomNoiseProducer(NOISES)) // lines
-                .gimp(getRandomGimpyRenderer(GIMPYS)) // distortion effect
-                .addBorder() // border
-                .build();
+                        new DefaultWordRenderer(COLORS, FONTS));
+        for (int i = 0; i < noiseLines; i++) {
+            builder = builder.addNoise(getRandomNoiseProducer(NOISES));
+        }
+        if (applyGimpy) {
+            builder = builder.gimp(getRandomGimpyRenderer(GIMPYS));
+        }
+        return builder.addBorder().build();
     }
 
     // Retrieve the captcha image

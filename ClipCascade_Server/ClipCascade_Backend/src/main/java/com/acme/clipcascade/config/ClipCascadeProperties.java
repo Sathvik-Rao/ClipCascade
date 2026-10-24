@@ -238,6 +238,9 @@ public class ClipCascadeProperties {
     @Value("${CC_SESSION_TIMEOUT:525960m}")
     private String sessionTimeout;
 
+    @Value("${app.session.persistence.enabled:false}")
+    private boolean sessionPersistenceEnabled;
+
     /*
      * Server P2P enabled (default: false)
      * note: Ensure configuration is included in the application.properties file as
@@ -276,6 +279,24 @@ public class ClipCascadeProperties {
      */
     @Value("${CC_DONATIONS_ENABLED:false}")
     private boolean donationsEnabled;
+
+    /*
+     * Maximum number of P2P signaling messages a single WebSocket session can
+     * send per second. Values <= 0 disable the limiter (default: -1, disabled
+     * to preserve existing behavior).
+     * Supported only in P2P mode.
+     */
+    @Value("${CC_P2P_SIGNALING_RATE_LIMIT_PER_SEC:-1}")
+    private int p2pSignalingRateLimitPerSec;
+
+    /*
+     * Captcha difficulty as a percentage from 0 (easiest) to 100 (hardest,
+     * which is the existing behavior). Lower values reduce noise lines and
+     * skip the distortion (gimpy) effect for better human readability while
+     * keeping at least the basic challenge. (default: 100)
+     */
+    @Value("${CC_CAPTCHA_DIFFICULTY_PERCENT:100}")
+    private int captchaDifficultyPercent;
 
     private long getMessageSizeInBytes() {
         /*
@@ -431,6 +452,10 @@ public class ClipCascadeProperties {
         return sessionTimeout;
     }
 
+    public boolean isSessionPersistenceEnabled() {
+        return sessionPersistenceEnabled;
+    }
+
     public boolean isP2pEnabled() {
         return p2pEnabled;
     }
@@ -457,6 +482,21 @@ public class ClipCascadeProperties {
 
     public boolean getDonationsEnabled() {
         return donationsEnabled;
+    }
+
+    public int getP2pSignalingRateLimitPerSec() {
+        return p2pSignalingRateLimitPerSec;
+    }
+
+    public int getCaptchaDifficultyPercent() {
+        // Clamp to 0..100 so out-of-range env values stay safe.
+        if (captchaDifficultyPercent < 0) {
+            return 0;
+        }
+        if (captchaDifficultyPercent > 100) {
+            return 100;
+        }
+        return captchaDifficultyPercent;
     }
 
     @Override
@@ -488,10 +528,13 @@ public class ClipCascadeProperties {
                 ",\n serverDbHibernateDialect='" + getServerDbHibernateDialect() + "'" +
                 ",\n port='" + getPort() + "'" +
                 ",\n sessionTimeout='" + getSessionTimeout() + "'" +
+                ",\n sessionPersistenceEnabled=" + isSessionPersistenceEnabled() +
                 ",\n p2pEnabled='" + isP2pEnabled() + "'" +
                 ",\n p2pStunUrl='" + getP2pStunUrl() + "'" +
                 ",\n maxWsGlobalConnections='" + getMaxWsGlobalConnections() + "'" +
                 ",\n maxWsConnectionsPerUser='" + getMaxWsConnectionsPerUser() + "'" +
+                ",\n p2pSignalingRateLimitPerSec='" + getP2pSignalingRateLimitPerSec() + "'" +
+                ",\n captchaDifficultyPercent='" + getCaptchaDifficultyPercent() + "'" +
                 "\n}";
     }
 

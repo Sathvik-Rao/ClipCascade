@@ -1,9 +1,9 @@
 import json
 import logging
-import time
 
 
 from interfaces.ws_interface import WSInterface
+from utils.reconnect import ReconnectMixin
 from stomp_ws.client import Client
 from core.config import Config
 from utils.cipher_manager import CipherManager
@@ -19,7 +19,7 @@ else:
     from gui.tray import TaskbarPanel
 
 
-class STOMPManager(WSInterface):
+class STOMPManager(ReconnectMixin, WSInterface):
     def __init__(self, config: Config, is_login_phase=True):
         self.config = config
         self.clipboard_manager = ClipboardManager(self.config)
@@ -32,6 +32,7 @@ class STOMPManager(WSInterface):
         self.is_connected = False
         self.disconnected = False
         self.is_auto_reconnecting = False
+        self._init_reconnect()
 
     def set_tray_ref(self, sys_tray: TaskbarPanel):
         """
@@ -46,25 +47,28 @@ class STOMPManager(WSInterface):
         return (RECONNECT_WS_TIMER * 1000) + WEBSOCKET_TIMEOUT
 
     def get_stats(self):
-        return None
+        return "Connected" if self.is_connected else ("Disconnected" if self.disconnected else "Reconnecting…")
 
-    def connect(self) -> tuple[bool, str]:
+    def _connect_once(self) -> tuple[bool, str]:
         try:
             if self.is_connected:
                 return True, ""
-            self.client = Client(
+            if self.client is not None:
+                self.client.disconnect()
+            client = Client(
                 self.config.data["websocket_url"],
                 headers={
                     "Cookie": RequestManager.format_cookie(
                         self.config.data["cookie"]
                     )
                 },
-                on_close_callback=self._on_close,
+                on_close_callback=lambda: self._on_close(client),
                 sslopt=websocket_sslopt_for_config(self.config),
             )
-            self.client.connect(
+            self.client = client
+            client.connect(
                 timeout=WEBSOCKET_TIMEOUT,
-                connectCallback=lambda _: self.client.subscribe(  # receive event
+                connectCallback=lambda _: client.subscribe(  # receive event
                     destination=SUBSCRIPTION_DESTINATION,
                     callback=self._receive,
                 ),
@@ -75,7 +79,10 @@ class STOMPManager(WSInterface):
 
             # logging.info("Websocket connected")
             self.is_connected = True
+            if not client.connected:
+                raise ConnectionError("STOMP connection closed during handshake")
             self.is_auto_reconnecting = False
+            self._reconnect_attempts = 0
             if not self.first_conn_lost:
                 self.first_conn_lost = True
                 self.notification_manager.notify(
@@ -87,11 +94,19 @@ class STOMPManager(WSInterface):
             self.clipboard_manager.on_copy(self.send)
             return True, "Websocket connected"
         except Exception as e:
+            self.is_connected = False
+            if self.client is not None:
+                try:
+                    self.client.disconnect()
+                except Exception:
+                    logging.exception("Failed to close unsuccessful STOMP connection")
             msg = f"Failed to connect websocket: {e}"
             logging.error(msg)
             return False, msg
 
-    def _on_close(self):
+    def _on_close(self, client=None):
+        if client is not None and client is not self.client:
+            return
         self.is_connected = False
         # Auto Reconnect
         if not self.is_login_phase and not self.disconnected:
@@ -102,8 +117,7 @@ class STOMPManager(WSInterface):
                     message="Check your internet connection. Retrying...",
                 )
                 self.first_conn_lost = False
-            time.sleep(RECONNECT_WS_TIMER)  # seconds
-            self.connect()
+            self._start_reconnect()
 
     def send(self, payload: str, payload_type: str = "text"):
         try:
@@ -140,12 +154,9 @@ class STOMPManager(WSInterface):
         except Exception as e:
             logging.error(f"Failed to receive data: {e}")
 
-    def manual_reconnect(self):
-        if not self.is_auto_reconnecting:
-            self.disconnected = False
-            self.connect()
-
     def disconnect(self):
+        self._stop_reconnect()
+        self.is_connected = False
         try:
             self.clipboard_manager.previous_clipboard_hash = 0
             self.disconnected = True

@@ -1,16 +1,21 @@
 package com.acme.clipcascade.service;
 
 import java.security.MessageDigest;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.acme.clipcascade.constants.RoleConstants;
+import com.acme.clipcascade.model.PageResponse;
 import com.acme.clipcascade.model.Users;
 import com.acme.clipcascade.repo.UserRepo;
 import com.acme.clipcascade.utils.HashingUtility;
+import com.acme.clipcascade.utils.PagingUtility;
 import com.acme.clipcascade.utils.UserValidator;
 
 @Service
@@ -62,6 +67,46 @@ public class UserService {
             user.setPassword(null);
         }); // Set password to null
         return users;
+    }
+
+    private static final Map<String, Comparator<Users>> USERS_COMPARATORS = Map.of(
+            "username", Comparator.comparing(Users::getUsername,
+                    Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)),
+            "enabled", Comparator.comparing(Users::getEnabled,
+                    Comparator.nullsLast(Boolean::compare)));
+
+    /**
+     * Server-side paged/sorted/searched view of users with the given role.
+     * Used by the admin panel; the legacy getUsers(role) endpoint is preserved.
+     */
+    public PageResponse<Users> getUsersPage(
+            String role,
+            int page,
+            int size,
+            String sort,
+            String direction,
+            String search) {
+
+        List<Users> users = userRepo.findByRole(role);
+        users.forEach(user -> user.setPassword(null));
+
+        String needle = (search == null) ? "" : search.trim().toLowerCase();
+        Predicate<Users> filter = needle.isEmpty()
+                ? null
+                : u -> PagingUtility.contains(u.getUsername(), needle);
+
+        String effectiveSort = (sort == null || sort.isEmpty()) ? "username" : sort;
+        String effectiveDir = (direction == null || direction.isEmpty()) ? "asc" : direction;
+
+        return PagingUtility.apply(
+                users,
+                filter,
+                USERS_COMPARATORS,
+                effectiveSort,
+                effectiveDir,
+                page,
+                size,
+                search);
     }
 
     public long countUsers() {

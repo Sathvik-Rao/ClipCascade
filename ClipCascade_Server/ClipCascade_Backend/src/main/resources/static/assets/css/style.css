@@ -42,7 +42,7 @@ body {
 /* Table Wrapper */
 .table-wrapper {
   max-height: 400px;
-  overflow-y: auto;
+  overflow: auto;
   margin-top: 1em;
 }
 
@@ -131,11 +131,19 @@ label small {
   display: none;
 }
 .footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
   flex-shrink: 0;
   background-color: #222;
   color: #ccc;
   padding: 10px;
   text-align: left;
+}
+.footer #server-version {
+  margin-left: auto;
+  text-align: right;
 }
 .footer .footer-links {
   margin: 0;
@@ -152,4 +160,74 @@ label small {
 }
 .footer .footer-links a:hover {
   color: #fff;
+}
+/* Admin panel: search + pager + sortable headers */
+.admin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.admin-toolbar .admin-search-input {
+  max-width: 280px;
+  display: inline-block;
+  width: auto;
+}
+#users-table thead th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+#users-table thead th .sort-indicator {
+  font-size: 0.75em;
+  margin-left: 4px;
+  color: #777;
+}
+#users-table thead th.sort-asc .sort-indicator::after {
+  content: "\25B2";
+  color: #222;
+}
+#users-table thead th.sort-desc .sort-indicator::after {
+  content: "\25BC";
+  color: #222;
+}
+.admin-pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.admin-pager .page-info {
+  color: #777;
+  font-size: 0.9em;
+}
+
+/* Resizable columns */
+.table-resizable {
+  table-layout: fixed;
+  width: 100%;
+}
+.table-resizable th {
+  position: relative;
+  white-space: nowrap;
+}
+.table-resizable td {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  vertical-align: top;
+}
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 2;
+}
+.col-resizer:hover {
+  background: rgba(0, 123, 255, 0.25);
 }

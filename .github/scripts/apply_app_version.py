@@ -6,7 +6,7 @@ modifying version.json. Otherwise read version.json as before.
 
 Targets:
   - ClipCascade_Desktop/src/core/constants.py (windows, macos, linux_gui, linux_non_gui)
-  - ClipCascade_Mobile/src/App.js                (android)
+  - ClipCascade_Mobile/src/AppVersion.js         (android)
   - ClipCascade_Mobile/src/android/app/build.gradle (android versionName + versionCode)
   - ClipCascade_Server/ClipCascade_Backend/src/main/java/com/acme/clipcascade/constants/ServerConstants.java (server)
 
@@ -76,7 +76,7 @@ def patch_constants_py() -> None:
 
 
 def patch_app_js() -> None:
-    path = REPO_ROOT / "ClipCascade_Mobile" / "src" / "App.js"
+    path = REPO_ROOT / "ClipCascade_Mobile" / "src" / "AppVersion.js"
     replace_in_file(
         path,
         r"const APP_VERSION = '[^']+';",

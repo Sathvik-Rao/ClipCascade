@@ -1,5 +1,8 @@
 package com.acme.clipcascade.config;
 
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.session.jdbc.JdbcIndexedSessionRepository;
+import org.springframework.session.security.SpringSessionBackedSessionRegistry;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationProvider;
@@ -39,8 +42,10 @@ public class SecurityConfiguration {
 
 	// SessionRegistry bean to store session information
 	@Bean
-	public SessionRegistry sessionRegistry() {
-		return new SessionRegistryImpl();
+	public SessionRegistry sessionRegistry(ObjectProvider<JdbcIndexedSessionRepository> repositories) {
+		JdbcIndexedSessionRepository repository = repositories.getIfAvailable();
+		return repository == null ? new SessionRegistryImpl()
+				: new SpringSessionBackedSessionRegistry<>(repository);
 	}
 
 	// Ensures the SessionRegistry is notified of session lifecycle events
@@ -50,7 +55,7 @@ public class SecurityConfiguration {
 	}
 
 	@Bean
-	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+	public SecurityFilterChain securityFilterChain(HttpSecurity http, SessionRegistry sessionRegistry) throws Exception {
 		return http
 				.authorizeHttpRequests((authorize) -> authorize
 						.requestMatchers(
@@ -78,7 +83,7 @@ public class SecurityConfiguration {
 				.sessionManagement(session -> session
 						.sessionCreationPolicy(SessionCreationPolicy.ALWAYS) // Always create a new session
 						.maximumSessions(-1) // Allow unlimited sessions
-						.sessionRegistry(sessionRegistry()) // Use the session registry
+						.sessionRegistry(sessionRegistry) // Use the session registry
 						.expiredSessionStrategy(new CustomExpiredSession())) // Custom expired session strategy
 				.build();
 	}

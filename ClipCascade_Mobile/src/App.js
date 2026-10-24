@@ -1,5 +1,6 @@
 import {
   PermissionsAndroid,
+  AppState,
   Image,
   StyleSheet,
   Text,
@@ -13,6 +14,7 @@ import {
   Alert,
   SafeAreaView,
   StatusBar,
+  useColorScheme,
 } from 'react-native';
 
 import { useEffect, useState, useRef } from 'react';
@@ -22,7 +24,13 @@ import CheckBox from '@react-native-community/checkbox';
 import notifee from '@notifee/react-native';
 import { pbkdf2 } from '@react-native-module/pbkdf2';
 import { Buffer } from 'buffer';
-import { pickDirectory, isCancel } from '@react-native-documents/picker';
+import {
+  pick,
+  pickDirectory,
+  errorCodes,
+  isErrorWithCode,
+} from '@react-native-documents/picker';
+
 import { sha3_512 } from 'js-sha3';
 import { DOMParser } from 'react-native-html-parser';
 
@@ -33,6 +41,20 @@ import {
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
+import {APP_VERSION} from './AppVersion';
+import {
+  checkForUpdates, presentUpdate, setUpdateFocused, subscribeToUpdates,
+  RELEASE_URL, UPDATE_NOTIFICATION_ID,
+} from './UpdateChecker';
+import {
+  DEVICE_PREFERENCE_FIELDS,
+  isValidClipboardLimit,
+  saveDevicePreference,
+  waitForPreferenceWrites,
+} from './DevicePreferences';
+
+const isCancel = error =>
+  isErrorWithCode(error) && error.code === errorCodes.OPERATION_CANCELED;
 
 /*
  * These files are part of the ClipCascade project.
@@ -48,6 +70,8 @@ import StartForegroundService from './StartForegroundService';
  * (file) android\app\src\main\java\com\clipcascade\NativeBridgeModule.kt
  * (file) android\app\src\main\java\com\clipcascade\NativeBridgePackage.kt
  * (file) android\app\src\main\java\com\clipcascade\ScheduleService.kt
+ * (file) android/app/src/main/java/com/clipcascade/ServerTls.kt
+ * (file) android/app/src/main/java/com/clipcascade/ServerTlsModule.kt
  * (file) android\app\src\main\AndroidManifest.xml
  * (folder) android\app\src\main\res\
  * (file) android\app\build.gradle
@@ -57,16 +81,37 @@ import StartForegroundService from './StartForegroundService';
  * (file) HeadlessTask.js
  * (file) index.js
  * (file) StartForegroundService.js
+ * (file) DevicePreferences.js
+ * (file) AppVersion.js
+ * (file) UpdateChecker.js
  */
 
-// App version
-const APP_VERSION = '3.2.0';
-
 // Main App
+function InfoLabel({style, label, info}) {
+  const infoColor = useColorScheme() === 'dark' ? '#64b5f6' : '#005ea8';
+  return (
+    <Text
+      style={style}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint="Shows information about this setting"
+      onPress={() => Alert.alert(
+        label.replace(/:$/, ''),
+        info,
+        [{text: 'OK'}],
+        {cancelable: true},
+      )}>
+      {label}{' '}<Text style={[styles.labelInfoMark, {color: infoColor}]}>?</Text>
+    </Text>
+  );
+}
+
 export default function App() {
   const { NativeBridgeModule } = NativeModules;
 
   const isMountedRef = useRef(true);
+  const loginInProgressRef = useRef(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const [newVersionAvailable, setNewVersionAvailable] = useState([false, '']);
   const [donateUrl, setDonateUrl] = useState(null);
@@ -83,18 +128,40 @@ export default function App() {
   const VALIDATE_URL = '/validate-session';
   const WEBSOCKET_ENDPOINT_P2P = '/p2psignaling';
   const STUN_URL = '/stun-url';
-  const VERSION_URL =
-    'https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/version.json';
   const GITHUB_URL = 'https://github.com/Sathvik-Rao/ClipCascade';
-  const RELEASE_URL =
-    'https://github.com/Sathvik-Rao/ClipCascade/releases/latest';
   const APP_NAME = 'ClipCascade';
   const HELP_URL = `${GITHUB_URL}/blob/main/README.md`;
   const METADATA_URL =
     'https://raw.githubusercontent.com/Sathvik-Rao/ClipCascade/main/metadata.json';
 
-  // Request permissions for notifications
-  PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+  useEffect(() => {
+    setUpdateFocused(true);
+    PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS)
+      .then(() => presentUpdate()).catch(console.warn);
+    const unsubscribe = subscribeToUpdates(setNewVersionAvailable);
+    // Check immediately on UI launch, sharing any in-flight service request.
+    checkForUpdates({force: true});
+    const timer = setInterval(() => checkForUpdates(), 60000);
+    const state = AppState.addEventListener('change', value => {
+      if (value === 'active') {
+        setUpdateFocused(true);
+        checkForUpdates();
+        presentUpdate();
+      }
+    });
+    const focus = AppState.addEventListener('focus', () => {
+      setUpdateFocused(true);
+      presentUpdate();
+    });
+    const blur = AppState.addEventListener('blur', () => setUpdateFocused(false));
+    return () => {
+      unsubscribe();
+      clearInterval(timer);
+      state.remove();
+      focus.remove();
+      blur.remove();
+    };
+  }, []);
 
   const fetchTimeout = async (input, init, timeout_ms = FETCH_TIMEOUT) => {
     try {
@@ -110,6 +177,8 @@ export default function App() {
   const [data, setData] = useState({
     cipher_enabled: 'true',
     server_url: 'http://localhost:8080',
+    ssl_ca_bundle: '',
+    ssl_ca_bundle_name: '',
     websocket_url: '',
     username: '',
     hashed_password: '',
@@ -121,6 +190,7 @@ export default function App() {
     max_clipboard_size_local_limit_bytes: '',
     relaunch_on_boot: 'false',
     enable_websocket_status_notification: 'false',
+    update_notifications: 'true',
     enable_periodic_checks: 'true',
     enable_image_sharing: 'true',
     enable_file_sharing: 'true',
@@ -214,6 +284,10 @@ export default function App() {
         // get data from async storage and initialize data hook
         let data_s = await getAsyncStorage();
         setData(data_s);
+        await NativeModules.ServerTlsModule.configure(
+          data_s.server_url,
+          data_s.ssl_ca_bundle,
+        );
 
         // get foreground service status from work manager
         let foregroundServiceStoppedRunning = await getDataFromAsyncStorage(
@@ -290,20 +364,6 @@ export default function App() {
               }
             }
           }
-        }
-
-        // check for new version
-        try {
-          const response = await fetchTimeout(VERSION_URL);
-          if (!response.ok) {
-            throw new Error('Network response was not ok');
-          }
-          const data = await response.json();
-          if (data && data.android !== APP_VERSION) {
-            setNewVersionAvailable([true, data.android]);
-          }
-        } catch (e) {
-          // Silent catch
         }
 
         try {
@@ -761,19 +821,87 @@ export default function App() {
 
   // Function to handle input changes in the login form
   const handleInputChange = (field, value) => {
+    if (loginInProgressRef.current) {
+      return;
+    }
     try {
       setData(prevData => ({
         ...prevData,
         [field]: value,
       }));
+      if (
+        DEVICE_PREFERENCE_FIELDS.has(field) &&
+        (field !== 'max_clipboard_size_local_limit_bytes' ||
+          isValidClipboardLimit(value))
+      ) {
+        saveDevicePreference(field, value)
+          .then(async () => {
+            if (field === 'enable_periodic_checks') {
+              if (value === 'true') {
+                await NativeBridgeModule.startWorkManager();
+              } else {
+                await NativeBridgeModule.stopWorkManager();
+              }
+            }
+            if (
+              field === 'enable_websocket_status_notification' &&
+              value === 'false'
+            ) {
+              await notifee.cancelNotification(
+                'ClipCascade_WebSocket_Status_Notification_Id',
+              );
+            }
+            if (field === 'update_notifications' && value === 'false') {
+              await notifee.cancelNotification(UPDATE_NOTIFICATION_ID);
+            }
+            if (field === 'update_notifications' && value === 'true') {
+              await presentUpdate();
+            }
+          })
+          .catch(e =>
+            setLoginStatusMessage('❌ Unable to save preference: ' + e),
+          );
+      }
     } catch (e) {
       setLoginStatusMessage('❌ Error: ' + e);
     }
   };
 
+  const importCaBundle = async () => {
+    try {
+      const [file] = await pick({ allowMultiSelection: false, type: ['*/*'] });
+      const pem = await NativeModules.ServerTlsModule.importBundle(file.uri);
+      setData(previous => ({
+        ...previous,
+        ssl_ca_bundle: pem,
+        ssl_ca_bundle_name: file.name || 'Imported CA bundle',
+      }));
+      setLoginStatusMessage('CA bundle imported. Log in to save and use it.');
+    } catch (error) {
+      if (!isCancel(error)) {
+        setLoginStatusMessage('❌ ' + error);
+      }
+    }
+  };
+
   // Function to handle login button press
   const handleLogin = async (pass = null, data_s_c = null) => {
+    if (loginInProgressRef.current) {
+      return;
+    }
+    loginInProgressRef.current = true;
+    setIsLoggingIn(true);
     try {
+      if (
+        !isValidClipboardLimit(
+          (data_s_c || data).max_clipboard_size_local_limit_bytes,
+        )
+      ) {
+        throw new Error(
+          'Max Clipboard Size Local Limit must be a positive integer or empty.',
+        );
+      }
+      await waitForPreferenceWrites();
       setLoginStatusMessage('⌛ Please wait...');
 
       // clear cookies if any
@@ -798,6 +926,11 @@ export default function App() {
       // remove trailing slashes in server_url
       data_s.server_url = data_s.server_url.replace(/\/+$/, '');
 
+      await NativeModules.ServerTlsModule.configure(
+        data_s.server_url,
+        data_s.ssl_ca_bundle,
+      );
+
       let iteration = 0;
       let loginResult;
       do {
@@ -814,12 +947,17 @@ export default function App() {
 
         // Stop periodic checks work manager notification (if disabled)
         if (data_s.enable_periodic_checks === 'false') {
-          NativeBridgeModule.stopWorkManager();
+          await NativeBridgeModule.stopWorkManager();
         }
 
         // Save password in async storage
-        if (data_s.save_password === 'true') {
+        if (
+          data_s.save_password === 'true' &&
+          data_s.cipher_enabled !== 'true'
+        ) {
           await setDataInAsyncStorage('password', password_s);
+        } else {
+          await setDataInAsyncStorage('password', '');
         }
         // Remove password from memory
         setPassword('');
@@ -839,6 +977,9 @@ export default function App() {
       }
     } catch (e) {
       setLoginStatusMessage('❌ Error: ' + e);
+    } finally {
+      loginInProgressRef.current = false;
+      setIsLoggingIn(false);
     }
   };
 
@@ -922,6 +1063,7 @@ export default function App() {
           <View style={styles.row}>
             <Text style={styles.label}>Username:</Text>
             <TextInput
+              editable={!isLoggingIn}
               style={styles.input}
               value={data.username}
               onChangeText={text => handleInputChange('username', text)}
@@ -931,6 +1073,7 @@ export default function App() {
           <View style={styles.row}>
             <Text style={styles.label}>Password:</Text>
             <TextInput
+              editable={!isLoggingIn}
               style={styles.input}
               value={password}
               onChangeText={text => setPassword(text)}
@@ -939,8 +1082,13 @@ export default function App() {
             />
           </View>
           <View style={styles.row}>
-            <Text style={styles.label}>Server URL:</Text>
+            <InfoLabel
+              style={styles.label}
+              label="Server URL:"
+              info={"Address of your ClipCascade server, including http:// or https://.\n\nExamples:\n• Local network: http://192.168.1.70:8080\n• Domain: https://clipcascade.example.com\n\nUse your server’s address, not your phone’s address. Do not add /login or /clipsocket."}
+            />
             <TextInput
+              editable={!isLoggingIn}
               style={styles.input}
               value={data.server_url}
               onChangeText={text =>
@@ -950,11 +1098,34 @@ export default function App() {
             />
           </View>
           <View style={styles.row}>
-            <Text style={styles.label}>Enable Encryption (recommended):</Text>
+            <InfoLabel
+              style={styles.label}
+              label="Enable encryption (recommended):"
+              info={"Encrypts clipboard content on your device before sending it. Enabled by default.\n\nNote: all devices sharing clipboard data must use matching encryption settings, including the password, encryption salt, and key derivation iterations."}
+            />
             <CheckBox
+              disabled={isLoggingIn}
               value={data.cipher_enabled === 'true' ? true : false}
               onValueChange={newValue =>
                 handleInputChange('cipher_enabled', String(newValue))
+              }
+            />
+          </View>
+
+          <View style={styles.row}>
+            <Text style={styles.label}>Show connection status notifications:</Text>
+            <CheckBox
+              disabled={isLoggingIn}
+              value={
+                data.enable_websocket_status_notification === 'true'
+                  ? true
+                  : false
+              }
+              onValueChange={newValue =>
+                handleInputChange(
+                  'enable_websocket_status_notification',
+                  String(newValue),
+                )
               }
             />
           </View>
@@ -967,11 +1138,12 @@ export default function App() {
           {/* Login Button */}
           <TouchableOpacity
             style={styles.loginButton}
+            disabled={isLoggingIn}
             onPress={() => {
               handleLogin(null, null);
             }}
           >
-            <Text style={styles.loginButtonText}>Login</Text>
+            <Text style={styles.loginButtonText}>Log in</Text>
           </TouchableOpacity>
 
           {/* Toggle Extra Config as Text */}
@@ -979,7 +1151,9 @@ export default function App() {
             onPress={() => setShowExtraConfig(!showExtraConfig)}
           >
             <Text style={styles.linkText}>
-              {showExtraConfig ? 'Hide Extra Config' : 'Enable Extra Config'}
+              {showExtraConfig
+                ? 'Hide advanced settings'
+                : 'Show advanced settings'}
             </Text>
           </TouchableOpacity>
 
@@ -987,8 +1161,13 @@ export default function App() {
           {showExtraConfig && (
             <>
               <View style={styles.row}>
-                <Text style={styles.label}>Hash Rounds:</Text>
+                <InfoLabel
+                  style={styles.label}
+                  label="Key derivation iterations:"
+                  info={"Number of iterations used to derive your encryption key. Higher values increase resistance to password guessing, but take longer.\n\nDefault: 664937. Keep the default unless you need a different value.\n\nNote: must be a positive integer and must match on every device."}
+                />
                 <TextInput
+                  editable={!isLoggingIn}
                   style={styles.input}
                   value={data.hash_rounds}
                   onChangeText={text =>
@@ -1000,8 +1179,13 @@ export default function App() {
                 />
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>Salt:</Text>
+                <InfoLabel
+                  style={styles.label}
+                  label="Encryption salt:"
+                  info={"Optional extra text mixed into encryption key derivation. Letters, numbers, symbols, and spaces are allowed.\n\nExample: myCustomSalt123\n\nNote: use exactly the same salt on every device, including capitalization and spaces. Leave blank to keep the default. Changing it on only one device prevents decryption between devices."}
+                />
                 <TextInput
+                  editable={!isLoggingIn}
                   style={styles.input}
                   value={data.salt}
                   onChangeText={text => handleInputChange('salt', text)}
@@ -1009,11 +1193,9 @@ export default function App() {
                 />
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>
-                  Store Password Locally (not recommended; only works if
-                  encryption is disabled):
-                </Text>
+                <Text style={styles.label}>Store Password Locally (not recommended; only works if encryption is disabled):</Text>
                 <CheckBox
+                  disabled={isLoggingIn}
                   value={data.save_password === 'true' ? true : false}
                   onValueChange={newValue =>
                     handleInputChange('save_password', String(newValue))
@@ -1021,10 +1203,13 @@ export default function App() {
                 />
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>
-                  Maximum Clipboard Size Local Limit (in bytes):
-                </Text>
+                <InfoLabel
+                  style={styles.label}
+                  label="Local clipboard size limit (bytes):"
+                  info={"Optional local limit for incoming and outgoing clipboard content. Must be a positive integer. Server and platform limits still apply.\n\nExamples:\n• 512 KiB = 524288 bytes\n• 1 MiB = 1048576 bytes\n\nLeave blank for no local limit. A smaller limit can help if large clipboard content causes problems on your device."}
+                />
                 <TextInput
+                  editable={!isLoggingIn}
                   style={styles.input}
                   value={data.max_clipboard_size_local_limit_bytes}
                   onChangeText={text =>
@@ -1038,11 +1223,13 @@ export default function App() {
                 />
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>
-                  Run on system startup (disable if the READ_LOGS permission is
-                  granted):
-                </Text>
+                <InfoLabel
+                  style={styles.label}
+                  label="Start on device restart (disable if the READ_LOGS permission is granted via ADB):"
+                  info={"Starts ClipCascade after your device restarts. Off by default.\n\nNote: keep this disabled if you granted READ_LOGS via ADB for automatic clipboard monitoring, to avoid interfering with the permission prompt. After restarting, open ClipCascade manually and allow the log-access prompt when shown."}
+                />
                 <CheckBox
+                  disabled={isLoggingIn}
                   value={data.relaunch_on_boot === 'true' ? true : false}
                   onValueChange={newValue =>
                     handleInputChange('relaunch_on_boot', String(newValue))
@@ -1050,26 +1237,13 @@ export default function App() {
                 />
               </View>
               <View style={styles.row}>
-                <Text style={styles.label}>
-                  Enable WebSocket Status Notification:
-                </Text>
-                <CheckBox
-                  value={
-                    data.enable_websocket_status_notification === 'true'
-                      ? true
-                      : false
-                  }
-                  onValueChange={newValue =>
-                    handleInputChange(
-                      'enable_websocket_status_notification',
-                      String(newValue),
-                    )
-                  }
+                <InfoLabel
+                  style={styles.label}
+                  label="Enable Periodic Checks:"
+                  info={"Checks that clipboard monitoring and the foreground service are running when monitoring starts and periodically in the background, approximately every 15 minutes. Enabled by default.\n\nIf the service has stopped, a notification lets you restart it. Tap the notification to restart the service."}
                 />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Enable Periodic Checks:</Text>
                 <CheckBox
+                  disabled={isLoggingIn}
                   value={data.enable_periodic_checks === 'true' ? true : false}
                   onValueChange={newValue =>
                     handleInputChange(
@@ -1082,6 +1256,7 @@ export default function App() {
               <View style={styles.row}>
                 <Text style={styles.label}>Enable Image Sharing:</Text>
                 <CheckBox
+                  disabled={isLoggingIn}
                   value={data.enable_image_sharing === 'true' ? true : false}
                   onValueChange={newValue =>
                     handleInputChange('enable_image_sharing', String(newValue))
@@ -1091,10 +1266,67 @@ export default function App() {
               <View style={styles.row}>
                 <Text style={styles.label}>Enable File Sharing:</Text>
                 <CheckBox
+                  disabled={isLoggingIn}
                   value={data.enable_file_sharing === 'true' ? true : false}
                   onValueChange={newValue =>
                     handleInputChange('enable_file_sharing', String(newValue))
                   }
+                />
+              </View>
+              <View style={styles.row}>
+                <View style={styles.caDetails}>
+                  <InfoLabel
+                    style={styles.caLabel}
+                    label="Custom CA certificate bundle:"
+                    info={"Use this if your server’s HTTPS certificate was issued by a private or internal certificate authority.\n\nExample file: corp-root.pem, containing PEM-encoded CA certificates supplied by your administrator.\n\nLeave empty to use system certificates. Imported certificates are trusted alongside system certificates for your configured server hostname.\n\nNote: log in to save changes. Use Remove and log in to return to system trust only."}
+                  />
+                  <Text
+                    style={styles.caFileName}
+                    numberOfLines={1}
+                    ellipsizeMode="middle"
+                  >
+                    {data.ssl_ca_bundle_name || 'Default system certificates'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.caButton}
+                  onPress={importCaBundle}
+                  disabled={isLoggingIn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Import custom CA certificate bundle"
+                >
+                  <Text style={styles.caButtonText}>
+                    {data.ssl_ca_bundle ? 'Replace' : 'Import'}
+                  </Text>
+                </TouchableOpacity>
+                {data.ssl_ca_bundle !== '' && (
+                  <TouchableOpacity
+                    style={[styles.caButton, styles.caRemoveButton]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove custom CA certificate bundle"
+                    disabled={isLoggingIn}
+                    onPress={() =>
+                      setData(previous => ({
+                        ...previous,
+                        ssl_ca_bundle: '',
+                        ssl_ca_bundle_name: '',
+                      }))
+                    }
+                  >
+                    <Text style={styles.caButtonText}>Remove</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <View style={styles.row}>
+                <InfoLabel
+                  style={styles.label}
+                  label="Notify when an update is available:"
+                  info="Checks at startup and once a day while running. Alerts once per new version each session. Enabled by default."
+                />
+                <CheckBox
+                  disabled={isLoggingIn}
+                  value={data.update_notifications === 'true'}
+                  onValueChange={value => handleInputChange('update_notifications', String(value))}
                 />
               </View>
             </>
@@ -1122,6 +1354,10 @@ export default function App() {
               </TouchableOpacity>
             )}
           </View>
+          <Text style={styles.versionText}>
+            v{APP_VERSION}
+            {newVersionAvailable[1] === APP_VERSION ? ' (latest)' : ''}
+          </Text>
         </ScrollView>
       )}
 
@@ -1371,6 +1607,10 @@ export default function App() {
               <Text style={styles.footerText}>HOMEPAGE</Text>
             </TouchableOpacity>
           </View>
+          <Text style={styles.versionText}>
+            v{APP_VERSION}
+            {newVersionAvailable[1] === APP_VERSION ? ' (latest)' : ''}
+          </Text>
         </ScrollView>
       )}
     </SafeAreaView>
@@ -1408,9 +1648,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
+  labelInfoMark: {
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
   label: {
     flex: 1,
     fontSize: 16,
+  },
+  caDetails: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  caLabel: {
+    fontSize: 16,
+  },
+  caFileName: {
+    fontSize: 13,
+    color: '#777',
+    marginTop: 3,
+  },
+  caButton: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#5081ab',
+    borderRadius: 5,
+  },
+  caButtonText: {
+    color: '#5081ab',
+    fontSize: 14,
+  },
+  caRemoveButton: {
+    marginLeft: 8,
   },
   input: {
     flex: 2,
@@ -1490,5 +1762,12 @@ const styles = StyleSheet.create({
   },
   spacing: {
     marginHorizontal: 12,
+  },
+  versionText: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: '#9aa0a6',
+    marginTop: 4,
+    marginBottom: 14,
   },
 });
