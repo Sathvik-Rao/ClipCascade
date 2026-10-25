@@ -228,10 +228,10 @@ jobs:
         include:
           - runner: macos-15
             arch: arm64
-            archive: ClipCascade-Apple_macOS(ARM_M-Series).zip
+            archive: ClipCascade-Apple_macOS.ARM_M-Series.zip
           - runner: macos-15-intel
             arch: x86_64
-            archive: ClipCascade-Apple_macOS(Intel-Series).zip
+            archive: ClipCascade-Apple_macOS.Intel-Series.zip
     runs-on: ${{ matrix.runner }}
     env:
       MACOS_PYTHON_VERSION: "3.12.10"

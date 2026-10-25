@@ -180,8 +180,10 @@ versions belong to the original run, not the latest source.
 Release asset names are **static** (no version in the filename), e.g.
 `ClipCascade.msi`, `ClipCascade.apk`. Platforms that were *not* bumped are not
 rebuilt — `carry_artifacts.sh` downloads their assets from the previous release
-so each release page contains the complete set of downloads. The very first
-release (no previous tag) runs in "bootstrap mode" and simply skips carry-over.
+so each release page contains the complete set of downloads. Release lookup or
+download failures, missing files, and empty files fail the release job before
+publication. Errors identify any missing or empty carry-over files. The first
+release must build all platforms because there are no assets to carry over.
 
 ### Windows packages
 
@@ -194,8 +196,8 @@ The `macos` scope builds two native packages with the same macOS version:
 
 | Processor | GitHub runner | Archive |
 |---|---|---|
-| Apple Silicon | `macos-15` (`arm64`) | `ClipCascade-Apple_macOS(ARM_M-Series).zip` |
-| Intel | `macos-15-intel` (`x86_64`) | `ClipCascade-Apple_macOS(Intel-Series).zip` |
+| Apple Silicon | `macos-15` (`arm64`) | `ClipCascade-Apple_macOS.ARM_M-Series.zip` |
+| Intel | `macos-15-intel` (`x86_64`) | `ClipCascade-Apple_macOS.Intel-Series.zip` |
 
 Both architectures use exactly **Python 3.12.10** from the signed python.org
 universal2 installer, which bundles **Tcl/Tk 8.6.16**. Each runner creates a

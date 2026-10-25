@@ -5,8 +5,8 @@ A lightweight utility to sync clipboard content seamlessly across devices
 with privacy and encryption.
 
 Download the archive matching your Mac's processor:
-- Apple Silicon (M1 or newer): ClipCascade-Apple_macOS(ARM_M-Series).zip
-- Intel: ClipCascade-Apple_macOS(Intel-Series).zip
+- Apple Silicon (M1 or newer): ClipCascade-Apple_macOS.ARM_M-Series.zip
+- Intel: ClipCascade-Apple_macOS.Intel-Series.zip
 
 Install
 -------

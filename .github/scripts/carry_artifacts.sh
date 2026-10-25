@@ -31,7 +31,7 @@ if ! is_bumped windows; then
   CARRY_OVER+=("ClipCascade.exe" "ClipCascade.msi")
 fi
 if ! is_bumped macos; then
-  CARRY_OVER+=("ClipCascade-Apple_macOS(ARM_M-Series).zip" "ClipCascade-Apple_macOS(Intel-Series).zip")
+  CARRY_OVER+=("ClipCascade-Apple_macOS.ARM_M-Series.zip" "ClipCascade-Apple_macOS.Intel-Series.zip")
 fi
 # Linux package is built fresh if EITHER linux variant bumped; carry over only
 # when neither was bumped.
@@ -53,12 +53,11 @@ fi
 echo "Assets to carry over: ${CARRY_OVER[*]}"
 
 PREV_TAG=$(gh release list --limit 50 --json tagName,isDraft \
-  --jq '[.[] | select(.isDraft==false) | .tagName] | map(select(startswith("v"))) | .[0]' \
-  || true)
+  --jq '[.[] | select(.isDraft==false) | .tagName] | map(select(startswith("v"))) | .[0]')
 
 if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "null" ]; then
-  echo "No previous release found — skipping carry-over (bootstrap mode)."
-  exit 0
+  echo "::error::No previous release found for required carry-over assets: ${CARRY_OVER[*]}. Build all platforms for the first release." >&2
+  exit 1
 fi
 
 echo "Carrying assets from previous release: $PREV_TAG"
@@ -68,10 +67,25 @@ for a in "${CARRY_OVER[@]}"; do
   PATTERNS+=("--pattern" "$a")
 done
 
-gh release download "$PREV_TAG" \
+if ! gh release download "$PREV_TAG" \
   --dir "$OUT_DIR" \
-  "${PATTERNS[@]}" \
-  || echo "Note: some patterns matched no assets (acceptable for bootstrap)."
+  "${PATTERNS[@]}"; then
+  echo "::error::Failed to download required carry-over assets from $PREV_TAG." >&2
+  exit 1
+fi
+
+# gh can succeed when only some patterns match. Verify every expected file
+# before allowing the workflow to compose notes or publish a release.
+missing=0
+for a in "${CARRY_OVER[@]}"; do
+  if [ ! -s "$OUT_DIR/$a" ]; then
+    echo "::error::Missing or empty carry-over asset from $PREV_TAG: $a" >&2
+    missing=1
+  fi
+done
+if [ "$missing" -ne 0 ]; then
+  exit 1
+fi
 
 echo "Carried-over assets:"
 ls -la "$OUT_DIR" || true
