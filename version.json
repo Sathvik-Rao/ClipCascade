@@ -1,7 +1,7 @@
 {
-  "release": "3.3.0",
+  "release": "3.3.1",
   "android": "3.3.0",
-  "windows": "3.3.0",
+  "windows": "3.3.1",
   "linux_gui": "3.3.0",
   "linux_non_gui": "3.3.0",
   "macos": "3.3.0",
