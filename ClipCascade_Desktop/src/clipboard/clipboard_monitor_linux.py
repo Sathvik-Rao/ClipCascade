@@ -370,20 +370,10 @@ def execute_command(*args) -> tuple:
         return (False, error.decode())
 
 
-def is_x_clipboard_owner():
-    # Check if the X clipboard is owned by the current user
-    return execute_command("xclip", "-selection", "clipboard", "-t", "TARGETS", "-o")[0]
-
-
 def _start_clipboard_polling(enable_image_monitoring, enable_file_monitoring):
     if XMODE:
-        x_clipboard_owner = is_x_clipboard_owner()
-        if not x_clipboard_owner:
-            logging.warning(
-                "x-clip is not owned by the current user. Switching to wl-clipboard."
-            )
         _monitor_x_wl_clipboard(
-            x_mode=x_clipboard_owner,
+            x_mode=XMODE,
             enable_image_monitoring=enable_image_monitoring,
             enable_file_monitoring=enable_file_monitoring,
         )
