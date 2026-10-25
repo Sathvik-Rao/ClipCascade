@@ -129,7 +129,7 @@ class TaskbarPanel:
         menu_items = [
             "",  # Menu Separator
             ("🗒️  Open Logs", self._open_logs),
-            ("📂 Program Files", self._open_program_location),
+            ("📂 Config Files", self._open_program_location),
             "",  # Menu Separator
             ("🏠 Homepage", self._open_homepage),
             ("❓ Help", self._open_help),
@@ -293,7 +293,10 @@ class TaskbarPanel:
             subprocess.run(["xdg-open", path])
 
     def _open_logs(self):
-        log_file_path = os.path.join(get_program_files_directory(), LOG_FILE_NAME)
+        if PLATFORM.startswith(LINUX):
+            log_file_path = os.path.join(get_user_cache_directory(), LOG_FILE_NAME)
+        else:
+            log_file_path = os.path.join(get_program_files_directory(), LOG_FILE_NAME)
         if os.path.exists(log_file_path):
             try:
                 self.open_location(log_file_path)
@@ -309,7 +312,10 @@ class TaskbarPanel:
 
     def _open_program_location(self):
         try:
-            program_location = get_program_files_directory()
+            if PLATFORM.startswith(LINUX):
+                program_location = get_user_config_directory()
+            else:
+                program_location = get_program_files_directory()
             self.open_location(program_location)
         except Exception as e:
             CustomDialog(
