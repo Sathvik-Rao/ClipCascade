@@ -1,0 +1,71 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --surface: #f4f6f8;
+  --border: #dde1e6;
+  --text: #1b1f24;
+  --muted: #5f6873;
+  --accent: #2563eb;
+  --accent-text: #ffffff;
+  --ok: #188038;
+  --warn: #b06000;
+  --err: #c5221f;
+  --radius: 8px;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f2124;
+    --surface: #2a2d31;
+    --border: #3c4046;
+    --text: #e8eaed;
+    --muted: #9aa0a6;
+    --accent: #6c9cff;
+    --accent-text: #0b1220;
+    --ok: #81c995;
+    --warn: #fdd663;
+    --err: #f28b82;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+[hidden] { display: none !important; }
+h1 { font-size: 15px; margin: 0; font-weight: 600; }
+h2 { font-size: 12px; margin: 0 0 8px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+a { color: var(--accent); }
+label { display: block; }
+.field { margin-bottom: 10px; }
+.field > span { display: block; margin-bottom: 4px; color: var(--muted); }
+input[type="text"], input[type="url"], input[type="password"], input[type="number"], textarea {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input:disabled { opacity: .6; }
+textarea { resize: vertical; min-height: 56px; }
+.check { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
+.check input { margin: 2px 0 0; }
+.check small { display: block; color: var(--muted); }
+button {
+  font: inherit;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+button.link { border: 0; background: none; padding: 0; color: var(--accent); }
+button:disabled { opacity: .55; cursor: default; }
+.row { display: flex; gap: 8px; align-items: center; }
+.grow { flex: 1; min-width: 0; }
+.muted { color: var(--muted); }
+.error { color: var(--err); margin: 8px 0 0; }
+.error:empty { display: none; }
+details > summary { cursor: pointer; color: var(--muted); margin-bottom: 8px; }

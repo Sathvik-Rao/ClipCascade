@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ClipCascade settings</title>
+    <link rel="stylesheet" href="/src/ui/style.css" />
+    <link rel="stylesheet" href="/src/options/options.css" />
+  </head>
+  <body>
+    <main>
+      <header class="row">
+        <img src="/icons/icon48.png" width="32" height="32" alt="" />
+        <h1 class="grow">ClipCascade settings</h1>
+        <span class="muted" id="saved" aria-live="polite"></span>
+      </header>
+
+      <form id="settings">
+        <section>
+          <h2>Syncing</h2>
+          <label class="check"><input name="captureBrowserCopies" type="checkbox" />
+            <span>Sync what I copy in web pages<small>Reads the clipboard right after a copy or cut in any tab.</small></span>
+          </label>
+          <label class="check"><input name="pollSystemClipboard" type="checkbox" />
+            <span>Sync copies from other apps too<small>Checks the system clipboard on an interval, like the desktop app. Skip this if the desktop app runs on this computer.</small></span>
+          </label>
+          <label class="field narrow"><span>Check interval (ms)</span>
+            <input name="pollIntervalMs" type="number" min="250" step="250" />
+          </label>
+        </section>
+
+        <section>
+          <h2>Receiving</h2>
+          <label class="check"><input name="autoCopyReceived" type="checkbox" />
+            <span>Copy received text to the clipboard<small>Images and files wait in the popup, where you can copy or save them.</small></span>
+          </label>
+          <label class="check"><input name="notifications" type="checkbox" />
+            <span>Show notifications</span>
+          </label>
+        </section>
+
+        <section>
+          <h2>Account</h2>
+          <label class="check"><input name="rememberMe" type="checkbox" />
+            <span>Stay signed in after the browser restarts<small>Stores the login hash and the encryption key (never your password) in this browser profile.</small></span>
+          </label>
+          <p class="muted" id="lockedNote">Server and encryption settings can be changed while signed out, from the sign-in form.</p>
+          <label class="field"><span>Server URL</span><input name="serverUrl" type="url" /></label>
+          <label class="check"><input name="encryption" type="checkbox" />
+            <span>End-to-end encryption<small>Must match your other devices.</small></span>
+          </label>
+          <div class="row">
+            <label class="field grow"><span>Hash rounds</span><input name="hashRounds" type="number" min="1" /></label>
+            <label class="field grow"><span>Salt</span><input name="salt" type="text" /></label>
+          </div>
+        </section>
+
+        <section>
+          <h2>Keyboard shortcut</h2>
+          <p class="muted">
+            <kbd id="shortcut">Not set</kbd> sends the current clipboard.
+            <button type="button" class="link" id="editShortcuts">Change shortcut</button>
+          </p>
+        </section>
+        <p class="error" id="error"></p>
+      </form>
+    </main>
+    <script type="module" src="/src/options/index.ts"></script>
+  </body>
+</html>

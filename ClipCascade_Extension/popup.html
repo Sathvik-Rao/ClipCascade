@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>ClipCascade</title>
+    <link rel="stylesheet" href="/src/ui/style.css" />
+    <link rel="stylesheet" href="/src/popup/popup.css" />
+  </head>
+  <body>
+    <header class="row">
+      <img src="/icons/icon32.png" width="20" height="20" alt="" />
+      <h1 class="grow">ClipCascade</h1>
+      <span id="status" class="pill"></span>
+    </header>
+
+    <form id="login" hidden>
+      <label class="field"><span>Server URL</span>
+        <input name="serverUrl" type="url" placeholder="https://clipcascade.example.com" required />
+      </label>
+      <label class="field"><span>Username</span>
+        <input name="username" type="text" autocomplete="username" required />
+      </label>
+      <label class="field"><span>Password</span>
+        <input name="password" type="password" autocomplete="current-password" required />
+      </label>
+      <label class="check"><input name="rememberMe" type="checkbox" />
+        <span>Stay signed in after the browser restarts</span>
+      </label>
+      <details>
+        <summary>Encryption</summary>
+        <label class="check"><input name="encryption" type="checkbox" />
+          <span>End-to-end encryption<small>Must match your other devices.</small></span>
+        </label>
+        <div class="row">
+          <label class="field grow"><span>Hash rounds</span><input name="hashRounds" type="number" min="1" /></label>
+          <label class="field grow"><span>Salt</span><input name="salt" type="text" /></label>
+        </div>
+      </details>
+      <button class="primary wide" type="submit">Sign in</button>
+      <p class="error" data-error></p>
+    </form>
+
+    <main id="main" hidden>
+      <div class="row account">
+        <span class="grow muted" id="account"></span>
+        <button class="link" id="signOut" type="button">Sign out</button>
+      </div>
+      <p class="error" data-error></p>
+      <button id="reconnect" type="button" class="wide" hidden>Reconnect now</button>
+
+      <section class="card">
+        <label class="check"><input id="captureBrowserCopies" type="checkbox" />
+          <span>Sync what I copy in web pages</span>
+        </label>
+        <label class="check"><input id="pollSystemClipboard" type="checkbox" />
+          <span>Sync copies from other apps too<small>Checks the clipboard every second.</small></span>
+        </label>
+      </section>
+
+      <form id="compose" class="card">
+        <textarea id="composeText" placeholder="Type or paste text to send" rows="2"></textarea>
+        <div class="row">
+          <button type="submit" class="primary">Send</button>
+          <button type="button" id="sendClipboard">Send clipboard</button>
+          <span class="grow"></span>
+          <span class="muted" id="composeStatus" aria-live="polite"></span>
+        </div>
+      </form>
+
+      <section>
+        <div class="row">
+          <h2 class="grow">Recent</h2>
+          <button class="link" id="clearHistory" type="button">Clear</button>
+        </div>
+        <ul id="history"></ul>
+        <p id="historyEmpty" class="muted">Nothing synced yet.</p>
+      </section>
+    </main>
+
+    <footer class="row">
+      <span class="grow"></span>
+      <button class="link" id="openOptions" type="button">Settings</button>
+    </footer>
+    <script type="module" src="/src/popup/index.ts"></script>
+  </body>
+</html>
