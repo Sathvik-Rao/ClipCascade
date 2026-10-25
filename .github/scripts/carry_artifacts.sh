@@ -31,7 +31,7 @@ if ! is_bumped windows; then
   CARRY_OVER+=("ClipCascade.exe" "ClipCascade.msi")
 fi
 if ! is_bumped macos; then
-  CARRY_OVER+=("ClipCascade-Apple_macOS(ARM_M-Series).zip" "ClipCascade-Apple_macOS(Intel-Series).zip")
+  CARRY_OVER+=("ClipCascade-Apple_macOS.ARM_M-Series.zip" "ClipCascade-Apple_macOS.Intel-Series.zip")
 fi
 # Linux package is built fresh if EITHER linux variant bumped; carry over only
 # when neither was bumped.

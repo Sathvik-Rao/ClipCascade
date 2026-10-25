@@ -291,8 +291,8 @@ To install the ClipCascade macOS desktop application, follow these steps:
 
 1. **Download the Application**
     - Visit the [Releases page](https://github.com/Sathvik-Rao/ClipCascade/releases) and download the appropriate version:
-      - **For M-series chips** (Apple Silicon), download `ClipCascade-Apple_macOS(ARM_M-Series).zip`.
-      - **For Intel chips**, download `ClipCascade-Apple_macOS(Intel-Series).zip`.
+      - **For M-series chips** (Apple Silicon), download `ClipCascade-Apple_macOS.ARM_M-Series.zip`.
+      - **For Intel chips**, download `ClipCascade-Apple_macOS.Intel-Series.zip`.
     - You can check your chip type by navigating to **Apple Menu** → **About This Mac**.
    
 2. **Extract the Archive**

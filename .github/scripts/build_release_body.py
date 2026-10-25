@@ -37,8 +37,8 @@ BODY_TEMPLATE = """# 🚀 ClipCascade v{version} Release
 | Platform              | File Name               |
 |-----------------------|-------------------------|
 | **Windows**           | Installer (`ClipCascade.msi`), Portable/Standalone Executable (`ClipCascade.exe`)—No startup option   |
-| **macOS (Apple Silicon)** | `ClipCascade-Apple_macOS(ARM_M-Series).zip` |
-| **macOS (Intel)**      | `ClipCascade-Apple_macOS(Intel-Series).zip` |
+| **macOS (Apple Silicon)** | `ClipCascade-Apple_macOS.ARM_M-Series.zip` |
+| **macOS (Intel)**      | `ClipCascade-Apple_macOS.Intel-Series.zip` |
 | **Android**           | `ClipCascade.apk`       |
 | **Linux (GUI/CLI)**   | `ClipCascade_Linux.zip` / `ClipCascade_Linux.tar.xz` |
 | **Docker**            | `docker-compose.yml`    |

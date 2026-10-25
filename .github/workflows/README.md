@@ -194,8 +194,8 @@ The `macos` scope builds two native packages with the same macOS version:
 
 | Processor | GitHub runner | Archive |
 |---|---|---|
-| Apple Silicon | `macos-15` (`arm64`) | `ClipCascade-Apple_macOS(ARM_M-Series).zip` |
-| Intel | `macos-15-intel` (`x86_64`) | `ClipCascade-Apple_macOS(Intel-Series).zip` |
+| Apple Silicon | `macos-15` (`arm64`) | `ClipCascade-Apple_macOS.ARM_M-Series.zip` |
+| Intel | `macos-15-intel` (`x86_64`) | `ClipCascade-Apple_macOS.Intel-Series.zip` |
 
 Both architectures use exactly **Python 3.12.10** from the signed python.org
 universal2 installer, which bundles **Tcl/Tk 8.6.16**. Each runner creates a
