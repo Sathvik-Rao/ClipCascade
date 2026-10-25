@@ -575,6 +575,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: built-artifacts
+          pattern: "!*.dockerbuild"
 
       - name: Flatten artifacts into ./release-assets
         run: |
