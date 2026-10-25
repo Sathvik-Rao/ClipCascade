@@ -43,6 +43,8 @@
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/Sathvik-Rao/ClipCascade" />
 
     <!-- =================== Directory layout =================== -->
+    <!-- Default outside Program Files so the app can write its runtime files. -->
+    <Property Id="APPDIR" Value="C:\ClipCascade" Secure="yes" />
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="APPDIR" Name="ClipCascade" />
