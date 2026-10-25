@@ -196,8 +196,11 @@ jobs:
           $version = '${{ fromJSON(needs.prep.outputs.versions).windows }}'
           $stage = $env:STAGE
           $wxs = "ClipCascade_Desktop/installer/windows/ClipCascade.wxs"
-          candle.exe -arch x64 -dProductVersion=$version -dStagingDir=$stage $wxs -out installer.wixobj
+          candle.exe -arch x64 "-dProductVersion=$version" "-dStagingDir=$stage" $wxs -out installer.wixobj
+          if ($LASTEXITCODE -ne 0) { throw "WiX compilation failed with exit code $LASTEXITCODE" }
           light.exe  -ext WixUIExtension installer.wixobj -out ClipCascade.msi
+          if ($LASTEXITCODE -ne 0) { throw "WiX linking failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path 'ClipCascade.msi')) { throw "WiX did not produce ClipCascade.msi" }
           Write-Host "Built: ClipCascade.msi"
 
       - name: Copy raw EXE alongside MSI
@@ -310,7 +313,7 @@ jobs:
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
-          lipo -verify_arch "$EXPECTED_ARCH" ClipCascade_Desktop/src/dist/ClipCascade.app/Contents/MacOS/ClipCascade
+          lipo ClipCascade_Desktop/src/dist/ClipCascade.app/Contents/MacOS/ClipCascade -verify_arch "$EXPECTED_ARCH"
 
       - name: Test packaged native dependencies
         timeout-minutes: 6

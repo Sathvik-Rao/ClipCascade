@@ -167,9 +167,13 @@ remains unchanged. Retrying the release job repeats promotion using the original
 server image digest, then finishes the announcement.
 Finalization refuses to overwrite public versions changed by another release.
 
-Build jobs still check out `main`, so a non-releasing repair can be merged before
-retrying a failed build. Resolve failed releases before merging another releasing
-change; the pending versions belong to the original run, not the latest source.
+Build jobs still check out `main`, so a non-releasing source or packaging-script
+repair (`ci: ...`) can be merged before retrying a failed build. However, reruns
+reuse the original run's workflow definition: changes inside `release.yml` require
+a new run and are not picked up by rerunning the old run.
+
+Resolve failed releases before merging unrelated releasing changes; the pending
+versions belong to the original run, not the latest source.
 
 ### Carry-over (full snapshot every release)
 
