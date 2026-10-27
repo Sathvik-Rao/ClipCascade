@@ -1,0 +1,10 @@
+# Use instead of a bundled proxy overlay when your proxy is another container.
+services:
+  clipcascade:
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:?Set PROXY_NETWORK to your existing proxy network}

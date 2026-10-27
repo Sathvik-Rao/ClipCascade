@@ -18,6 +18,7 @@ import {
 } from 'react-native-webrtc';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {checkForUpdates} from './UpdateChecker';
+import {webSocketErrorMessage, webSocketCloseMessage} from './WebSocketStatus';
 
 import {
   setDataInAsyncStorage,
@@ -498,15 +499,14 @@ module.exports = async (inputData = null) => {
               block_image_once = false;
               await setDataInAsyncStorage(
                 'wsStatusMessage',
-                '❌ WebSocket Error: ' + JSON.stringify(event, null, 2),
+                webSocketErrorMessage(event),
               );
             },
             onWebSocketClose: async event => {
               block_image_once = false;
-              const reason = event?.reason || 'closed by client';
               await setDataInAsyncStorage(
                 'wsStatusMessage',
-                `⚠️ WebSocket Close: ${reason}`,
+                webSocketCloseMessage(event),
               );
               if (
                 enable_websocket_status_notification === 'true' &&
@@ -859,16 +859,15 @@ module.exports = async (inputData = null) => {
                 block_image_once = false;
                 await setDataInAsyncStorage(
                   'wsStatusMessage',
-                  '❌ WebSocket Error: ' + JSON.stringify(event, null, 2),
+                  webSocketErrorMessage(event),
                 );
               };
 
               wsSignalingClient.onclose = async event => {
                 block_image_once = false;
-                const reason = event?.reason || 'closed by client';
                 await setDataInAsyncStorage(
                   'wsStatusMessage',
-                  '⚠️ WebSocket Close: ' + reason,
+                  webSocketCloseMessage(event),
                 );
                 if (
                   enable_websocket_status_notification === 'true' &&

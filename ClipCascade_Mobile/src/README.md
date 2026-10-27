@@ -1,5 +1,10 @@
 This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
 
+For self-hosted HTTPS servers, use the [reverse-proxy setup guide](../../ClipCascade_Server/reverse-proxy/README.md).
+Enter the final public server URL in the Android app, including a custom port when
+used. Both HTTPS login and the authenticated WebSocket must work. On an emulator
+or phone, `localhost` refers to that device, not the computer running your server.
+
 # Getting Started
 
 > **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.

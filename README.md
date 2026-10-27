@@ -147,7 +147,7 @@ To deploy the ClipCascade server on any operating system that supports Java 21 o
     | Variable                     | Description                                                                                          | Default Value     | Example                           |
     |------------------------------|------------------------------------------------------------------------------------------------------|-------------------|-----------------------------------|
     | `CC_MAX_MESSAGE_SIZE_IN_MiB` | Defines the maximum allowed message size in MiB. Ignored if `CC_P2P_ENABLED` is set to `true`.       | `1`               | `3`                               |
-    | `CC_ALLOWED_ORIGINS`         | Specifies the allowed CORS origins for secure cross-origin access.                                   | `*`               | `https://clipcascade.example.com` |
+    | `CC_ALLOWED_ORIGINS`         | Specifies the allowed WebSocket origin (not general HTTP CORS).                                     | `*`               | `https://clipcascade.example.com` |
     | `CC_P2P_ENABLED`             | Enables or disables peer-to-peer mode. When enabled, `CC_MAX_MESSAGE_SIZE_IN_MiB` is ignored.        | `false`           | `true`                            |
     | `CC_SIGNUP_ENABLED`          | Allows or restricts user self-registration.                                                          | `false`           | `false`                           |
     | `CC_PORT`                    | Specifies the port on which the server listens for incoming connections.                             | `8080`            | `1234`                            |
@@ -208,10 +208,12 @@ To host ClipCascade on your server using Docker, follow these steps:
         environment:
           - CC_MAX_MESSAGE_SIZE_IN_MiB=1   # Maximum message size in MiB (ignored if P2P mode is enabled)
           - CC_P2P_ENABLED=false  # Enables or disables peer-to-peer(P2P) mode
-          # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com  # Defines allowed CORS origins for security
+          # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com  # Restricts the WebSocket origin
           # - CC_SIGNUP_ENABLED=false  # Enables or disables user self-registration
    ```
     
+   For HTTPS with Nginx, Traefik, Caddy, or Nginx Proxy Manager, use the [reverse-proxy setups](ClipCascade_Server/reverse-proxy/README.md).
+
    For additional `.yml` configuration files, visit [ClipCascade Server Docker Configuration](https://github.com/Sathvik-Rao/ClipCascade/tree/main/ClipCascade_Server/docker-compose).
   
 2. Deploy the Docker Container
@@ -734,11 +736,11 @@ You can use a public STUN server or host your own.
 <tr>
 <td>CC_ALLOWED_ORIGINS</td>
 <td>
-Specifies which domain is permitted to access the WebSocket server (CORS policy).
+Specifies the exact origin permitted to access the WebSocket server. This is a WebSocket origin check, not general HTTP CORS configuration.
 <br><br>
 <strong>Security Note:</strong><br>
 - Leaving this unset allows all origins (not recommended for security-sensitive deployments).<br>
-- To restrict access, specify your domain (e.g., <code>https://clipcascade.example.com</code>).
+- To restrict access, specify the public origin (e.g., <code>https://clipcascade.example.com</code>); include a nonstandard port, such as <code>:8743</code>.
 </td>
 <td>*</td>
 </tr>
@@ -1274,48 +1276,47 @@ reconnection, and working examples with an interoperability checklist.
 
 ## ⇄ Reverse Proxy Setup
 
-Below is a screenshot demonstrating how to configure a reverse proxy using **Cloudflare Tunnels**. Similar configurations can be applied with other providers as well.
+See the [reverse-proxy configuration examples](ClipCascade_Server/reverse-proxy/README.md)
+for **Nginx, Traefik, Caddy, and Nginx Proxy Manager**. The examples stay in the
+repository and include Compose files, certificate setup, custom HTTPS ports, and
+a login/WebSocket connection checker. They have been checked locally, but need
+validation with your own network, certificates, and client devices before deployment.
+
+Clients need both HTTPS for login/API calls and WSS for live synchronization.
+Loading the website does not prove the authenticated WebSocket works. Enter the
+final public server URL in every client, including a custom port when used
+(e.g. `https://clipboard.example.com:8743`), without `/login` or a path prefix.
+
+When TLS ends at the proxy, configure the **ClipCascade server** with
+`SERVER_FORWARD_HEADERS_STRATEGY=framework`. Configure the **proxy** to forward the
+original scheme, hostname, and public port, and support both `/clipsocket` (P2S)
+and `/p2psignaling` (P2P). The bundled setups do this together. Keep a backend that
+trusts forwarded headers accessible only through trusted proxies.
+
+See the guide's [troubleshooting table](ClipCascade_Server/reverse-proxy/README.md#troubleshooting-reports)
+for cookies, redirects, TLS, origin checks, session loss after restart, and
+WebSocket disconnects. P2P data travels directly between clients; a working HTTPS
+proxy does not guarantee direct WebRTC connectivity.
+
+The screenshots below show a **Cloudflare Tunnel** configuration and the desktop
+login form. See the guide above for the corresponding server forwarding settings.
 
 <img src="https://github.com/user-attachments/assets/0f45879f-307a-4f5f-9f26-ca5d3de7b1cf" alt="Reverse Proxy web" width="600" />
 
 <img src="https://github.com/user-attachments/assets/5cdca092-8d6b-4b3e-ac2b-fb10390a4ca2" alt="login form desktop" width="400" />
 
-### Note:
-For other providers, you may need to configure HTTP to HTTPS redirection manually by adding a permanent redirection rule.
-
-Example: Caddy Configuration
-```
-http://clipcascade.sample.com {
-	redir https://clipcascade.sample.com{uri} permanent
-}
-```
-
-### Note:
-Additionally, it might be helpful to mention that the server uses WebSockets (ws/wss) for live clipboard broadcasting. In most cases, no extra configuration is needed for WebSockets since they typically rely on an HTTP switching protocol. Most providers will support WebSocket connections out of the box, without requiring additional setup. Example: `ws://localhost:8080/clipsocket`, `ws://localhost:8080/p2psignaling`.
-
-
 ## 🔓 SSO Proxy Bypass Rules
 
-When fronting ClipCascade with an SSO proxy (Auth0, Keycloak, etc.), you’ll need to exempt both the unauthenticated HTTP URLs _and_ the raw-WebSocket handshake endpoints. Add these rules to your proxy’s “bypass” or “whitelist” list:
+Native clients use ClipCascade's own username/password and session cookies. They
+cannot complete an external browser-only SSO/MFA or bot-challenge page. Exempting
+only `/login` and the WebSocket endpoints is insufficient because clients also
+call authenticated API routes and follow the login redirect to `/`.
 
-#### HTTP(S) endpoints
-```
-/login
-/logout
-/signup
-/captcha
-/help
-/donate
-/health
-/ping
-/assets/**
-```
-
-#### WebSocket handshake endpoints
-```
-/p2psignaling   # P2P mode
-/clipsocket     # P2S mode
-```
+Use a dedicated client hostname that bypasses the external authentication layer
+for the whole ClipCascade application, while retaining ClipCascade's own login
+and network access controls. Keep an SSO-protected browser hostname separate.
+See [SSO and Cloudflare guidance](ClipCascade_Server/reverse-proxy/README.md#browser-sso-cloudflare-and-network-boundaries)
+and the [API guide](ClipCascade_Server/API.md) before applying route-specific rules.
 
 ## 🔧 Usage
 

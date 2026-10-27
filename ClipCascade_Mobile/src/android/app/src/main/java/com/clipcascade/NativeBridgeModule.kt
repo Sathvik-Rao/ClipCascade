@@ -8,6 +8,7 @@ import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.Promise
 import androidx.work.WorkManager
 import android.webkit.CookieManager
+import com.facebook.react.bridge.UiThreadUtil
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.Base64
@@ -36,13 +37,21 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
     @ReactMethod
     fun clearCookies(promise: Promise) {
-        try {
-            val cookieManager = CookieManager.getInstance()
-            cookieManager.removeAllCookies(null)
-            cookieManager.flush()
-            promise.resolve("Cookies cleared successfully!")
-        } catch (e: Exception) {
-            promise.reject("COOKIE_ERROR", "Failed to clear cookies", e)
+        // The callback requires a Looper. Do not start login until removal finishes.
+        UiThreadUtil.runOnUiThread {
+            try {
+                val cookieManager = CookieManager.getInstance()
+                cookieManager.removeAllCookies {
+                    try {
+                        cookieManager.flush()
+                        promise.resolve("Cookies cleared successfully!")
+                    } catch (e: Exception) {
+                        promise.reject("COOKIE_ERROR", "Failed to clear cookies", e)
+                    }
+                }
+            } catch (e: Exception) {
+                promise.reject("COOKIE_ERROR", "Failed to clear cookies", e)
+            }
         }
     }
     

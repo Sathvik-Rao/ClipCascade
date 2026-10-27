@@ -1,0 +1,28 @@
+services:
+  nginx:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    depends_on:
+      - clipcascade
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+      HTTPS_PORT: ${HTTPS_PORT:-443}
+      # Preserve Nginx's own $variables when rendering the template.
+      NGINX_ENVSUBST_FILTER: "^(DOMAIN|HTTPS_PORT)$"
+    volumes:
+      - ./nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - type: bind
+        source: ${NGINX_CERT_DIR:-./certs}
+        target: /etc/nginx/certs
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - backend
+      - edge
+
+networks:
+  edge:

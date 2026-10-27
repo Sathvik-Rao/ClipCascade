@@ -1,0 +1,5 @@
+.env
+certs/
+cc_users/
+letsencrypt/
+.venv/

@@ -41,6 +41,7 @@ import {
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
+import {authenticateSession} from './LoginSession';
 import {APP_VERSION} from './AppVersion';
 import {
   checkForUpdates, presentUpdate, setUpdateFocused, subscribeToUpdates,
@@ -81,6 +82,8 @@ const isCancel = error =>
  * (file) HeadlessTask.js
  * (file) index.js
  * (file) StartForegroundService.js
+ * (file) LoginSession.js
+ * (file) WebSocketStatus.js
  * (file) DevicePreferences.js
  * (file) AppVersion.js
  * (file) UpdateChecker.js
@@ -119,7 +122,6 @@ export default function App() {
   // Constants
   const MAX_LOGIN_AUTO_RETRY = 3; // Retry login attempts
   const FETCH_TIMEOUT = 5000; // 5 seconds
-  const LOGIN_URL = '/login';
   const LOGOUT_URL = '/logout';
   const MAXSIZE_URL = '/max-size';
   const CSRF_URL = '/csrf-token';
@@ -317,11 +319,14 @@ export default function App() {
           }
           if (!foregroundServiceIsActive) {
             wsIsRunning_s = 'false';
+            // A killed process cannot clear its saved status during shutdown.
+            // Stop polling the stale messages before clearing storage and UI.
+            await setDataInAsyncStorage('wsIsRunning', 'false');
+            await setDataInAsyncStorage('wsStatusMessage', '');
+            await setDataInAsyncStorage('p2pStatusMessage', '');
+            setWsPageMessage('');
+            setWsPageP2PMessage('');
             await clearFiles();
-            await setDataInAsyncStorage(
-              'wsStatusMessage',
-              '⚠️ Foreground service stopped running',
-            );
           }
         }
         setWsIsRunning(wsIsRunning_s);
@@ -490,72 +495,23 @@ export default function App() {
   // Login
   const login = async (data_s, password_s) => {
     try {
-      // 1. Fetch the login page to get CSRF token and initial cookie
-      const loginPageResponse = await fetchTimeout(
-        data_s.server_url + LOGIN_URL,
-        {
-          method: 'GET',
+      const authentication = await authenticateSession({
+        fetchRequest: fetchTimeout,
+        serverUrl: data_s.server_url,
+        username: data_s.username,
+        password: password_s,
+        parseCsrfToken: html => {
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+          const inputs = doc.getElementsByTagName('input');
+          for (let i = 0; i < inputs.length; i++) {
+            if (inputs[i].getAttribute('name') === '_csrf') {
+              return inputs[i].getAttribute('value');
+            }
+          }
+          return '';
         },
-      );
-
-      if (!loginPageResponse.ok) {
-        const msg = `Failed to fetch login page: ${loginPageResponse.status}`;
-        return [false, msg, data_s];
-      }
-
-      // parse HTML to get _csrf using react-native-html-parser
-      const htmlText = await loginPageResponse.text();
-
-      // Create a new DOM Parser instance
-      const parser = new DOMParser();
-      // Parse HTML
-      const doc = parser.parseFromString(htmlText, 'text/html');
-
-      // Find <input> elements and look for name="_csrf"
-      const inputElements = doc.getElementsByTagName('input');
-      let csrfToken = '';
-
-      for (let i = 0; i < inputElements.length; i++) {
-        const nameAttr = inputElements[i].getAttribute('name');
-        if (nameAttr === '_csrf') {
-          csrfToken = inputElements[i].getAttribute('value');
-          break;
-        }
-      }
-
-      if (csrfToken === '') {
-        return [false, 'No CSRF token found in login page', data_s];
-      }
-
-      // 2. Retrieve the cookie(s) from the "Set-Cookie" header
-      const setCookieHeader = loginPageResponse.headers.get('set-cookie');
-      if (!setCookieHeader) {
-        return [false, 'No Set-Cookie header returned from login page', null];
-      }
-
-      // 3. Prepare form data with the credentials AND the CSRF token
-      const formData = new URLSearchParams();
-      formData.append('username', data_s.username);
-      formData.append('password', password_s);
-      formData.append('_csrf', csrfToken);
-
-      // 4. Send a POST request to the login URL with cookies + form data
-      const loginResponse = await fetchTimeout(data_s.server_url + LOGIN_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          Cookie: setCookieHeader, // Include the cookies from the initial GET
-        },
-        body: formData.toString(),
       });
-
-      const loginResponseText = await loginResponse.text();
-
-      // 5. Check for login success
-      if (
-        loginResponse.ok &&
-        !loginResponseText.toLowerCase().includes('bad credentials')
-      ) {
+      if (authentication.ok) {
         // get CSRF token
         data_s.csrf_token = await getCSRFToken(data_s);
 
@@ -645,9 +601,9 @@ export default function App() {
           data_s.hashed_password = hashResult[1].toString('base64');
         }
 
-        return [true, 'Login successful: ' + loginResponse.status, data_s];
+        return [true, 'Login successful: ' + authentication.status, data_s];
       } else {
-        return [false, 'Login failed: ' + loginResponse.status, data_s];
+        return [false, authentication.message, data_s];
       }
     } catch (error) {
       if (error.name === 'AbortError') {
