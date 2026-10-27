@@ -127,6 +127,14 @@ function compareReleaseVersions(latest, installed) {
          ============  ON DOCUMENT READY  =========
          ----------------------------------------- */
 $(function () {
+  // Keep navigation usable before the account requests have completed.
+  const navigationToggle = document.getElementById("navigation-toggle");
+  navigationToggle.addEventListener("click", () => {
+    const expanded = navigationToggle.getAttribute("aria-expanded") !== "true";
+    navigationToggle.setAttribute("aria-expanded", String(expanded));
+    document.getElementById("account-navigation").classList.toggle("is-open", expanded);
+  });
+
   // Prevent form submissions from reloading the page
   $("form").on("submit", (e) => e.preventDefault());
 
