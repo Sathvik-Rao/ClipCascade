@@ -3,6 +3,17 @@
 
   const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
   const root = document.documentElement;
+  const storageKey = "clipcascade-theme";
+  let savedTheme = null;
+
+  try {
+    const storedTheme = window.localStorage.getItem(storageKey);
+    if (storedTheme === "dark" || storedTheme === "light") {
+      savedTheme = storedTheme;
+    }
+  } catch (error) {
+    // Theme switching should still work when browser storage is unavailable.
+  }
 
   function applyTheme(dark) {
     root.setAttribute("data-bs-theme", dark ? "dark" : "light");
@@ -14,10 +25,12 @@
     }
   }
 
-  // Start fresh from the browser/OS preference on every page load.
-  applyTheme(systemTheme.matches);
+  // Follow the browser/OS preference until the user explicitly chooses a theme.
+  applyTheme(savedTheme ? savedTheme === "dark" : systemTheme.matches);
   function followSystem(event) {
-    applyTheme(event.matches);
+    if (!savedTheme) {
+      applyTheme(event.matches);
+    }
   }
   if (systemTheme.addEventListener) {
     systemTheme.addEventListener("change", followSystem);
@@ -29,7 +42,13 @@
     const toggle = document.getElementById("theme-toggle");
     if (toggle) {
       toggle.addEventListener("click", function () {
-        applyTheme(root.getAttribute("data-bs-theme") !== "dark");
+        savedTheme = root.getAttribute("data-bs-theme") === "dark" ? "light" : "dark";
+        applyTheme(savedTheme === "dark");
+        try {
+          window.localStorage.setItem(storageKey, savedTheme);
+        } catch (error) {
+          // Keep the manual choice for this page even if it cannot be saved.
+        }
       });
     }
     applyTheme(root.getAttribute("data-bs-theme") === "dark");
