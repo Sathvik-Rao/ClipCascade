@@ -114,6 +114,7 @@ export default function App() {
 
   const isMountedRef = useRef(true);
   const loginInProgressRef = useRef(false);
+  const foregroundServiceInProgressRef = useRef(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const [newVersionAvailable, setNewVersionAvailable] = useState([false, '']);
@@ -716,13 +717,15 @@ export default function App() {
 
   // Foreground service handler
   const foregroundService = async () => {
+    if (foregroundServiceInProgressRef.current) return;
+    foregroundServiceInProgressRef.current = true;
     try {
       if ((await getDataFromAsyncStorage('enableWSButton')) === 'true') {
         await setDataInAsyncStorage('enableWSButton', 'false');
         setWsPageMessage('');
         setWsPageP2PMessage('');
         await clearFiles();
-        wsIsRunning_s = wsIsRunning === 'true' ? 'false' : 'true'; // toggle
+        const wsIsRunning_s = wsIsRunning === 'true' ? 'false' : 'true'; // toggle
         await setDataInAsyncStorage('wsForegroundServiceTerminated', 'false');
         await setDataInAsyncStorage('wsIsRunning', wsIsRunning_s);
         if (wsIsRunning_s === 'true') {
@@ -751,7 +754,11 @@ export default function App() {
     } catch (error) {
       setWsPageMessage('❌ Error: ' + error);
     } finally {
-      await setDataInAsyncStorage('enableWSButton', 'true');
+      try {
+        await setDataInAsyncStorage('enableWSButton', 'true');
+      } finally {
+        foregroundServiceInProgressRef.current = false;
+      }
     }
   };
 

@@ -647,6 +647,8 @@ module.exports = async (inputData = null) => {
           let liveConnectionsCount = 0; // Track open DataChannels
           let pendingPeerList = null;
           let p2pShuttingDown = false;
+          let signalingStopped = false;
+          let signalingReconnectTimer = null;
           const peerOpChains = {};
           const dataChannelHeartbeatTimers = {};
           const P2P_DC_KEEPALIVE_JSON = JSON.stringify({ _cc_keepalive: true });
@@ -788,11 +790,16 @@ module.exports = async (inputData = null) => {
           }
 
           const initializeWebSocketSignalingClient = async () => {
-            if (wsSignalingClient == null) {
-              wsSignalingClient = new WebSocket(websocket_url);
+            if (!signalingStopped && wsSignalingClient == null) {
+              const socket = new WebSocket(websocket_url);
+              wsSignalingClient = socket;
+              const current = () =>
+                !signalingStopped && wsSignalingClient === socket;
 
-              wsSignalingClient.onopen = async () => {
+              socket.onopen = async () => {
+                if (!current()) return;
                 await cleanupPeerConnections();
+                if (!current()) return;
 
                 await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
 
@@ -810,7 +817,8 @@ module.exports = async (inputData = null) => {
                 }
               };
 
-              wsSignalingClient.onmessage = async event => {
+              socket.onmessage = async event => {
+                if (!current()) return;
                 try {
                   const data = JSON.parse(event.data);
                   switch (data.type) {
@@ -843,11 +851,13 @@ module.exports = async (inputData = null) => {
                       break;
                   }
 
+                  if (!current()) return;
                   await setDataInAsyncStorage(
                     'wsStatusMessage',
                     '✅ Connected',
                   );
                 } catch (e) {
+                  if (!current()) return;
                   await setDataInAsyncStorage(
                     'wsStatusMessage',
                     '❌ Inbound Error: ' + e,
@@ -855,7 +865,8 @@ module.exports = async (inputData = null) => {
                 }
               };
 
-              wsSignalingClient.onerror = async event => {
+              socket.onerror = async event => {
+                if (!current()) return;
                 block_image_once = false;
                 await setDataInAsyncStorage(
                   'wsStatusMessage',
@@ -863,16 +874,19 @@ module.exports = async (inputData = null) => {
                 );
               };
 
-              wsSignalingClient.onclose = async event => {
+              socket.onclose = async event => {
+                if (!current()) return;
                 block_image_once = false;
                 await setDataInAsyncStorage(
                   'wsStatusMessage',
                   webSocketCloseMessage(event),
                 );
+                if (!current()) return;
                 if (
                   enable_websocket_status_notification === 'true' &&
                   websocket_status_notification_toggle == false &&
-                  (await getDataFromAsyncStorage('wsIsRunning')) === 'true'
+                  (await getDataFromAsyncStorage('wsIsRunning')) === 'true' &&
+                  current()
                 ) {
                   websocket_status_notification_toggle = true;
                   await showWebSocketStatusNotification(
@@ -881,11 +895,17 @@ module.exports = async (inputData = null) => {
                   );
                 }
 
+                if (!current()) return;
                 wsSignalingClient = null;
-                setTimeout(async () => {
+                clearTimeout(signalingReconnectTimer);
+                signalingReconnectTimer = setTimeout(async () => {
+                  signalingReconnectTimer = null;
+                  if (signalingStopped || wsSignalingClient != null) return;
+                  const running = await getDataFromAsyncStorage('wsIsRunning');
                   if (
+                    !signalingStopped &&
                     wsSignalingClient == null &&
-                    (await getDataFromAsyncStorage('wsIsRunning')) === 'true'
+                    running === 'true'
                   ) {
                     initializeWebSocketSignalingClient();
                   }
@@ -1007,6 +1027,11 @@ module.exports = async (inputData = null) => {
 
           // stop events and connection P2P
           stopServicesP2P = async () => {
+            // This service must stay stopped even if a newer service sets the
+            // shared running flag back to true before an old retry completes.
+            signalingStopped = true;
+            clearTimeout(signalingReconnectTimer);
+            signalingReconnectTimer = null;
             // 1) Stop listening to clipboard events
             try {
               await ClipboardListener.stopListening();
