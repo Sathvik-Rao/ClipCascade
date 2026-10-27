@@ -1084,7 +1084,7 @@ Defines the STOMP broker password for external message handling.
 <tr>
   <td>CC_CAPTCHA_DIFFICULTY_PERCENT</td>
   <td>
-    Sets CAPTCHA difficulty from <code>0</code> (easiest) to <code>100</code> (hardest). Lower values reduce visual noise and distortion while retaining a basic challenge. Values outside this range are clamped to it.
+    Sets CAPTCHA difficulty from <code>0</code> (easiest) to <code>100</code> (hardest). Values are clamped to this range.
   </td>
   <td>100</td>
 </tr>

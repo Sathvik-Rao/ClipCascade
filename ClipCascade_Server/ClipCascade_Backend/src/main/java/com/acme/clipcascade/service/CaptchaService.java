@@ -1,13 +1,22 @@
 package com.acme.clipcascade.service;
 
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
-import java.awt.GraphicsEnvironment;
+import java.awt.FontFormatException;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.Shape;
+import java.awt.geom.AffineTransform;
+import java.awt.geom.QuadCurve2D;
+import java.awt.geom.Path2D;
+import java.awt.geom.PathIterator;
+import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Random;
+import java.io.IOException;
+import java.io.InputStream;
+import java.security.SecureRandom;
+import java.util.Locale;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -15,245 +24,181 @@ import org.springframework.stereotype.Service;
 import com.acme.clipcascade.config.ClipCascadeProperties;
 
 import cn.apiclub.captcha.Captcha;
-import cn.apiclub.captcha.text.producer.DefaultTextProducer;
-import cn.apiclub.captcha.text.renderer.DefaultWordRenderer;
-import cn.apiclub.captcha.backgrounds.*;
-import cn.apiclub.captcha.noise.*;
-import cn.apiclub.captcha.gimpy.*;
-
+import cn.apiclub.captcha.backgrounds.FlatColorBackgroundProducer;
 import jakarta.servlet.http.HttpSession;
 
 @Service
 public class CaptchaService {
+    // Avoid easily confused characters (0/O, 1/I/L) and use keyboard ASCII only.
+    private static final String CHARACTERS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    private static final Color INK = new Color(24, 40, 64);
+    private final SecureRandom random = new SecureRandom();
+    private final Font font;
+    private final int difficultyPercent;
 
-    private final Random RANDOM;
-    private final List<Font> FONTS;
-    private final List<Color> COLORS;
-    private final char[] SRC_CHARS;
-    private final List<BackgroundProducer> BACKGROUNDS;
-    private final List<NoiseProducer> NOISES;
-    private final List<GimpyRenderer> GIMPYS;
-    private final int DIFFICULTY_PERCENT;
+    public CaptchaService(@Autowired ClipCascadeProperties properties) {
+        difficultyPercent = properties.getCaptchaDifficultyPercent();
+        font = properties.isSignupEnabled() ? loadFont() : null;
+    }
 
-    public CaptchaService(@Autowired ClipCascadeProperties clipCascadeProperties) {
-
-        // This service is used only when signup is enabled
-        if (clipCascadeProperties.isSignupEnabled()) {
-            RANDOM = new Random();
-            FONTS = fonts();
-            COLORS = colors();
-            SRC_CHARS = generateCharArray();
-            BACKGROUNDS = bgProds();
-            NOISES = noiseProds();
-            GIMPYS = gimpyRends();
-            DIFFICULTY_PERCENT = clipCascadeProperties.getCaptchaDifficultyPercent();
-        } else {
-            RANDOM = null;
-            FONTS = null;
-            COLORS = null;
-            SRC_CHARS = null;
-            BACKGROUNDS = null;
-            NOISES = null;
-            GIMPYS = null;
-            DIFFICULTY_PERCENT = 100;
+    private static Font loadFont() {
+        // Never fall back to host fonts: symbol fonts and missing fonts made the
+        // same difficulty look completely different on different installations.
+        try (InputStream source = CaptchaService.class.getResourceAsStream("/captcha/RobotoMono.ttf")) {
+            if (source == null) {
+                throw new IllegalStateException("Bundled CAPTCHA font is missing");
+            }
+            Font result = Font.createFont(Font.TRUETYPE_FONT, source).deriveFont(Font.BOLD, 40f);
+            if (result.canDisplayUpTo(CHARACTERS) != -1) {
+                throw new IllegalStateException("Bundled CAPTCHA font does not support the character set");
+            }
+            return result;
+        } catch (IOException | FontFormatException e) {
+            throw new IllegalStateException("Unable to load bundled CAPTCHA font", e);
         }
     }
 
-    public BufferedImage generateCaptcha(
-            int width,
-            int height,
-            int minSizeOfCaptcha,
-            int maxSizeOfCaptcha,
-            HttpSession session,
-            String captchaSessionId,
-            boolean caseSensitive) {
-
-        // Create captcha
-        Captcha captcha = createCaptcha(
-                width,
-                height,
-                RANDOM.nextInt(maxSizeOfCaptcha - minSizeOfCaptcha + 1) + minSizeOfCaptcha);
-
-        // Get the answer
-        String answer = caseSensitive ? captcha.getAnswer() : captcha.getAnswer().toLowerCase();
-
-        // Store the answer in the session to validate later
-        session.setAttribute(captchaSessionId, answer);
-
-        // Return the image
+    public BufferedImage generateCaptcha(int width, int height, int minSizeOfCaptcha, int maxSizeOfCaptcha,
+            HttpSession session, String captchaSessionId, boolean caseSensitive) {
+        if (minSizeOfCaptcha < 1 || maxSizeOfCaptcha < minSizeOfCaptcha) {
+            throw new IllegalArgumentException("Invalid CAPTCHA length range");
+        }
+        Captcha captcha = createCaptcha(width, height,
+                random.nextInt(maxSizeOfCaptcha - minSizeOfCaptcha + 1) + minSizeOfCaptcha);
+        session.setAttribute(captchaSessionId,
+                caseSensitive ? captcha.getAnswer() : captcha.getAnswer().toLowerCase(Locale.ROOT));
         return getCaptchaImage(captcha);
     }
 
     public boolean validateCaptcha(String input, boolean caseSensitive, HttpSession session, String captchaSessionId) {
-        String captchaAnswer = (String) session.getAttribute(captchaSessionId);
+        String answer = (String) session.getAttribute(captchaSessionId);
         session.removeAttribute(captchaSessionId);
-
-        if (!caseSensitive) {
-            input = input.toLowerCase();
-        }
-
-        if (captchaAnswer != null && captchaAnswer.equals(input)) {
-            return true;
-        } else {
+        if (input == null || answer == null) {
             return false;
         }
+        return answer.equals(caseSensitive ? input : input.toLowerCase(Locale.ROOT));
     }
 
     public Captcha createCaptcha(int width, int height, int sizeOfCaptcha) {
-        return createCaptcha(width, height, sizeOfCaptcha, DIFFICULTY_PERCENT);
+        return createCaptcha(width, height, sizeOfCaptcha, difficultyPercent);
     }
 
     /**
-     * Build a captcha whose visual obstacles scale with {@code difficultyPercent}
-     * (0 = easiest, 100 = current/hardest behavior). The thresholds below map
-     * the percentage to a small number of discrete steps so the appearance is
-     * predictable:
-     *
-     *   >= 75%: complex background + 2 noise lines + gimpy distortion (current default)
-     *   >= 50%: complex background + 1 noise line + gimpy distortion
-     *   >= 25%: complex background + 1 noise line, no distortion
-     *    <25%: flat background, no noise, no distortion (just text + border)
-     *
-     * Text and border are always present so the challenge is never trivially
-     * blank.
+     * Difficulty controls rotation, shear, glyph warping, speckles and crossing curves.
+     * Zero has plain, evenly spaced text. Higher values increase those effects
+     * without changing contrast, fonts, character count or available glyph space.
+     * Answers and effect positions remain random; difficulty is a visual setting.
      */
     public Captcha createCaptcha(int width, int height, int sizeOfCaptcha, int difficultyPercent) {
-        int d = Math.max(0, Math.min(100, difficultyPercent));
-
-        BackgroundProducer background = (d >= 25)
-                ? getRandomBackgroundProducer(BACKGROUNDS)
-                : new FlatColorBackgroundProducer();
-
-        int noiseLines;
-        if (d >= 75) {
-            noiseLines = 2;
-        } else if (d >= 25) {
-            noiseLines = 1;
-        } else {
-            noiseLines = 0;
+        if (font == null) {
+            throw new IllegalStateException("CAPTCHA generation requires signup to be enabled");
         }
-
-        boolean applyGimpy = d >= 50;
-
-        Captcha.Builder builder = new Captcha.Builder(width, height)
-                .addBackground(background)
-                .addText(
-                        new DefaultTextProducer(sizeOfCaptcha, SRC_CHARS),
-                        new DefaultWordRenderer(COLORS, FONTS));
-        for (int i = 0; i < noiseLines; i++) {
-            builder = builder.addNoise(getRandomNoiseProducer(NOISES));
+        if (sizeOfCaptcha < 1 || height < 24 || width < 12L * sizeOfCaptcha + 16) {
+            throw new IllegalArgumentException("CAPTCHA dimensions must allow space for every character");
         }
-        if (applyGimpy) {
-            builder = builder.gimp(getRandomGimpyRenderer(GIMPYS));
-        }
-        return builder.addBorder().build();
+        int difficulty = Math.max(0, Math.min(100, difficultyPercent));
+        return new Captcha.Builder(width, height)
+                .addBackground(new FlatColorBackgroundProducer(Color.WHITE))
+                .addText(() -> randomAnswer(sizeOfCaptcha),
+                        (answer, image) -> render(answer, image, difficulty))
+                .addBorder()
+                .build();
     }
 
-    // Retrieve the captcha image
+    private String randomAnswer(int length) {
+        StringBuilder answer = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            answer.append(CHARACTERS.charAt(random.nextInt(CHARACTERS.length())));
+        }
+        return answer.toString();
+    }
+
+    private void render(String answer, BufferedImage image, int difficulty) {
+        Graphics2D graphics = image.createGraphics();
+        try {
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            graphics.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+            double strength = difficulty / 100.0;
+            // Background clutter grows quadratically so low settings stay readable.
+            graphics.setColor(new Color(190, 203, 219));
+            graphics.setStroke(new BasicStroke((float) (0.5 + strength)));
+            for (int i = 0; i < difficulty / 25; i++) {
+                graphics.draw(new QuadCurve2D.Double(1, random.nextInt(image.getHeight()),
+                        image.getWidth() / 2.0, random.nextInt(image.getHeight()),
+                        image.getWidth() - 2, random.nextInt(image.getHeight())));
+            }
+            for (int i = 0; i < (int) (image.getWidth() * image.getHeight() * 0.04 * strength * strength); i++) {
+                graphics.fillOval(1 + random.nextInt(image.getWidth() - 2),
+                        1 + random.nextInt(image.getHeight() - 2), 1, 1);
+            }
+            graphics.setColor(INK);
+            double cellWidth = (image.getWidth() - 16.0) / answer.length();
+            double maxHeight = image.getHeight() - 16.0;
+            for (int i = 0; i < answer.length(); i++) {
+                Shape glyph = font.createGlyphVector(graphics.getFontRenderContext(),
+                        answer.substring(i, i + 1)).getOutline();
+                double deformation = strength * strength;
+                glyph = warp(glyph, deformation);
+                AffineTransform distortion = new AffineTransform();
+                // At maximum difficulty every glyph gets a substantial tilt.
+                double angle = Math.toRadians((18 + random.nextDouble() * 14) * strength
+                        * (random.nextBoolean() ? 1 : -1));
+                distortion.rotate(angle);
+                distortion.shear((random.nextDouble() * 2 - 1) * 0.35 * deformation, 0);
+                glyph = distortion.createTransformedShape(glyph);
+                Rectangle2D bounds = glyph.getBounds2D();
+                double scale = Math.min(1, Math.min((cellWidth - 6) / bounds.getWidth(),
+                        maxHeight / bounds.getHeight()));
+                double jitter = (random.nextDouble() * 2 - 1) * 3 * strength;
+                AffineTransform placement = new AffineTransform();
+                placement.translate(8 + (i + 0.5) * cellWidth, image.getHeight() / 2.0 + jitter);
+                placement.scale(scale, scale);
+                placement.translate(-bounds.getCenterX(), -bounds.getCenterY());
+                graphics.fill(placement.createTransformedShape(glyph));
+            }
+            // Strong settings also cross the letters with thin, contrasting
+            // strokes. Keep these lighter than the glyphs so no answer vanishes.
+            graphics.setColor(new Color(90, 105, 125));
+            graphics.setStroke(new BasicStroke((float) (0.6 + strength * 0.6)));
+            int crossingLines = Math.max(0, (difficulty - 40) / 15);
+            for (int i = 0; i < crossingLines; i++) {
+                double y = image.getHeight() * (0.25 + 0.5 * (i + 0.5) / crossingLines);
+                double bend = (random.nextBoolean() ? 1 : -1) * image.getHeight() * 0.45;
+                graphics.draw(new QuadCurve2D.Double(2, y, image.getWidth() / 2.0, y + bend,
+                        image.getWidth() - 3, y));
+            }
+        } finally {
+            graphics.dispose();
+        }
+    }
+
+    private Shape warp(Shape glyph, double strength) {
+        if (strength == 0) {
+            return glyph;
+        }
+        // Warp the vector outline before fitting it into its character cell,
+        // preserving all strokes and keeping distortion independent of host fonts.
+        PathIterator outline = glyph.getPathIterator(null, 0.25);
+        Path2D warped = new Path2D.Double(outline.getWindingRule());
+        double phase = random.nextDouble() * Math.PI * 2;
+        double[] point = new double[6];
+        while (!outline.isDone()) {
+            int segment = outline.currentSegment(point);
+            double x = point[0] + 3.5 * strength * Math.sin(point[1] / 6 + phase);
+            double y = point[1] + 2.5 * strength * Math.sin(point[0] / 7 + phase);
+            if (segment == PathIterator.SEG_MOVETO) {
+                warped.moveTo(x, y);
+            } else if (segment == PathIterator.SEG_LINETO) {
+                warped.lineTo(x, y);
+            } else if (segment == PathIterator.SEG_CLOSE) {
+                warped.closePath();
+            }
+            outline.next();
+        }
+        return warped;
+    }
+
     public BufferedImage getCaptchaImage(Captcha captcha) {
         return captcha.getImage();
-    }
-
-    // Get a random background producer
-    private BackgroundProducer getRandomBackgroundProducer(List<BackgroundProducer> bgProds) {
-        return bgProds.get(RANDOM.nextInt(bgProds.size()));
-    }
-
-    // Get a random noise producer
-    private NoiseProducer getRandomNoiseProducer(List<NoiseProducer> noiseProds) {
-        return noiseProds.get(RANDOM.nextInt(noiseProds.size()));
-    }
-
-    // Get a random gimpy renderer
-    private GimpyRenderer getRandomGimpyRenderer(List<GimpyRenderer> gimpyRends) {
-        return gimpyRends.get(RANDOM.nextInt(gimpyRends.size()));
-    }
-
-    // Get a list of background producers
-    private List<BackgroundProducer> bgProds() {
-        return Arrays.asList(
-                new TransparentBackgroundProducer(),
-                new GradiatedBackgroundProducer(),
-                new FlatColorBackgroundProducer(),
-                new SquigglesBackgroundProducer());
-    }
-
-    // Get a list of noise producers
-    private List<NoiseProducer> noiseProds() {
-        return Arrays.asList(
-                new CurvedLineNoiseProducer(),
-                new StraightLineNoiseProducer());
-    }
-
-    // Get a list of gimpy renderers
-    private List<GimpyRenderer> gimpyRends() {
-        return Arrays.asList(
-                new BlockGimpyRenderer(),
-                new DropShadowGimpyRenderer(),
-                // new FishEyeGimpyRenderer(),
-                // new ShearGimpyRenderer(),
-                // new StretchGimpyRenderer(),
-                new RippleGimpyRenderer());
-    }
-
-    // Generate a character array
-    private static char[] generateCharArray() {
-        int size = 26 + 26 + 10; // Uppercase + Lowercase + Digits
-        char[] combined = new char[size];
-        int index = 0;
-
-        // Add uppercase letters
-        for (char c = 'A'; c <= 'Z'; c++) {
-            combined[index++] = c;
-        }
-
-        // Add lowercase letters
-        for (char c = 'a'; c <= 'z'; c++) {
-            combined[index++] = c;
-        }
-
-        // Add digits
-        for (char c = '0'; c <= '9'; c++) {
-            combined[index++] = c;
-        }
-
-        return combined;
-    }
-
-    // Get a list of colors
-    private List<Color> colors() {
-        return Arrays.asList(
-                Color.BLACK,
-                Color.WHITE,
-                Color.RED,
-                Color.GREEN,
-                Color.BLUE,
-                Color.CYAN,
-                Color.MAGENTA,
-                Color.YELLOW,
-                Color.PINK,
-                Color.ORANGE,
-                Color.LIGHT_GRAY,
-                // Color.GRAY,
-                Color.DARK_GRAY);
-    }
-
-    // Get a list of fonts
-    private List<Font> fonts() {
-        // Get the list of all font families available on the system
-        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-        String[] fontFamilies = ge.getAvailableFontFamilyNames();
-
-        // Add each font family with different styles (PLAIN, BOLD, ITALIC, BOLD +
-        // ITALIC)
-        List<Font> fonts = new ArrayList<>();
-        for (String fontFamily : fontFamilies) {
-            fonts.add(new Font(fontFamily, Font.PLAIN, 40));
-            fonts.add(new Font(fontFamily, Font.BOLD, 40));
-            fonts.add(new Font(fontFamily, Font.ITALIC, 40));
-            fonts.add(new Font(fontFamily, Font.BOLD + Font.ITALIC, 40));
-        }
-
-        return fonts;
     }
 }
