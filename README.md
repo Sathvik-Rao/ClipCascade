@@ -1122,13 +1122,14 @@ Use **Log in** to connect. Select **Show advanced settings** to expand additiona
 
 Connection status notifications appear on the main login screen, outside advanced settings, on both desktop and Android. Desktop enables them by default; Android disables them by default. Encryption is also on the main login screen and is enabled by default on both platforms.
 
-Device preferences save as you change them, without requiring a successful login: notification settings, local clipboard size limit, image/file sharing, password-storage preference, the desktop download folder, and Android startup/periodic checks. Server address, credentials, encryption settings, and custom CA configuration are saved after successful login.
+Device preferences save as you change them, without requiring a successful login: notification settings, local clipboard size limit, send/receive clipboard, image/file sharing, password-storage preference, the default download folder on desktop and Android, and Android startup/periodic checks. Server address, credentials, encryption settings, and custom CA configuration are saved after successful login.
 
 - **Local clipboard size limit (bytes)**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. You can set a local size limit by specifying a value in bytes (e.g., 512 KiB = 524288 bytes) to test different thresholds suitable for your device. This local limit works alongside the server-specified limit to ensure smoother operation without crashes. For example, on Android (particularly on the Pixel 6a as of 2024), the platform limit(for text) is typically less than 1 MiB. Since the server limit cannot go below 1 MiB, setting the local limit to around 900,000 bytes on the Pixel 6a can help prevent crashes.
 - **Store Password Locally (not recommended)**: Enable this option if you frequently encounter session logouts. While the app stores session cookies for an extended period, a server restart may prompt a re-login unless the server enables session persistence. If re-entering the password becomes tedious, you can use this option to store your password locally for convenience. Disabling this option immediately clears the saved password.
    > Note: This option will only work if encryption is disabled, as encryption requires the raw password to generate a password hash.
-- **Enable Image Sharing and Enable File Sharing**: Enabling these options allows the app to send images or files. However, the app will continue to receive images and files even if these options are disabled.
-- **Show connection status notifications** (Desktop): Turn on this option to receive notifications about WebSocket disconnections and reconnections.
+- **Send Clipboard**: Share clipboard changes from this device. Enabled by default. Disable it to stop sending while still receiving updates if **Receive Clipboard** is enabled.
+- **Receive Clipboard**: Apply clipboard updates from other devices. Enabled by default. Disable it to stop receiving while still sharing local changes if **Send Clipboard** is enabled. Both options are available on desktop and Android; enable both for two-way sync or disable both to pause clipboard syncing on this device.
+- **Enable Image Sharing and Enable File Sharing**: Enabling these options allows the app to send images or files when **Send Clipboard** is enabled. These options do not block incoming images or files; incoming content is controlled by **Receive Clipboard**.
 - **Enable encryption (recommended)**: Enabling this option activates end-to-end encryption for clipboard data. This ensures that all clipboard content is encrypted before leaving your device. Refer to the section below on E2E encryption for detailed instructions on how it works and how to configure the encryption salt and key derivation iterations.
 
 - **Custom CA certificate bundle**: Use a PEM/CRT certificate bundle when your server uses a private/internal CA (for example, corporate PKI). Leave it empty to use default public CA/OS trust. The bundle affects HTTPS/WSS verification only; HTTP/WS connections are still allowed, and TLS certificate and hostname verification remain enabled.
@@ -1138,22 +1139,23 @@ Device preferences save as you change them, without requiring a successful login
   **Android:** Tap **Import** to select a certificate bundle (up to 1 MiB). The app saves a copy after successful login and restores it for background connections. Imported certificates are trusted alongside system CAs only for the configured server hostname; other hostnames use system trust. Tap **Replace** to import another bundle, or **Remove** and log in to return to system trust only.
 
 - **Notify when an update is available**: Enabled by default on desktop and Android. Disable it to stop update alerts; update checks and the visible update status remain available.
-- **Notify when clipboard content is received** (Desktop): Disabled by default. Enable it in advanced settings to show notifications for content received from another device, including a text preview, image dimensions, or file names with a file icon. Previews may be visible on your lock screen. This setting is independent of connection status and update notifications.
+- **Show connection status notifications**: Receive alerts when the WebSocket connection is lost or restored. Available on desktop and Android; enabled by default on desktop and disabled by default on Android. This setting is on the main login screen, outside advanced settings.
 
-  #### Desktop (Specific):
-  - **Default download folder**: Type an existing folder path or use **Browse…** to select one. When this path is set, the app will save files directly to the specified location without prompting the user each time the "Download Files" button is clicked. Cancelling the picker keeps the current path unchanged. Use the **trash button** to choose a folder for each download.
+  <img src="https://github.com/user-attachments/assets/6a8b903c-ee52-444c-a14e-bed70e31dcee" alt="connection_status_notification" width="250" />
 
-  The **Browse…** buttons use Tkinter dialogs on Windows, macOS, and Linux desktop sessions. Manual path entry remains available. The Linux CLI continues to use typed paths and does not require a graphical picker.
-  
-  #### Android (Specific):
-  - **Start on device restart (disable if the READ_LOGS permission is granted via ADB)**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
-  - **Show connection status notifications**: Receive alerts when the WebSocket connection is lost or restored, ensuring you're informed about any connection disruptions.
-    
-    <img src="https://github.com/user-attachments/assets/6a8b903c-ee52-444c-a14e-bed70e31dcee" alt="periodic_check_notification" width="250" />
+- **Default download folder**: Select a folder to save downloads without prompting each time. Changes save immediately and persist across restarts. Cancelling the picker keeps the current setting. Clear the default to choose a destination for each download instead; this does not delete downloaded files.
 
-  - **Enable Periodic Checks**: Enabling this option performs periodic checks to ensure clipboard monitoring and the foreground service are running. It verifies the service status when monitoring starts and then checks every 15 minutes in the background. If the service is not running, a notification is displayed. Clicking the notification will restart the service.
-    
-    <img src="https://github.com/user-attachments/assets/7341b960-5e60-4af6-b627-2183088de262" alt="periodic_check_notification" width="250" />
+#### Desktop (Specific):
+
+- **Notify when clipboard content is received**: Disabled by default. Enable it in advanced settings to show notifications for content received from another device, including a text preview, image dimensions, or file names with a file icon. Previews may be visible on your lock screen. This setting is independent of connection status and update notifications.
+
+#### Android (Specific):
+
+- **Start on device restart (disable if the READ_LOGS permission is granted via ADB)**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
+
+- **Enable Periodic Checks**: Enabling this option performs periodic checks to ensure clipboard monitoring and the foreground service are running. It verifies the service status when monitoring starts and then checks every 15 minutes in the background. If the service is not running, a notification is displayed. Clicking the notification will restart the service.
+
+  <img src="https://github.com/user-attachments/assets/7341b960-5e60-4af6-b627-2183088de262" alt="periodic_check_notification" width="250" />
 
 * * * * * * *
 

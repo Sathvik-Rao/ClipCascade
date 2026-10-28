@@ -263,6 +263,21 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     }
 
     @ReactMethod
+    fun isDownloadDirectoryAvailable(contentUri: String, promise: Promise) {
+        try {
+            val uri = Uri.parse(contentUri)
+            val hasWriteGrant = reactApplicationContext.contentResolver.persistedUriPermissions.any {
+                it.uri == uri && it.isWritePermission
+            }
+            val directory = DocumentFile.fromTreeUri(reactApplicationContext, uri)
+            promise.resolve(hasWriteGrant && directory != null && directory.isDirectory && directory.canWrite())
+        } catch (e: Exception) {
+            // Revoked grants and unavailable document providers require selecting a folder again.
+            promise.resolve(false)
+        }
+    }
+
+    @ReactMethod
     fun saveBase64Files(contentUri: String, content: String, promise: Promise) {
         try {
             val trimmedUri = contentUri.trim()

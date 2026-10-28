@@ -28,7 +28,6 @@ import { pbkdf2 } from '@react-native-module/pbkdf2';
 import { Buffer } from 'buffer';
 import {
   pick,
-  pickDirectory,
   errorCodes,
   isErrorWithCode,
 } from '@react-native-documents/picker';
@@ -46,6 +45,13 @@ import StartForegroundService from './StartForegroundService';
 import {LIMIT_UNITS, NO_LOCAL_LIMIT, formatClipboardLimit, parseClipboardLimit} from './ClipboardLimit';
 import {authenticateSession} from './LoginSession';
 import {APP_VERSION} from './AppVersion';
+import {
+  getDownloadDirectory,
+  clearDownloadDirectory,
+  chooseDownloadDirectory,
+  resolveDownloadDirectory,
+  downloadDirectoryLabel,
+} from './DownloadDirectory';
 import {
   checkForUpdates, presentUpdate, setUpdateFocused, subscribeToUpdates,
   RELEASE_URL, UPDATE_NOTIFICATION_ID,
@@ -399,6 +405,7 @@ export default function App() {
         setData(data_s);
         setClipboardLimitDraft(formatClipboardLimit(data_s.max_clipboard_size_local_limit_bytes));
         setClipboardLimitError('');
+        setDownloadDirectory((await getDownloadDirectory()) || '');
         await NativeModules.ServerTlsModule.configure(
           data_s.server_url,
           data_s.ssl_ca_bundle,
@@ -1113,22 +1120,99 @@ export default function App() {
   const [enableFilesDownloadButton, setEnableFilesDownloadButton] =
     useState(false);
 
+  const [downloadDirectory, setDownloadDirectory] = useState('');
+  const [isChoosingDownloadDirectory, setIsChoosingDownloadDirectory] = useState(false);
+  const downloadActionInProgress = useRef(false);
+
+  const selectDownloadDirectory = async () => {
+    const uri = await chooseDownloadDirectory();
+    setDownloadDirectory(uri);
+    return uri;
+  };
+
+  const changeDownloadDirectory = async (clear = false) => {
+    if (downloadActionInProgress.current) {
+      return;
+    }
+    downloadActionInProgress.current = true;
+    setIsChoosingDownloadDirectory(true);
+    try {
+      if (clear) {
+        await clearDownloadDirectory();
+        setDownloadDirectory('');
+      } else {
+        await selectDownloadDirectory();
+      }
+    } catch (error) {
+      if (!isCancel(error)) {
+        Alert.alert('Download folder', error.message || String(error));
+      }
+    } finally {
+      downloadActionInProgress.current = false;
+      setIsChoosingDownloadDirectory(false);
+    }
+  };
+
+  const renderDownloadDirectorySetting = () => (
+    <View style={styles.row}>
+      <View style={styles.caDetails}>
+        <InfoLabel
+          style={styles.caLabel}
+          label="Default download folder:"
+          info="Choose a folder once to use it for future downloads. Access is saved across app and device restarts. Clear the default to choose a folder for each download instead. If access is lost or the folder becomes unavailable, choose a folder again. Android may require a subfolder such as Downloads/ClipCascade instead of the main Downloads folder. Changes are saved immediately."
+        />
+        <Text style={styles.caFileName}>
+          {downloadDirectoryLabel(downloadDirectory)}
+        </Text>
+      </View>
+      <TouchableOpacity
+        style={styles.caButton}
+        onPress={() => changeDownloadDirectory()}
+        disabled={isChoosingDownloadDirectory || isLoggingIn}
+        accessibilityRole="button"
+        accessibilityLabel="Change download folder"
+      >
+        <Text style={styles.caButtonText}>{downloadDirectory ? 'Change' : 'Choose'}</Text>
+      </TouchableOpacity>
+      {downloadDirectory !== '' && (
+        <TouchableOpacity
+          style={[styles.caButton, styles.caRemoveButton]}
+          onPress={() => changeDownloadDirectory(true)}
+          disabled={isChoosingDownloadDirectory || isLoggingIn}
+          accessibilityRole="button"
+          accessibilityLabel="Clear default download folder"
+        >
+          <Text style={styles.caButtonText}>Clear</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
   // download files
   const downloadFiles = async () => {
+    if (downloadActionInProgress.current) {
+      return;
+    }
+    downloadActionInProgress.current = true;
+    setIsChoosingDownloadDirectory(true);
     try {
       if (
         (await getDataFromAsyncStorage('filesAvailableToDownload')) === 'true'
       ) {
-        const res = await pickDirectory();
-        await setDataInAsyncStorage('dirPath', res.uri);
+        const uri = await resolveDownloadDirectory();
+        setDownloadDirectory((await getDownloadDirectory()) || '');
+        await setDataInAsyncStorage('dirPath', uri);
         await setDataInAsyncStorage('downloadFiles', 'true');
       } else {
         setEnableFilesDownloadButton(false);
       }
     } catch (e) {
       if (!isCancel(e)) {
-        Alert.alert('Error', 'Unknown error: ' + JSON.stringify(e));
+        Alert.alert('Download failed', e.message || String(e));
       }
+    } finally {
+      downloadActionInProgress.current = false;
+      setIsChoosingDownloadDirectory(false);
     }
   };
 
@@ -1380,6 +1464,7 @@ export default function App() {
                   )}
                 </View>
                 {renderClipboardSyncSettings()}
+                {renderDownloadDirectorySetting()}
                 <View style={styles.row}>
                   <Text style={styles.label}>Enable Image Sharing:</Text>
                   <CheckBox
@@ -1518,6 +1603,7 @@ export default function App() {
                 <TouchableOpacity
                   style={[styles.loginButton, { backgroundColor: '#4bab4e' }]}
                   onPress={downloadFiles}
+                  disabled={isChoosingDownloadDirectory}
                 >
                   <Text style={styles.loginButtonText}>
                     📥 Download File(s)
