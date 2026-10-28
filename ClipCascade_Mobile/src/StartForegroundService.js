@@ -16,7 +16,6 @@ import {
   RTCIceCandidate,
   RTCSessionDescription,
 } from 'react-native-webrtc';
-import Clipboard from '@react-native-clipboard/clipboard';
 import {checkForUpdates} from './UpdateChecker';
 import {webSocketErrorMessage, webSocketCloseMessage} from './WebSocketStatus';
 import {isClipboardSyncEnabled} from './DevicePreferences';
@@ -279,13 +278,17 @@ module.exports = async (inputData = null) => {
           try {
             const clipContent = event.text;
             if (clipContent) {
-              /**
-               * Sometimes `Clipboard.setString` is invoked before the app is fully opened, leading to an unauthorized state.
-               * To handle this, implement a fail-safe mechanism that retries sending clipboard content only when it hasn't been successfully sent yet.
-               * If both events are triggered successfully, the content won't be sent twice because the same content is hashed, ensuring that identical data is only processed once.
-               */
-              Clipboard.setString(clipContent);
+              // A local clipboard failure must not prevent sharing the text.
+              let clipboardError = null;
+              try {
+                await NativeBridgeModule.copyTextToClipboard(clipContent);
+              } catch (error) {
+                clipboardError = error;
+              }
               await sendClipBoard(clipContent, 'text');
+              if (clipboardError) {
+                await setDataInAsyncStorage('wsStatusMessage', '❌ Clipboard error: ' + clipboardError.message);
+              }
             }
           } catch (e) {
             await setDataInAsyncStorage(
@@ -451,7 +454,7 @@ module.exports = async (inputData = null) => {
                         }
                         // set clipboard content
                         if (type_ === 'text') {
-                          Clipboard.setString(cb);
+                          await NativeBridgeModule.copyTextToClipboard(cb);
                         } else if (type_ === 'image') {
                           await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
                             cb,
@@ -1205,7 +1208,7 @@ module.exports = async (inputData = null) => {
                   }
                   // set clipboard content
                   if (type_ === 'text') {
-                    Clipboard.setString(cb);
+                    await NativeBridgeModule.copyTextToClipboard(cb);
                   } else if (type_ === 'image') {
                     await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
                       cb,

@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import android.webkit.CookieManager
 import com.facebook.react.bridge.UiThreadUtil
 import android.net.Uri
+import android.os.TransactionTooLargeException
 import android.provider.OpenableColumns
 import android.util.Base64
 import android.content.ClipData
@@ -157,6 +158,52 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         return outputStream.toByteArray()
     }
 
+    private fun writeAndroidClipboard(clipData: ClipData, contentType: String, promise: Promise) {
+        try {
+            val clipboard = reactApplicationContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(clipData)
+            promise.resolve("$contentType copied to clipboard.")
+        } catch (error: Exception) {
+            // Android can wrap Binder failures inside RuntimeException.
+            val causes = generateSequence(error as Throwable) { it.cause }.toList()
+            val sizeError = causes.firstOrNull { it is TransactionTooLargeException }
+            val accessError = causes.firstOrNull { it is SecurityException }
+            when {
+                sizeError != null -> promise.reject(
+                    "ANDROID_CLIPBOARD_SIZE_LIMIT",
+                    "Android could not copy this $contentType because it is too large for a system clipboard transaction. " +
+                        "This is an Android operating-system limitation, separate from ClipCascade's configured " +
+                        "clipboard size limit. Increasing or disabling the limit in ClipCascade cannot bypass " +
+                        "Android's restriction. " +
+                        (if (contentType == "text") "Copy a smaller portion of the text, or transfer it as a text file instead."
+                         else "Try copying a smaller image."),
+                    error,
+                )
+                accessError != null -> promise.reject(
+                    "ANDROID_CLIPBOARD_ACCESS_DENIED",
+                    "Android denied access to write $contentType to the clipboard. " +
+                        "Check device clipboard restrictions. (${accessError.javaClass.simpleName}: ${accessError.message})",
+                    error,
+                )
+                else -> promise.reject(
+                    "ANDROID_CLIPBOARD_WRITE_FAILED",
+                    "Android could not write $contentType to the clipboard. " +
+                        "(${error.javaClass.simpleName}: ${error.message})",
+                    error,
+                )
+            }
+        }
+    }
+
+    @ReactMethod
+    fun copyTextToClipboard(text: String, promise: Promise) {
+        try {
+            writeAndroidClipboard(ClipData.newPlainText(null, text), "text", promise)
+        } catch (error: Exception) {
+            promise.reject("TEXT_PREPARATION_ERROR", "Could not prepare text for the clipboard: ${error.message}", error)
+        }
+    }
+
     @ReactMethod
     fun copyBase64ImageToClipboardUsingCache(base64String: String, promise: Promise) {
         try {
@@ -185,13 +232,10 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
             // Copy the URI to clipboard
             val clipData = ClipData.newUri(reactApplicationContext.contentResolver, "Image", imageUri)
-            val clipboard = reactApplicationContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(clipData)
-
-            promise.resolve("Image copied to clipboard.")
+            writeAndroidClipboard(clipData, "image", promise)
 
         } catch (e: Exception) {
-            promise.reject("ERROR", "Failed to copy image to clipboard: ${e.message}")
+            promise.reject("IMAGE_PREPARATION_ERROR", "Could not prepare the image for the clipboard: ${e.message}", e)
         }
     }
 
