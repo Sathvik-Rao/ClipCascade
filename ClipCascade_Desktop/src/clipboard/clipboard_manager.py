@@ -133,6 +133,8 @@ class ClipboardManager:
         )
 
     def clipboard_to_base64(self, callback, content: any, type_: str = "text"):
+        if not self.config.data.get("send_clipboard", True):
+            return
         try:
             self.reset_files_download()
 
@@ -174,6 +176,8 @@ class ClipboardManager:
             logging.error(f"Failed to convert clipboard data to base64: {e}")
 
     def base64_to_clipboard(self, base64_string: str, type_: str = "text"):
+        if not self.config.data.get("receive_clipboard", True):
+            return
         try:
             if type_ == "text":
                 txt = base64_string
@@ -217,6 +221,8 @@ class ClipboardManager:
 
     def paste(self, payload: any, payload_type: str = "text") -> bool:
         """Apply received content, returning whether it was accepted locally."""
+        if not self.config.data.get("receive_clipboard", True):
+            return False
         try:
             self.reset_files_download()
 

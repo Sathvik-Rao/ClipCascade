@@ -744,6 +744,8 @@ class P2PManager(ReconnectMixin, WSInterface):
         self.sending_fragment_stats = None
 
     async def _send(self, payload: str, payload_type: str = "text"):
+        if not self.config.data.get("send_clipboard", True):
+            return
         try:
             if self.clipboard_manager.has_clipboard_changed(payload):
                 self.reset_sending_fragment_id()
@@ -767,6 +769,9 @@ class P2PManager(ReconnectMixin, WSInterface):
 
                 self.sending_fragment_id = metadata["id"]
                 for fragment in fragments:
+                    if not self.config.data.get("send_clipboard", True):
+                        self.reset_sending_fragment_id()
+                        break
                     if self.sending_fragment_id != metadata["id"]:
                         break
 
@@ -819,6 +824,9 @@ class P2PManager(ReconnectMixin, WSInterface):
             self.receiving_fragment_stats = None
 
     def _receive(self, frame: any) -> str:
+        if not self.config.data.get("receive_clipboard", True):
+            self.reset_receiving_fragments()
+            return
         try:
             body = json.loads(frame)
             if isinstance(body, dict) and body.get("_cc_keepalive") is True:

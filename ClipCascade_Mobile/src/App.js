@@ -109,6 +109,24 @@ function InfoLabel({style, label, info}) {
   );
 }
 
+function SettingsGroup({title, children}) {
+  const isDark = useColorScheme() === 'dark';
+  return (
+    <View style={[
+      styles.settingsGroup,
+      {backgroundColor: isDark ? '#1c1c1e' : '#f8f9fb', borderColor: isDark ? '#3a3a3c' : '#e1e5eb'},
+    ]}>
+      <Text
+        accessibilityRole="header"
+        style={[styles.settingsGroupTitle, {color: isDark ? '#e5e7eb' : '#344054'}]}
+      >
+        {title}
+      </Text>
+      {children}
+    </View>
+  );
+}
+
 export default function App() {
   const { NativeBridgeModule } = NativeModules;
 
@@ -195,6 +213,8 @@ export default function App() {
     enable_websocket_status_notification: 'false',
     update_notifications: 'true',
     enable_periodic_checks: 'true',
+    send_clipboard: 'true',
+    receive_clipboard: 'true',
     enable_image_sharing: 'true',
     enable_file_sharing: 'true',
     server_mode: 'P2S',
@@ -821,14 +841,38 @@ export default function App() {
               await presentUpdate();
             }
           })
-          .catch(e =>
-            setLoginStatusMessage('❌ Unable to save preference: ' + e),
-          );
+          .catch(async e => {
+            const message = '❌ Unable to save preference: ' + e;
+            setLoginStatusMessage(message);
+            if (field === 'send_clipboard' || field === 'receive_clipboard') {
+              const saved = await getDataFromAsyncStorage(field);
+              setData(current => ({...current, [field]: saved ?? 'true'}));
+            }
+          });
       }
     } catch (e) {
       setLoginStatusMessage('❌ Error: ' + e);
     }
   };
+
+  const renderClipboardSyncSettings = () => (
+    <>
+      {[
+        ['send_clipboard', 'Send Clipboard:', 'Share clipboard changes from this device.'],
+        ['receive_clipboard', 'Receive Clipboard:', 'Apply clipboard updates from other devices.'],
+      ].map(([field, label, info]) => (
+        <View key={field} style={styles.row}>
+          <InfoLabel style={styles.label} label={label} info={info} />
+          <CheckBox
+            disabled={isLoggingIn}
+            accessibilityLabel={label}
+            value={data[field] === 'true'}
+            onValueChange={value => handleInputChange(field, String(value))}
+          />
+        </View>
+      ))}
+    </>
+  );
 
   const importCaBundle = async () => {
     try {
@@ -1123,175 +1167,184 @@ export default function App() {
           {/* Extra Config Fields (conditionally rendered) */}
           {showExtraConfig && (
             <>
-              <View style={styles.row}>
-                <InfoLabel
-                  style={styles.label}
-                  label="Key derivation iterations:"
-                  info={"Number of iterations used to derive your encryption key. Higher values increase resistance to password guessing, but take longer.\n\nDefault: 664937. Keep the default unless you need a different value.\n\nNote: must be a positive integer and must match on every device."}
-                />
-                <TextInput
-                  editable={!isLoggingIn}
-                  style={styles.input}
-                  value={data.hash_rounds}
-                  onChangeText={text =>
-                    handleInputChange(
-                      'hash_rounds',
-                      isNaN(Number(text)) ? data.hash_rounds : text.trim(),
-                    )
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <InfoLabel
-                  style={styles.label}
-                  label="Encryption salt:"
-                  info={"Optional extra text mixed into encryption key derivation. Letters, numbers, symbols, and spaces are allowed.\n\nExample: myCustomSalt123\n\nNote: use exactly the same salt on every device, including capitalization and spaces. Leave blank to keep the default. Changing it on only one device prevents decryption between devices."}
-                />
-                <TextInput
-                  editable={!isLoggingIn}
-                  style={styles.input}
-                  value={data.salt}
-                  onChangeText={text => handleInputChange('salt', text)}
-                  autoCapitalize="none"
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Store Password Locally (not recommended; only works if encryption is disabled):</Text>
-                <CheckBox
-                  disabled={isLoggingIn}
-                  value={data.save_password === 'true' ? true : false}
-                  onValueChange={newValue =>
-                    handleInputChange('save_password', String(newValue))
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <InfoLabel
-                  style={styles.label}
-                  label="Local clipboard size limit (bytes):"
-                  info={"Optional local limit for incoming and outgoing clipboard content. Must be a positive integer. Server and platform limits still apply.\n\nExamples:\n• 512 KiB = 524288 bytes\n• 1 MiB = 1048576 bytes\n\nLeave blank for no local limit. A smaller limit can help if large clipboard content causes problems on your device."}
-                />
-                <TextInput
-                  editable={!isLoggingIn}
-                  style={styles.input}
-                  value={data.max_clipboard_size_local_limit_bytes}
-                  onChangeText={text =>
-                    handleInputChange(
-                      'max_clipboard_size_local_limit_bytes',
-                      isNaN(Number(text))
-                        ? data.max_clipboard_size_local_limit_bytes
-                        : text.trim(),
-                    )
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <InfoLabel
-                  style={styles.label}
-                  label="Start on device restart (disable if the READ_LOGS permission is granted via ADB):"
-                  info={"Starts ClipCascade after your device restarts. Off by default.\n\nNote: keep this disabled if you granted READ_LOGS via ADB for automatic clipboard monitoring, to avoid interfering with the permission prompt. After restarting, open ClipCascade manually and allow the log-access prompt when shown."}
-                />
-                <CheckBox
-                  disabled={isLoggingIn}
-                  value={data.relaunch_on_boot === 'true' ? true : false}
-                  onValueChange={newValue =>
-                    handleInputChange('relaunch_on_boot', String(newValue))
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <InfoLabel
-                  style={styles.label}
-                  label="Enable Periodic Checks:"
-                  info={"Checks that clipboard monitoring and the foreground service are running when monitoring starts and periodically in the background, approximately every 15 minutes. Enabled by default.\n\nIf the service has stopped, a notification lets you restart it. Tap the notification to restart the service."}
-                />
-                <CheckBox
-                  disabled={isLoggingIn}
-                  value={data.enable_periodic_checks === 'true' ? true : false}
-                  onValueChange={newValue =>
-                    handleInputChange(
-                      'enable_periodic_checks',
-                      String(newValue),
-                    )
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Enable Image Sharing:</Text>
-                <CheckBox
-                  disabled={isLoggingIn}
-                  value={data.enable_image_sharing === 'true' ? true : false}
-                  onValueChange={newValue =>
-                    handleInputChange('enable_image_sharing', String(newValue))
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <Text style={styles.label}>Enable File Sharing:</Text>
-                <CheckBox
-                  disabled={isLoggingIn}
-                  value={data.enable_file_sharing === 'true' ? true : false}
-                  onValueChange={newValue =>
-                    handleInputChange('enable_file_sharing', String(newValue))
-                  }
-                />
-              </View>
-              <View style={styles.row}>
-                <View style={styles.caDetails}>
+              <SettingsGroup title="Security">
+                <View style={styles.row}>
                   <InfoLabel
-                    style={styles.caLabel}
-                    label="Custom CA certificate bundle:"
-                    info={"Use this if your server’s HTTPS certificate was issued by a private or internal certificate authority.\n\nExample file: corp-root.pem, containing PEM-encoded CA certificates supplied by your administrator.\n\nLeave empty to use system certificates. Imported certificates are trusted alongside system certificates for your configured server hostname.\n\nNote: log in to save changes. Use Remove and log in to return to system trust only."}
+                    style={styles.label}
+                    label="Key derivation iterations:"
+                    info={"Number of iterations used to derive your encryption key. Higher values increase resistance to password guessing, but take longer.\n\nDefault: 664937. Keep the default unless you need a different value.\n\nNote: must be a positive integer and must match on every device."}
                   />
-                  <Text
-                    style={styles.caFileName}
-                    numberOfLines={1}
-                    ellipsizeMode="middle"
-                  >
-                    {data.ssl_ca_bundle_name || 'Default system certificates'}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.caButton}
-                  onPress={importCaBundle}
-                  disabled={isLoggingIn}
-                  accessibilityRole="button"
-                  accessibilityLabel="Import custom CA certificate bundle"
-                >
-                  <Text style={styles.caButtonText}>
-                    {data.ssl_ca_bundle ? 'Replace' : 'Import'}
-                  </Text>
-                </TouchableOpacity>
-                {data.ssl_ca_bundle !== '' && (
-                  <TouchableOpacity
-                    style={[styles.caButton, styles.caRemoveButton]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Remove custom CA certificate bundle"
-                    disabled={isLoggingIn}
-                    onPress={() =>
-                      setData(previous => ({
-                        ...previous,
-                        ssl_ca_bundle: '',
-                        ssl_ca_bundle_name: '',
-                      }))
+                  <TextInput
+                    editable={!isLoggingIn}
+                    style={styles.input}
+                    value={data.hash_rounds}
+                    onChangeText={text =>
+                      handleInputChange(
+                        'hash_rounds',
+                        isNaN(Number(text)) ? data.hash_rounds : text.trim(),
+                      )
                     }
+                  />
+                </View>
+                <View style={styles.row}>
+                  <InfoLabel
+                    style={styles.label}
+                    label="Encryption salt:"
+                    info={"Optional extra text mixed into encryption key derivation. Letters, numbers, symbols, and spaces are allowed.\n\nExample: myCustomSalt123\n\nNote: use exactly the same salt on every device, including capitalization and spaces. Leave blank to keep the default. Changing it on only one device prevents decryption between devices."}
+                  />
+                  <TextInput
+                    editable={!isLoggingIn}
+                    style={styles.input}
+                    value={data.salt}
+                    onChangeText={text => handleInputChange('salt', text)}
+                    autoCapitalize="none"
+                  />
+                </View>
+                <View style={styles.row}>
+                  <Text style={styles.label}>Store Password Locally (not recommended; only works if encryption is disabled):</Text>
+                  <CheckBox
+                    disabled={isLoggingIn}
+                    value={data.save_password === 'true' ? true : false}
+                    onValueChange={newValue =>
+                      handleInputChange('save_password', String(newValue))
+                    }
+                  />
+                </View>
+                <View style={styles.row}>
+                  <View style={styles.caDetails}>
+                    <InfoLabel
+                      style={styles.caLabel}
+                      label="Custom CA certificate bundle:"
+                      info={"Use this if your server’s HTTPS certificate was issued by a private or internal certificate authority.\n\nExample file: corp-root.pem, containing PEM-encoded CA certificates supplied by your administrator.\n\nLeave empty to use system certificates. Imported certificates are trusted alongside system certificates for your configured server hostname.\n\nNote: log in to save changes. Use Remove and log in to return to system trust only."}
+                    />
+                    <Text
+                      style={styles.caFileName}
+                      numberOfLines={1}
+                      ellipsizeMode="middle"
+                    >
+                      {data.ssl_ca_bundle_name || 'Default system certificates'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.caButton}
+                    onPress={importCaBundle}
+                    disabled={isLoggingIn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Import custom CA certificate bundle"
                   >
-                    <Text style={styles.caButtonText}>Remove</Text>
+                    <Text style={styles.caButtonText}>
+                      {data.ssl_ca_bundle ? 'Replace' : 'Import'}
+                    </Text>
                   </TouchableOpacity>
-                )}
-              </View>
-              <View style={styles.row}>
-                <InfoLabel
-                  style={styles.label}
-                  label="Notify when an update is available:"
-                  info="Checks at startup and once a day while running. Alerts once per new version each session. Enabled by default."
-                />
-                <CheckBox
-                  disabled={isLoggingIn}
-                  value={data.update_notifications === 'true'}
-                  onValueChange={value => handleInputChange('update_notifications', String(value))}
-                />
-              </View>
+                  {data.ssl_ca_bundle !== '' && (
+                    <TouchableOpacity
+                      style={[styles.caButton, styles.caRemoveButton]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove custom CA certificate bundle"
+                      disabled={isLoggingIn}
+                      onPress={() =>
+                        setData(previous => ({
+                          ...previous,
+                          ssl_ca_bundle: '',
+                          ssl_ca_bundle_name: '',
+                        }))
+                      }
+                    >
+                      <Text style={styles.caButtonText}>Remove</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </SettingsGroup>
+              <SettingsGroup title="Clipboard sharing">
+                <View style={styles.row}>
+                  <InfoLabel
+                    style={styles.label}
+                    label="Local clipboard size limit (bytes):"
+                    info={"Optional local limit for incoming and outgoing clipboard content. Must be a positive integer. Server and platform limits still apply.\n\nExamples:\n• 512 KiB = 524288 bytes\n• 1 MiB = 1048576 bytes\n\nLeave blank for no local limit. A smaller limit can help if large clipboard content causes problems on your device."}
+                  />
+                  <TextInput
+                    editable={!isLoggingIn}
+                    style={styles.input}
+                    value={data.max_clipboard_size_local_limit_bytes}
+                    onChangeText={text =>
+                      handleInputChange(
+                        'max_clipboard_size_local_limit_bytes',
+                        isNaN(Number(text))
+                          ? data.max_clipboard_size_local_limit_bytes
+                          : text.trim(),
+                      )
+                    }
+                  />
+                </View>
+                {renderClipboardSyncSettings()}
+                <View style={styles.row}>
+                  <Text style={styles.label}>Enable Image Sharing:</Text>
+                  <CheckBox
+                    disabled={isLoggingIn}
+                    value={data.enable_image_sharing === 'true' ? true : false}
+                    onValueChange={newValue =>
+                      handleInputChange('enable_image_sharing', String(newValue))
+                    }
+                  />
+                </View>
+                <View style={styles.row}>
+                  <Text style={styles.label}>Enable File Sharing:</Text>
+                  <CheckBox
+                    disabled={isLoggingIn}
+                    value={data.enable_file_sharing === 'true' ? true : false}
+                    onValueChange={newValue =>
+                      handleInputChange('enable_file_sharing', String(newValue))
+                    }
+                  />
+                </View>
+              </SettingsGroup>
+              <SettingsGroup title="Background activity">
+                <View style={styles.row}>
+                  <InfoLabel
+                    style={styles.label}
+                    label="Start on device restart (disable if the READ_LOGS permission is granted via ADB):"
+                    info={"Starts ClipCascade after your device restarts. Off by default.\n\nNote: keep this disabled if you granted READ_LOGS via ADB for automatic clipboard monitoring, to avoid interfering with the permission prompt. After restarting, open ClipCascade manually and allow the log-access prompt when shown."}
+                  />
+                  <CheckBox
+                    disabled={isLoggingIn}
+                    value={data.relaunch_on_boot === 'true' ? true : false}
+                    onValueChange={newValue =>
+                      handleInputChange('relaunch_on_boot', String(newValue))
+                    }
+                  />
+                </View>
+                <View style={styles.row}>
+                  <InfoLabel
+                    style={styles.label}
+                    label="Enable Periodic Checks:"
+                    info={"Checks that clipboard monitoring and the foreground service are running when monitoring starts and periodically in the background, approximately every 15 minutes. Enabled by default.\n\nIf the service has stopped, a notification lets you restart it. Tap the notification to restart the service."}
+                  />
+                  <CheckBox
+                    disabled={isLoggingIn}
+                    value={data.enable_periodic_checks === 'true' ? true : false}
+                    onValueChange={newValue =>
+                      handleInputChange(
+                        'enable_periodic_checks',
+                        String(newValue),
+                      )
+                    }
+                  />
+                </View>
+              </SettingsGroup>
+              <SettingsGroup title="Notifications">
+                <View style={styles.row}>
+                  <InfoLabel
+                    style={styles.label}
+                    label="Notify when an update is available:"
+                    info="Checks at startup and once a day while running. Alerts once per new version each session. Enabled by default."
+                  />
+                  <CheckBox
+                    disabled={isLoggingIn}
+                    value={data.update_notifications === 'true'}
+                    onValueChange={value => handleInputChange('update_notifications', String(value))}
+                  />
+                </View>
+              </SettingsGroup>
             </>
           )}
           {/* Footer */}
@@ -1605,6 +1658,18 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     fontSize: 16,
     color: '#555',
+  },
+  settingsGroup: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  settingsGroupTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 14,
   },
   row: {
     flexDirection: 'row',

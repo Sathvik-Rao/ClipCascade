@@ -19,6 +19,7 @@ import {
 import Clipboard from '@react-native-clipboard/clipboard';
 import {checkForUpdates} from './UpdateChecker';
 import {webSocketErrorMessage, webSocketCloseMessage} from './WebSocketStatus';
+import {isClipboardSyncEnabled} from './DevicePreferences';
 
 import {
   setDataInAsyncStorage,
@@ -411,8 +412,12 @@ module.exports = async (inputData = null) => {
               // Subscribe to a topic
               stompClient.subscribe(SUBSCRIPTION_DESTINATION, async message => {
                 try {
-                  await clearFiles();
+                  // Echoes still release the outbound throttle in send-only mode.
                   toggle = false;
+                  if (!(await isClipboardSyncEnabled('receive_clipboard'))) {
+                    return;
+                  }
+                  await clearFiles();
                   await setDataInAsyncStorage(
                     'wsStatusMessage',
                     '✅ Connected - Subscribed',
@@ -441,6 +446,9 @@ module.exports = async (inputData = null) => {
 
                       // validate clipboard size
                       if (await validateClipboardSize(cb, type_, 'Inbound')) {
+                        if (!(await isClipboardSyncEnabled('receive_clipboard'))) {
+                          return;
+                        }
                         // set clipboard content
                         if (type_ === 'text') {
                           Clipboard.setString(cb);
@@ -578,6 +586,10 @@ module.exports = async (inputData = null) => {
                         '✅ Connected - Broadcasting',
                       );
 
+                      if (!(await isClipboardSyncEnabled('send_clipboard'))) {
+                        toggle = false;
+                        return;
+                      }
                       // send
                       stompClient.publish({
                         destination: SEND_DESTINATION,
@@ -983,6 +995,10 @@ module.exports = async (inputData = null) => {
                     let loopBroken = false;
                     sendingFragmentId = metadata.id;
                     for (let i = 0; i < fragments.length; i++) {
+                      if (!(await isClipboardSyncEnabled('send_clipboard'))) {
+                        await resetSendingFragmentId();
+                        return;
+                      }
                       if (sendingFragmentId != metadata.id) {
                         loopBroken = true;
                         return;
@@ -1095,6 +1111,10 @@ module.exports = async (inputData = null) => {
                 return;
               }
 
+              if (!(await isClipboardSyncEnabled('receive_clipboard'))) {
+                await resetReceivingFragments();
+                return;
+              }
               await clearFiles((expensiveCall = true));
               await resetSendingFragmentId();
 
@@ -1179,6 +1199,10 @@ module.exports = async (inputData = null) => {
                 await resetReceivingFragments();
                 // validate clipboard size
                 if (await validateClipboardSize(cb, type_, 'Inbound')) {
+                  if (!(await isClipboardSyncEnabled('receive_clipboard'))) {
+                    await resetReceivingFragments();
+                    return;
+                  }
                   // set clipboard content
                   if (type_ === 'text') {
                     Clipboard.setString(cb);
@@ -1510,6 +1534,10 @@ module.exports = async (inputData = null) => {
 
         // send clipboard content
         const sendClipBoard = async (clipContent, type_ = 'text') => {
+          if (!(await isClipboardSyncEnabled('send_clipboard'))) {
+            block_image_once = false;
+            return;
+          }
           if (server_mode === 'P2S') {
             await sendClipBoardP2S(clipContent, type_);
           } else if (server_mode === 'P2P') {

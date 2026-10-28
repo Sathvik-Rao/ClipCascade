@@ -87,6 +87,7 @@
 - **👥 Multi-User Support** – Isolates clipboard data per user while enabling seamless syncing between personal devices.  
 - **🌐 Web-Based Dashboard** – Track clipboard activity and manage settings through an intuitive interface.  
 - **⚙️ Customizable Preferences** – Fine-tune sync settings for performance, security, and usability.  
+- **↔️ Per-Device Sync Direction** – Choose whether each device sends, receives, or syncs clipboard content both ways.
 - **🔔 Smart Update Notifications** – Stay informed about new features, security patches, and enhancements.  
 
    
