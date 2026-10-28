@@ -2,11 +2,12 @@ import re
 import threading
 import webbrowser
 import tkinter as tk
-from tkinter import ttk, font, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox
 import gc
 import time
 import os
 
+from utils.fonts import ui_font
 from utils.window_manager import center_window
 from utils.notification_manager import NotificationManager
 from utils.secret_storage import STORAGE_HELP
@@ -51,7 +52,7 @@ class HoverTooltip:
             borderwidth=1,
             background="#ffffe0",
             foreground="#202020",
-            font=("Helvetica", 10),
+            font=ui_font(10, master=self.widget),
             wraplength=self.wraplength,
             padx=8,
             pady=6,
@@ -122,10 +123,10 @@ class LoginForm(GuiWindow):
         # Configure styles
         style = ttk.Style(self)
         # Use default theme (may vary by OS); consider 'clam', 'alt', or 'default'
-        style.configure("TLabel", font=("Helvetica", 13), padding=5)
-        style.configure("TEntry", font=("Helvetica", 13), padding=5)
-        style.configure("TButton", font=("Helvetica", 13), padding=5)
-        style.configure("Path.TButton", font=("Helvetica", 11), padding=(2, 1))
+        style.configure("TLabel", font=ui_font(13, master=self), padding=5)
+        style.configure("TEntry", font=ui_font(13, master=self), padding=5)
+        style.configure("TButton", font=ui_font(13, master=self), padding=5)
+        style.configure("Path.TButton", font=ui_font(11, master=self), padding=(2, 1))
 
         # Draw a small trash icon without depending on platform emoji fonts.
         self.clear_path_icon = tk.PhotoImage(master=self, width=12, height=14)
@@ -135,7 +136,7 @@ class LoginForm(GuiWindow):
             (5, 5, 6, 10), (7, 5, 8, 10),
         ):
             self.clear_path_icon.put("#888888", to=rectangle)
-        style.configure("TCheckbutton", font=("Helvetica", 13), padding=5)
+        style.configure("TCheckbutton", font=ui_font(13, master=self), padding=5)
 
         # Main frame with padding
         main_frame = ttk.Frame(self, padding=20)
@@ -145,7 +146,7 @@ class LoginForm(GuiWindow):
         title_label = ttk.Label(
             main_frame,
             text="Log in",
-            font=("Helvetica", 16, "bold"),
+            font=ui_font(16, weight="bold", master=self),
             takefocus=False,
         )
         title_label.pack(pady=(0, 10))
@@ -157,7 +158,7 @@ class LoginForm(GuiWindow):
         # Username
         user_label = ttk.Label(self.field_frame, text="Username:")
         user_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.username_entry = ttk.Entry(self.field_frame, width=50, font=("Helvetica", 13))
+        self.username_entry = ttk.Entry(self.field_frame, width=50, font=ui_font(13, master=self))
         self.username_entry.insert(0, self.config.data["username"])
         self.username_entry.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
         self._add_tooltip(
@@ -173,7 +174,7 @@ class LoginForm(GuiWindow):
         self.password_frame = ttk.Frame(self.field_frame)
         self.password_frame.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
         self.password_entry = ttk.Entry(
-            self.password_frame, show="*", width=47, font=("Helvetica", 13)
+            self.password_frame, show="*", width=47, font=ui_font(13, master=self)
         )
         self.password_entry.insert(0, self.config.data["password"])
         self.password_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -195,7 +196,7 @@ class LoginForm(GuiWindow):
         # Server URL
         server_label = ttk.Label(self.field_frame, text="Server URL:")
         server_label.grid(row=2, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.server_url_entry = ttk.Entry(self.field_frame, width=50, font=("Helvetica", 13))
+        self.server_url_entry = ttk.Entry(self.field_frame, width=50, font=ui_font(13, master=self))
         self.server_url_entry.insert(0, self.config.data["server_url"])
         self.server_url_entry.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
         self._add_tooltip(
@@ -264,7 +265,7 @@ class LoginForm(GuiWindow):
             text="Show advanced settings",
             fg=self.toggle_normal_color,
             cursor="hand2",
-            font=font.Font(family="Helvetica", size=13, underline=True),
+            font=ui_font(13, underline=True, master=self),
             takefocus=False,
         )
         self.toggle_label.pack(pady=(5, 10))
@@ -335,7 +336,7 @@ class LoginForm(GuiWindow):
         # Hash Rounds
         hash_rounds_label = ttk.Label(self.security_settings_frame, text="Key derivation iterations:")
         hash_rounds_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.hash_rounds_entry = ttk.Entry(self.security_settings_frame, width=50, font=("Helvetica", 13))
+        self.hash_rounds_entry = ttk.Entry(self.security_settings_frame, width=50, font=ui_font(13, master=self))
         self.hash_rounds_entry.insert(0, str(self.config.data["hash_rounds"]))
         self.hash_rounds_entry.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
         self._add_tooltip(
@@ -350,7 +351,7 @@ class LoginForm(GuiWindow):
         # Salt
         salt_label = ttk.Label(self.security_settings_frame, text="Encryption salt:")
         salt_label.grid(row=1, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.salt_entry = ttk.Entry(self.security_settings_frame, width=50, font=("Helvetica", 13))
+        self.salt_entry = ttk.Entry(self.security_settings_frame, width=50, font=ui_font(13, master=self))
         self.salt_entry.insert(0, self.config.data["salt"])
         self.salt_entry.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
         self._add_tooltip(
@@ -407,7 +408,7 @@ class LoginForm(GuiWindow):
         self.clipboard_limit_unit_var = tk.StringVar(value=unit)
         self.local_clipboard_size_entry = ttk.Entry(
             limit_frame, width=12, textvariable=self.clipboard_limit_amount_var,
-            font=("Helvetica", 13),
+            font=ui_font(13, master=self),
         )
         self.local_clipboard_size_entry.grid(row=0, column=0, sticky=tk.EW)
         self.clipboard_limit_unit = ttk.Combobox(
@@ -496,7 +497,7 @@ class LoginForm(GuiWindow):
         download_path_frame.grid(row=5, column=1, padx=10, pady=5, sticky=tk.EW)
         download_path_frame.columnconfigure(0, weight=1)
         self.default_file_download_location_entry = ttk.Entry(
-            download_path_frame, width=30, font=("Helvetica", 13)
+            download_path_frame, width=30, font=ui_font(13, master=self)
         )
         self.default_file_download_location_entry.insert(
             0, self.config.data["default_file_download_location"]
@@ -540,7 +541,7 @@ class LoginForm(GuiWindow):
         ca_path_frame.grid(row=4, column=1, padx=10, pady=5, sticky=tk.EW)
         ca_path_frame.columnconfigure(0, weight=1)
         self.ssl_ca_bundle_entry = ttk.Entry(
-            ca_path_frame, width=30, font=("Helvetica", 13)
+            ca_path_frame, width=30, font=ui_font(13, master=self)
         )
         self.ssl_ca_bundle_entry.insert(
             0, self.config.data.get("ssl_ca_bundle") or ""
