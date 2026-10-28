@@ -14,6 +14,8 @@ import {
   Alert,
   SafeAreaView,
   StatusBar,
+  Modal,
+  Keyboard,
   useColorScheme,
 } from 'react-native';
 
@@ -41,6 +43,7 @@ import {
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
+import {LIMIT_UNITS, NO_LOCAL_LIMIT, formatClipboardLimit, parseClipboardLimit} from './ClipboardLimit';
 import {authenticateSession} from './LoginSession';
 import {APP_VERSION} from './AppVersion';
 import {
@@ -85,6 +88,7 @@ const isCancel = error =>
  * (file) LoginSession.js
  * (file) WebSocketStatus.js
  * (file) DevicePreferences.js
+ * (file) ClipboardLimit.js
  * (file) AppVersion.js
  * (file) UpdateChecker.js
  */
@@ -123,6 +127,89 @@ function SettingsGroup({title, children}) {
         {title}
       </Text>
       {children}
+    </View>
+  );
+}
+
+function ClipboardLimitEditor({draft, onChange, disabled}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const isDark = useColorScheme() === 'dark';
+  const colors = {
+    color: isDark ? '#f2f2f7' : '#1d2939',
+    backgroundColor: isDark ? '#2c2c2e' : '#fff',
+    borderColor: isDark ? '#555' : '#cbd2dc',
+  };
+  return (
+    <View style={styles.limitControls}>
+      {draft.unit !== NO_LOCAL_LIMIT && (
+        <TextInput
+          accessibilityLabel="Clipboard size limit amount"
+          keyboardType="decimal-pad"
+          editable={!disabled}
+          style={[styles.limitAmount, colors]}
+          value={draft.amount}
+          onChangeText={amount => {
+            if (/^[0-9]*\.?[0-9]*$/.test(amount)) {
+              onChange({...draft, amount});
+            }
+          }}
+        />
+      )}
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel="Clipboard size limit unit"
+        accessibilityState={{expanded: menuOpen, disabled}}
+        disabled={disabled}
+        style={[styles.limitUnitButton, colors]}
+        onPress={() => {
+          Keyboard.dismiss();
+          setMenuOpen(true);
+        }}
+      >
+        <Text style={{color: colors.color}}>{draft.unit} ▾</Text>
+      </TouchableOpacity>
+      <Modal
+        visible={menuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMenuOpen(false)}
+      >
+        <SafeAreaView style={styles.limitMenuSafeArea}>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={styles.limitMenuBackdrop}
+            accessibilityLabel="Close size unit menu"
+            onPress={() => setMenuOpen(false)}
+          >
+            <View style={[styles.limitMenu, colors]} accessibilityViewIsModal>
+              <Text style={[styles.limitMenuTitle, {color: colors.color}]} accessibilityRole="header">
+                Clipboard size unit
+              </Text>
+              <ScrollView
+                style={styles.limitMenuScroll}
+                contentContainerStyle={styles.limitMenuContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                {[NO_LOCAL_LIMIT, ...Object.keys(LIMIT_UNITS)].map(unit => (
+                  <TouchableOpacity
+                    key={unit}
+                    accessibilityRole="radio"
+                    accessibilityState={{checked: draft.unit === unit}}
+                    style={styles.limitMenuOption}
+                    onPress={() => {
+                      onChange({amount: unit === NO_LOCAL_LIMIT ? '' : draft.amount, unit});
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <Text style={{color: colors.color}}>{unit}</Text>
+                    {draft.unit === unit && <Text style={{color: colors.color}}>✓</Text>}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </TouchableOpacity>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
@@ -228,6 +315,9 @@ export default function App() {
    * enableWSButton, foreground_service_stopped_running, password, wsForegroundServiceTerminated
    */
 
+  const [clipboardLimitDraft, setClipboardLimitDraft] = useState(() => formatClipboardLimit(''));
+  const [clipboardLimitError, setClipboardLimitError] = useState('');
+
   // get data from async storage
   const getAsyncStorage = async () => {
     try {
@@ -307,6 +397,8 @@ export default function App() {
         // get data from async storage and initialize data hook
         let data_s = await getAsyncStorage();
         setData(data_s);
+        setClipboardLimitDraft(formatClipboardLimit(data_s.max_clipboard_size_local_limit_bytes));
+        setClipboardLimitError('');
         await NativeModules.ServerTlsModule.configure(
           data_s.server_url,
           data_s.ssl_ca_bundle,
@@ -855,6 +947,17 @@ export default function App() {
     }
   };
 
+  const handleClipboardLimitChange = draft => {
+    setClipboardLimitDraft(draft);
+    try {
+      const bytes = parseClipboardLimit(draft.amount, draft.unit);
+      setClipboardLimitError('');
+      handleInputChange('max_clipboard_size_local_limit_bytes', bytes);
+    } catch (error) {
+      setClipboardLimitError(error.message);
+    }
+  };
+
   const renderClipboardSyncSettings = () => (
     <>
       {[
@@ -899,6 +1002,9 @@ export default function App() {
     loginInProgressRef.current = true;
     setIsLoggingIn(true);
     try {
+      if (!data_s_c && clipboardLimitError) {
+        throw new Error(clipboardLimitError);
+      }
       if (
         !isValidClipboardLimit(
           (data_s_c || data).max_clipboard_size_local_limit_bytes,
@@ -1256,25 +1362,22 @@ export default function App() {
                 </View>
               </SettingsGroup>
               <SettingsGroup title="Clipboard sharing">
-                <View style={styles.row}>
+                <View style={styles.limitField}>
                   <InfoLabel
-                    style={styles.label}
-                    label="Local clipboard size limit (bytes):"
-                    info={"Optional local limit for incoming and outgoing clipboard content. Must be a positive integer. Server and platform limits still apply.\n\nExamples:\n• 512 KiB = 524288 bytes\n• 1 MiB = 1048576 bytes\n\nLeave blank for no local limit. A smaller limit can help if large clipboard content causes problems on your device."}
+                    style={styles.limitLabel}
+                    label="Local clipboard size limit:"
+                    info="Limit incoming and outgoing clipboard content. Choose a number and unit, or leave blank for no local limit. Decimals such as 1.5 MiB are supported and rounded to the nearest byte. 1 KiB = 1024 bytes; 1 MiB = 1024 KiB. Server and platform limits still apply."
                   />
-                  <TextInput
-                    editable={!isLoggingIn}
-                    style={styles.input}
-                    value={data.max_clipboard_size_local_limit_bytes}
-                    onChangeText={text =>
-                      handleInputChange(
-                        'max_clipboard_size_local_limit_bytes',
-                        isNaN(Number(text))
-                          ? data.max_clipboard_size_local_limit_bytes
-                          : text.trim(),
-                      )
-                    }
+                  <ClipboardLimitEditor
+                    draft={clipboardLimitDraft}
+                    onChange={handleClipboardLimitChange}
+                    disabled={isLoggingIn}
                   />
+                  {clipboardLimitError !== '' && (
+                    <Text accessibilityRole="alert" style={styles.limitError}>
+                      {clipboardLimitError}
+                    </Text>
+                  )}
                 </View>
                 {renderClipboardSyncSettings()}
                 <View style={styles.row}>
@@ -1658,6 +1761,76 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     fontSize: 16,
     color: '#555',
+  },
+  limitField: {
+    marginBottom: 16,
+  },
+  limitLabel: {
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  limitControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  limitAmount: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    marginRight: 8,
+  },
+  limitUnitButton: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 6,
+  },
+  limitError: {
+    color: '#d92d20',
+    fontSize: 13,
+    marginTop: 6,
+  },
+  limitMenuSafeArea: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  limitMenuBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 24,
+  },
+  limitMenu: {
+    width: '100%',
+    maxWidth: 360,
+    maxHeight: '100%',
+    flexShrink: 1,
+    alignSelf: 'center',
+    borderRadius: 12,
+    padding: 16,
+  },
+  limitMenuScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  limitMenuContent: {
+    paddingBottom: 8,
+  },
+  limitMenuTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  limitMenuOption: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    paddingVertical: 12,
   },
   settingsGroup: {
     borderWidth: 1,

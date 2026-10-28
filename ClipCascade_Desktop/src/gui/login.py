@@ -10,6 +10,9 @@ import os
 from utils.window_manager import center_window
 from utils.notification_manager import NotificationManager
 from core.config import Config
+from core.clipboard_limit import (
+    LIMIT_UNITS, NO_LOCAL_LIMIT, format_clipboard_limit, parse_clipboard_limit,
+)
 from gui.info import CustomDialog
 from core.constants import *
 
@@ -363,28 +366,44 @@ class LoginForm(tk.Tk):
             "Note: only works when encryption is disabled. Not recommended on shared or untrusted devices.",
         )
 
-        # Maximum Clipboard Size - Local Limit
+        # Keep the saved preference in bytes while editing in readable units.
         local_clipboard_size_label = ttk.Label(
-            self.clipboard_settings_frame, text="Local clipboard size limit (bytes):"
+            self.clipboard_settings_frame, text="Local clipboard size limit:"
         )
         local_clipboard_size_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        limit_frame = ttk.Frame(self.clipboard_settings_frame)
+        limit_frame.grid(row=0, column=1, padx=10, pady=5, sticky=tk.EW)
+        limit_frame.columnconfigure(0, weight=1)
+        amount, unit = format_clipboard_limit(self.config.data["max_clipboard_size_local_limit_bytes"])
+        self.clipboard_limit_amount_var = tk.StringVar(value=amount)
+        self.clipboard_limit_unit_var = tk.StringVar(value=unit)
         self.local_clipboard_size_entry = ttk.Entry(
-            self.clipboard_settings_frame, width=50, font=("Helvetica", 13)
+            limit_frame, width=12, textvariable=self.clipboard_limit_amount_var,
+            font=("Helvetica", 13),
         )
-        self.local_clipboard_size_entry.insert(
-            0, str(self.config.data["max_clipboard_size_local_limit_bytes"] or "")
+        self.local_clipboard_size_entry.grid(row=0, column=0, sticky=tk.EW)
+        self.clipboard_limit_unit = ttk.Combobox(
+            limit_frame, textvariable=self.clipboard_limit_unit_var,
+            values=(NO_LOCAL_LIMIT, *LIMIT_UNITS), state="readonly", width=14,
         )
-        self.local_clipboard_size_entry.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self.clipboard_limit_unit.grid(row=0, column=1, padx=(6, 0), sticky=tk.EW)
+        self.clipboard_limit_error_var = tk.StringVar()
+        ttk.Label(limit_frame, textvariable=self.clipboard_limit_error_var,
+                  foreground="#b42318", wraplength=300).grid(
+            row=1, column=0, columnspan=2, sticky=tk.W,
+        )
+        self.local_clipboard_size_entry.configure(
+            state="disabled" if unit == NO_LOCAL_LIMIT else "normal"
+        )
         self._add_tooltip(
-            [local_clipboard_size_label, self.local_clipboard_size_entry],
-            "Optional local limit for incoming and outgoing clipboard content, in bytes. Must be a positive integer.\n"
-            "\n"
-            "Examples:\n"
-            "- 512 KiB = 524288 bytes\n"
-            "- 1 MiB = 1048576 bytes\n"
-            "\n"
-            "Leave blank for no local limit. Server and platform limits still apply. A smaller limit can help if large clipboard content causes problems on your device.",
+            [local_clipboard_size_label, self.local_clipboard_size_entry, self.clipboard_limit_unit],
+            "Limit incoming and outgoing clipboard content. Choose a number and unit, "
+            "or leave blank for no local limit.\n\n1 KiB = 1024 bytes; 1 MiB = 1024 KiB. "
+            "Decimals such as 1.5 MiB are supported and rounded to the nearest byte.\n\n"
+            "Server and platform limits still apply.",
         )
+        self.clipboard_limit_amount_var.trace_add("write", self._save_clipboard_limit)
+        self.clipboard_limit_unit_var.trace_add("write", self._change_clipboard_limit_unit)
 
         for row, field, label, help_text in (
             (1, "send_clipboard", "Send Clipboard:", "Share clipboard changes from this device."),
@@ -582,7 +601,6 @@ class LoginForm(tk.Tk):
             )
         self._preference_entries = []
         for field, entry in (
-            ("max_clipboard_size_local_limit_bytes", self.local_clipboard_size_entry),
             ("default_file_download_location", self.default_file_download_location_entry),
         ):
             variable = tk.StringVar(value=entry.get())
@@ -627,6 +645,7 @@ class LoginForm(tk.Tk):
             self.hash_rounds_entry,
             self.salt_entry,
             self.local_clipboard_size_entry,
+            self.clipboard_limit_unit,
             self.default_file_download_location_entry,
             self.download_folder_browse_button,
             self.download_folder_clear_button,
@@ -635,7 +654,10 @@ class LoginForm(tk.Tk):
             self.ca_bundle_clear_button,
         )
         for w in extra_entries:
-            w.configure(takefocus=bool(self.show_extra))
+            w.configure(takefocus=bool(self.show_extra) and (
+                w is not self.local_clipboard_size_entry
+                or self.clipboard_limit_unit_var.get() != NO_LOCAL_LIMIT
+            ))
 
     def _clear_path(self, entry):
         # Entry deletion also updates its StringVar and saved device preference.
@@ -712,6 +734,7 @@ class LoginForm(tk.Tk):
             self.hash_rounds_entry,
             self.salt_entry,
             self.local_clipboard_size_entry,
+            self.clipboard_limit_unit,
             self.default_file_download_location_entry,
             self.download_folder_browse_button,
             self.download_folder_clear_button,
@@ -783,6 +806,26 @@ class LoginForm(tk.Tk):
         if not self.config.save_preferences({field: value}):
             CustomDialog("Unable to save device preferences.", msg_type="error").mainloop()
 
+    def _change_clipboard_limit_unit(self, *_):
+        unlimited = self.clipboard_limit_unit_var.get() == NO_LOCAL_LIMIT
+        self.local_clipboard_size_entry.configure(state="disabled" if unlimited else "normal")
+        if unlimited:
+            self.clipboard_limit_amount_var.set("")
+        else:
+            self._save_clipboard_limit()
+        self._sync_login_tab_order()
+
+    def _save_clipboard_limit(self, *_):
+        try:
+            value = parse_clipboard_limit(
+                self.clipboard_limit_amount_var.get(), self.clipboard_limit_unit_var.get()
+            )
+        except ValueError as error:
+            self.clipboard_limit_error_var.set(str(error))
+            return  # Incomplete edits must not overwrite the last saved limit.
+        self.clipboard_limit_error_var.set("")
+        self._save_preference("max_clipboard_size_local_limit_bytes", value)
+
     def _save_preference_entry(self, field, value):
         value = value.strip()
         if field == "max_clipboard_size_local_limit_bytes":
@@ -827,20 +870,13 @@ class LoginForm(tk.Tk):
         self.config.data["salt"] = self.salt_entry.get()
         self.config.data["save_password"] = self.save_password_var.get()
 
-        # Validate max_clipboard_size_local_limit_bytes
-        max_clipboard_size_local_limit_bytes_input = self.local_clipboard_size_entry.get().strip()
-        if max_clipboard_size_local_limit_bytes_input == "":
-            self.config.data["max_clipboard_size_local_limit_bytes"] = None
-        else:
-            if not LoginForm.is_positive_integer(max_clipboard_size_local_limit_bytes_input):
-                CustomDialog(
-                    "Invalid Input\nLocal clipboard size limit must be a positive integer.",
-                    msg_type="error",
-                ).mainloop()
-                return  # retry login
-            self.config.data["max_clipboard_size_local_limit_bytes"] = int(
-                max_clipboard_size_local_limit_bytes_input
+        try:
+            self.config.data["max_clipboard_size_local_limit_bytes"] = parse_clipboard_limit(
+                self.clipboard_limit_amount_var.get(), self.clipboard_limit_unit_var.get()
             )
+        except ValueError as error:
+            CustomDialog(f"Invalid Input\n{error}", msg_type="error").mainloop()
+            return
 
         self.config.data["send_clipboard"] = self.send_clipboard_var.get()
         self.config.data["receive_clipboard"] = self.receive_clipboard_var.get()
