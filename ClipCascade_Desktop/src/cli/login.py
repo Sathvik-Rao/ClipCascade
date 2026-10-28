@@ -89,6 +89,13 @@ class LoginForm:
         )
         self._save_preference("update_notifications")
 
+        self.config.data["clipboard_notifications"] = LoginForm.str_to_bool(
+            input(
+                f"Notify when clipboard content is received (includes content previews) [{LoginForm.bool_to_str(self.config.data['clipboard_notifications'])}]: "
+            ) or LoginForm.bool_to_str(self.config.data["clipboard_notifications"])
+        )
+        self._save_preference("clipboard_notifications")
+
         # Validate hash_rounds
         while True:
             hash_rounds = input(

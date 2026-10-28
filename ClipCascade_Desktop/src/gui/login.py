@@ -523,6 +523,22 @@ class LoginForm(tk.Tk):
             "Alerts once per new version each session. Enabled by default.",
         )
 
+        clipboard_label = ttk.Label(self.extra_frame, text="Notify when clipboard content is received:")
+        clipboard_label.grid(row=9, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.clipboard_notifications_var = tk.BooleanVar(
+            value=self.config.data["clipboard_notifications"]
+        )
+        clipboard_checkbox = ttk.Checkbutton(
+            self.extra_frame, variable=self.clipboard_notifications_var, takefocus=False,
+        )
+        clipboard_checkbox.grid(row=9, column=1, padx=10, pady=5, sticky=tk.W)
+        self._add_tooltip(
+            [clipboard_label, clipboard_checkbox],
+            "Shows a notification for clipboard content received from another device.\n"
+            "Includes a text preview, image dimensions, or file names.\n"
+            "Clipboard content may appear on your lock screen. Disabled by default.",
+        )
+
         # Configure grid weights for extra_frame
         self.extra_frame.columnconfigure(1, weight=1)
 
@@ -530,6 +546,7 @@ class LoginForm(tk.Tk):
         for field, variable in (
             ("notification", self.notification_var),
             ("update_notifications", self.update_notifications_var),
+            ("clipboard_notifications", self.clipboard_notifications_var),
             ("save_password", self.save_password_var),
             ("enable_image_sharing", self.enable_image_sharing_var),
             ("enable_file_sharing", self.enable_file_sharing_var),
@@ -768,6 +785,7 @@ class LoginForm(tk.Tk):
         self.config.data["cipher_enabled"] = self.cipher_var.get()
         self.config.data["notification"] = self.notification_var.get()
         self.config.data["update_notifications"] = self.update_notifications_var.get()
+        self.config.data["clipboard_notifications"] = self.clipboard_notifications_var.get()
 
         # extra fields
 

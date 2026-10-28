@@ -9,6 +9,7 @@ import xxhash
 from PIL import Image
 from core.constants import *
 from core.config import Config
+from utils.notification_manager import NotificationManager
 
 if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     from cli.tray import TaskbarPanel
@@ -33,6 +34,7 @@ elif PLATFORM.startswith(LINUX):
 class ClipboardManager:
     def __init__(self, config: Config):
         self.config = config
+        self.notification_manager = NotificationManager(config)
         self.previous_clipboard_hash = 0
         self.sys_tray: TaskbarPanel = None
         self.is_files_download_enabled = False
@@ -176,17 +178,20 @@ class ClipboardManager:
             if type_ == "text":
                 txt = base64_string
                 if self.is_clipboard_size_within_limit(txt, type_):
-                    self.paste(txt, type_)
+                    if self.paste(txt, type_):
+                        self.notification_manager.notify_clipboard_received(txt, type_)
             elif type_ == "image":
                 img = ClipboardManager.convert_base64_to_image(base64_img=base64_string)
                 if self.is_clipboard_size_within_limit(img, type_):
-                    self.paste(img, type_)
+                    if self.paste(img, type_):
+                        self.notification_manager.notify_clipboard_received(img, type_)
             elif type_ == "files":
                 file_objects = ClipboardManager.convert_base64_to_files(
                     base64_json=base64_string
                 )
                 if self.is_clipboard_size_within_limit(file_objects, type_):
-                    self.paste(file_objects, type_)
+                    if self.paste(file_objects, type_):
+                        self.notification_manager.notify_clipboard_received(file_objects, type_)
         except Exception as e:
             logging.error(f"Failed to convert base64 data to clipboard: {e}")
 
@@ -210,7 +215,8 @@ class ClipboardManager:
                 logging.error(f"Failed to execute command: {e}")
                 raise
 
-    def paste(self, payload: any, payload_type: str = "text"):
+    def paste(self, payload: any, payload_type: str = "text") -> bool:
+        """Apply received content, returning whether it was accepted locally."""
         try:
             self.reset_files_download()
 
@@ -286,6 +292,12 @@ class ClipboardManager:
                     if self.sys_tray is not None:
                         self.is_files_download_enabled = True
                         self.sys_tray.enable_files_download(files=payload)
+                        return True
+                return False
+            else:
+                return False
+
+            return True
 
         except Exception as e:
             logging.error(f"Failed to copy data to clipboard: {e}")
