@@ -273,10 +273,10 @@ class LoginForm(tk.Tk):
         self.extra_canvas = tk.Canvas(
             self.extra_frame_container,
             borderwidth=0,
+            highlightthickness=0,
             background="#f0f0f0",
             takefocus=False,
         )
-        self.extra_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Add a vertical scrollbar to the canvas
         self.scrollbar = ttk.Scrollbar(
@@ -286,6 +286,8 @@ class LoginForm(tk.Tk):
             takefocus=False,
         )
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        # Reserve the scrollbar's space before the expanding canvas is packed.
+        self.extra_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Configure the canvas to use the scrollbar
         self.extra_canvas.configure(yscrollcommand=self.scrollbar.set)
@@ -302,8 +304,8 @@ class LoginForm(tk.Tk):
             lambda event: self.extra_canvas.configure(scrollregion=self.extra_canvas.bbox("all")),
         )
 
-        # Bind a configure event to the container to adjust the width
-        self.extra_frame_container.bind("<Configure>", self._on_extra_container_configure)
+        # Use the actual viewport width, including on the first layout pass.
+        self.extra_canvas.bind("<Configure>", self._on_extra_canvas_configure)
 
         # Native labeled borders separate related advanced settings.
         for row, attribute, title in (
@@ -312,7 +314,7 @@ class LoginForm(tk.Tk):
             (2, "notification_settings_frame", "Notifications"),
         ):
             group = ttk.LabelFrame(self.extra_frame, text=title, padding=(10, 8))
-            group.grid(row=row, column=0, columnspan=2, sticky=tk.EW, pady=(0, 12))
+            group.grid(row=row, column=0, sticky=tk.EW, pady=(0, 12))
             group.columnconfigure(1, weight=1)
             setattr(self, attribute, group)
 
@@ -384,9 +386,13 @@ class LoginForm(tk.Tk):
         self.local_clipboard_size_entry.grid(row=0, column=0, sticky=tk.EW)
         self.clipboard_limit_unit = ttk.Combobox(
             limit_frame, textvariable=self.clipboard_limit_unit_var,
-            values=(NO_LOCAL_LIMIT, *LIMIT_UNITS), state="readonly", width=14,
+            values=(NO_LOCAL_LIMIT, *LIMIT_UNITS), state="readonly", width=12,
         )
         self.clipboard_limit_unit.grid(row=0, column=1, padx=(6, 0), sticky=tk.EW)
+        # Scroll the settings, without letting the combobox class binding edit
+        # and immediately save the selected unit as the pointer passes over it.
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.clipboard_limit_unit.bind(sequence, self._on_clipboard_unit_mousewheel)
         self.clipboard_limit_error_var = tk.StringVar()
         ttk.Label(limit_frame, textvariable=self.clipboard_limit_error_var,
                   foreground="#b42318", wraplength=300).grid(
@@ -595,7 +601,7 @@ class LoginForm(tk.Tk):
         )
 
         # Configure grid weights for extra_frame
-        self.extra_frame.columnconfigure(1, weight=1)
+        self.extra_frame.columnconfigure(0, weight=1)
 
         # Bind after initialization so opening the form never writes defaults.
         for field, variable in (
@@ -792,6 +798,16 @@ class LoginForm(tk.Tk):
             self.extra_canvas.bind_all("<Button-4>", self._on_mousewheel_linux)
             self.extra_canvas.bind_all("<Button-5>", self._on_mousewheel_linux)
 
+    def _on_clipboard_unit_mousewheel(self, event):
+        """Route wheel input to the settings instead of changing the unit."""
+        if PLATFORM == WINDOWS:
+            self._on_mousewheel_windows(event)
+        elif PLATFORM == MACOS:
+            self._on_mousewheel_mac(event)
+        elif PLATFORM.startswith(LINUX):
+            self._on_mousewheel_linux(event)
+        return "break"
+
     def _on_mousewheel_windows(self, event):
         """Handle mouse wheel scrolling on Windows."""
         self.extra_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -807,10 +823,9 @@ class LoginForm(tk.Tk):
         elif event.num == 5:
             self.extra_canvas.yview_scroll(1, "units")
 
-    def _on_extra_container_configure(self, event):
-        """Adjust the width of the extra_frame as the container is resized."""
-        canvas_width = event.width - self.scrollbar.winfo_width()
-        self.extra_canvas.itemconfigure(self.extra_frame_window, width=canvas_width)
+    def _on_extra_canvas_configure(self, event):
+        """Keep the settings groups inside the canvas viewport when resized."""
+        self.extra_canvas.itemconfigure(self.extra_frame_window, width=max(1, event.width))
 
     @staticmethod
     def remove_trailing_slash(entry):
