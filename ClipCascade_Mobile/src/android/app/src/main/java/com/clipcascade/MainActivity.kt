@@ -5,12 +5,10 @@ import android.content.Intent
 import android.content.Context
 import android.os.Bundle
 import com.facebook.react.ReactActivity
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.ReactActivityDelegate
-import com.facebook.react.bridge.ReactContext
 import com.facebook.react.ReactInstanceManager
 import com.facebook.react.devsupport.interfaces.DevSupportManager
-import com.facebook.react.bridge.Arguments
-import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.defaults.DefaultReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import androidx.work.WorkManager
@@ -18,7 +16,6 @@ import androidx.work.PeriodicWorkRequestBuilder
 import java.util.concurrent.TimeUnit
 import androidx.work.ExistingPeriodicWorkPolicy
 import android.util.Log
-import android.net.Uri
 
 
 class MainActivity : ReactActivity() {
@@ -51,7 +48,7 @@ class MainActivity : ReactActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        intent?.let { handleIntent(it) }
+        if (savedInstanceState == null) intent?.let { handleIntent(it) }
 
         try{
             val bridgeData = AsyncStorageBridge(applicationContext)
@@ -85,48 +82,15 @@ class MainActivity : ReactActivity() {
     }
 
     private fun handleIntent(intent: Intent) {
-        val sharedFileUri = if (Intent.ACTION_SEND == intent.action) {
-            intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-        } else {
-            null
-        }
-
-        // A text/plain attachment is a file, even if a text preview is also supplied.
-        if (Intent.ACTION_SEND == intent.action && "text/plain" == intent.type && sharedFileUri == null) {
-            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
-            sharedText?.let {
-                sendToReactNative("SHARED_TEXT", "text", it)
-            }
-        }
-
-        // Handle text via text-selection popup (PROCESS_TEXT)
-        else if (Intent.ACTION_PROCESS_TEXT == intent.action && "text/plain" == intent.type) {
-            val sharedText = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)
-            sharedText?.let {
-                sendToReactNative("SHARED_TEXT", "text", it.toString())
-            }
-        }
-
-        // Handle single image
-        else if (Intent.ACTION_SEND == intent.action && intent.type?.startsWith("image/") == true) {
-            sharedFileUri?.let {
-                sendToReactNative("SHARED_IMAGE", "image", it.toString())
-            }
-        }
-        
-        // Handle single file (any type)
-        else if (Intent.ACTION_SEND == intent.action && sharedFileUri != null) {
-            sharedFileUri.let {
-                sendToReactNative("SHARED_FILES", "files", it.toString())
-            }
-        }
-
-        // Handle multiple files (any type)
-        else if (Intent.ACTION_SEND_MULTIPLE == intent.action && intent.type != null) {
-            val fileUris = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
-            fileUris?.let {
-                val uriList = it.map(Uri::toString).joinToString(",")
-                sendToReactNative("SHARED_FILES", "files", uriList)
+        ClipboardContent.fromIntent(intent, contentResolver)?.let { content ->
+            PendingShares.add(content)
+            try {
+                reactInstanceManager.currentReactContext
+                    ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    ?.emit("SHARE_AVAILABLE", null)
+            } catch (e: Exception) {
+                // The startup slot remains available if React is not ready yet.
+                Log.d(TAG, "Share buffered until JavaScript initializes", e)
             }
         }
 
@@ -144,14 +108,4 @@ class MainActivity : ReactActivity() {
         }
     }
 
-    // Send data to React Native
-    private fun sendToReactNative(eventName: String, key: String, value: String) {
-        val reactContext = reactInstanceManager.currentReactContext
-        reactContext?.let {
-            val params = Arguments.createMap().apply { putString(key, value) }
-            it
-                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                .emit(eventName, params)
-        }
-    }
 }

@@ -91,16 +91,18 @@ def _monitor_x_wl_clipboard(
         mime_list = mime_list.decode("utf-8")
         mime_list = mime_list.replace("\r\n", "\n").replace("\r", "\n").split("\n")
         mime_list = [m.strip() for m in mime_list if len(m.strip()) > 0]
-        type_ = convert_mime_to_generic_type(mime_list)
+        type_ = convert_mime_to_generic_type(mime_list, enable_image_monitoring, enable_file_monitoring)
+        image_mime = "image/png" if "image/png" in mime_list else next((m for m in mime_list if m.startswith("image/")), None)
+        text_mime = next((m for m in mime_list if m in TEXT_MIMES), None)
 
         # Text
         if type_ == "text":
             if x_mode:
                 success, text = execute_command(
-                    "xclip", "-selection", "clipboard", "-o"
+                    "xclip", "-selection", "clipboard", "-t", text_mime, "-o"
                 )
             else:
-                success, text = execute_command("wl-paste", "-n")
+                success, text = execute_command("wl-paste", "-t", text_mime, "-n")
             if success:
                 text = text.decode("utf-8")
                 if len(text) > 0 and text != previous_clipboard:
@@ -125,11 +127,11 @@ def _monitor_x_wl_clipboard(
                     "-selection",
                     "clipboard",
                     "-t",
-                    "image/png",
+                    image_mime,
                     "-o",
                 )
             else:
-                success, image = execute_command("wl-paste", "-t", "image/png")
+                success, image = execute_command("wl-paste", "-t", image_mime)
             if success:
                 if image != previous_clipboard:
                     previous_clipboard = image
@@ -236,11 +238,13 @@ def _monitor_wl_watch(enable_image_monitoring=False, enable_file_monitoring=Fals
             mime_list = mime_output.decode("utf-8")
             mime_list = mime_list.replace("\r\n", "\n").replace("\r", "\n").split("\n")
             mime_list = [m.strip() for m in mime_list if len(m.strip()) > 0]
-            type_ = convert_mime_to_generic_type(mime_list)
+            type_ = convert_mime_to_generic_type(mime_list, enable_image_monitoring, enable_file_monitoring)
+            image_mime = "image/png" if "image/png" in mime_list else next((m for m in mime_list if m.startswith("image/")), None)
+            text_mime = next((m for m in mime_list if m in TEXT_MIMES), None)
 
             # Text
             if type_ == "text":
-                success, text = execute_command("wl-paste", "-n")
+                success, text = execute_command("wl-paste", "-t", text_mime, "-n")
                 if success:
                     text = text.decode("utf-8")
                     if len(text) > 0 and text != previous_clipboard:
@@ -261,7 +265,7 @@ def _monitor_wl_watch(enable_image_monitoring=False, enable_file_monitoring=Fals
 
             # Image
             elif type_ == "image" and enable_image_monitoring:
-                success, image = execute_command("wl-paste", "-t", "image/png")
+                success, image = execute_command("wl-paste", "-t", image_mime)
                 if success:
                     if image != previous_clipboard:
                         previous_clipboard = image
@@ -325,22 +329,20 @@ def _monitor_wl_watch(enable_image_monitoring=False, enable_file_monitoring=Fals
             _wl_watch_proc = None
 
 
-def convert_mime_to_generic_type(mime_list):
-    if "text/uri-list" in mime_list:
+TEXT_MIMES = (
+    "text/plain", "text/plain;charset=utf-8", "STRING", "TEXT",
+    "COMPOUND_TEXT", "UTF8_STRING",
+)
+
+
+def convert_mime_to_generic_type(mime_list, enable_image_monitoring=True, enable_file_monitoring=True):
+    if enable_file_monitoring and "text/uri-list" in mime_list:
         return "files"
 
-    if any(mime.startswith("image/") for mime in mime_list):
+    if enable_image_monitoring and any(mime.startswith("image/") for mime in mime_list):
         return "image"
 
-    text_mime = [
-        "text/plain",
-        "text/plain;charset=utf-8",
-        "STRING",
-        "TEXT",
-        "COMPOUND_TEXT",
-        "UTF8_STRING",
-    ]
-    if any(t_mime in mime_list for t_mime in text_mime):
+    if any(t_mime in mime_list for t_mime in TEXT_MIMES):
         return "text"
 
     return "unknown"

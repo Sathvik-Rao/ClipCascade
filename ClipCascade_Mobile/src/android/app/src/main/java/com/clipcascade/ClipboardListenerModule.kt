@@ -10,7 +10,6 @@ import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.BufferedReader
@@ -48,37 +47,16 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
 
         // 1) Clipboard listener
         listener = ClipboardManager.OnPrimaryClipChangedListener {
-            val clip = clipboardManager.primaryClip
-            if (clip != null && clip.itemCount > 0) {
-
-                val description = clip.description
-                if (description != null) { 
-
-                    val mimeType = description.getMimeType(0)
-                    if (mimeType != null) {
-                        
-                        val item = clip.getItemAt(0)
-                        val params: WritableMap = Arguments.createMap()
-                        
-                        if (mimeType.startsWith("text/") && item.text != null) {
-                            // Text
-                            params.putString("content", item.text.toString())
-                            params.putString("type", "text")
+            try {
+                clipboardManager.primaryClip?.let { clip ->
+                    ClipboardContent.fromClipboard(clip, reactApplicationContext.contentResolver)
+                        ?.let {
+                            PendingShares.clear()
+                            sendEventToJS(it.toMap())
                         }
-                        else if (mimeType.startsWith("image/") && item.uri != null) {
-                            // Image
-                            params.putString("content", item.uri.toString())
-                            params.putString("type", "image")
-                        }
-                        else if (item.uri != null) {
-                            // Files
-                            params.putString("content", item.uri.toString())
-                            params.putString("type", "files")
-                        }
-
-                        sendEventToJS(params)
-                    }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("ClipCascade", "Failed to read clipboard", e)
             }
         }
         clipboardManager.addPrimaryClipChangedListener(listener)

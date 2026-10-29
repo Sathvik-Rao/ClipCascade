@@ -72,6 +72,7 @@ const isCancel = error =>
  *
  * (file) android\app\src\main\java\com\clipcascade\AsyncStorageBridge.kt
  * (file) android\app\src\main\java\com\clipcascade\BootReceiver.kt
+ * (file) android\app\src\main\java\com\clipcascade\ClipboardContent.kt
  * (file) android\app\src\main\java\com\clipcascade\ClipboardFloatingActivity.kt
  * (file) android\app\src\main\java\com\clipcascade\ClipboardListenerModule.kt
  * (file) android\app\src\main\java\com\clipcascade\ClipboardListenerPackage.kt
@@ -80,6 +81,7 @@ const isCancel = error =>
  * (file) android\app\src\main\java\com\clipcascade\MainApplication.kt
  * (file) android\app\src\main\java\com\clipcascade\NativeBridgeModule.kt
  * (file) android\app\src\main\java\com\clipcascade\NativeBridgePackage.kt
+ * (file) android\app\src\main\java\com\clipcascade\PendingShares.kt
  * (file) android\app\src\main\java\com\clipcascade\ScheduleService.kt
  * (file) android/app/src/main/java/com/clipcascade/ServerTls.kt
  * (file) android/app/src/main/java/com/clipcascade/ServerTlsModule.kt
@@ -98,6 +100,7 @@ const isCancel = error =>
  * (file) DownloadDirectory.js
  * (file) DownloadNotifications.js
  * (file) ClipboardLimit.js
+ * (file) FileTransfer.js
  * (file) AppVersion.js
  * (file) UpdateChecker.js
  */

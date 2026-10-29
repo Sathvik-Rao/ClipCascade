@@ -7,6 +7,7 @@ import xxhash
 
 
 from PIL import Image
+from clipboard.file_utils import encode_files, local_file_paths
 from core.constants import *
 from core.config import Config
 from utils.notification_manager import NotificationManager
@@ -156,14 +157,7 @@ class ClipboardManager:
 
             elif type_ == "files":
                 if PLATFORM.startswith(LINUX):
-                    if content is not None and len(content) > 0:
-                        temp = []
-                        for path in content:
-                            if path.startswith("file:"):
-                                temp.append(path[5:])
-                            else:
-                                temp.append(path)
-                        content = temp
+                    content = local_file_paths(content or [])
 
                 if self.is_clipboard_size_within_limit(content, type_):
                     content_str = ClipboardManager.convert_files_to_base64(
@@ -363,18 +357,7 @@ class ClipboardManager:
         Raises:
             IOError: If a file cannot be read or processed.
         """
-        base64_encoded_files = {}
-        for file_path in file_paths:
-            try:
-                if os.path.isfile(file_path):
-                    file_name = os.path.basename(file_path)
-                    with open(file_path, "rb") as file:
-                        encoded_string = base64.b64encode(file.read()).decode("utf-8")
-                        base64_encoded_files[file_name] = encoded_string
-            except Exception as e:
-                raise IOError(f"Failed to process file '{file_path}'. {e}") from e
-
-        return json.dumps(base64_encoded_files)
+        return encode_files(file_paths)
 
     @staticmethod
     def convert_base64_to_files(base64_json: dict) -> dict:

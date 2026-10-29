@@ -19,6 +19,7 @@ import {checkForUpdates} from './UpdateChecker';
 import {downloadDirectoryLabel} from './DownloadDirectory';
 import {webSocketErrorMessage, webSocketCloseMessage} from './WebSocketStatus';
 import {isClipboardSyncEnabled} from './DevicePreferences';
+import {fileUris, encodeFiles, deliverPendingShare} from './FileTransfer';
 
 import {
   setDataInAsyncStorage,
@@ -28,6 +29,7 @@ import {
 } from './AsyncStorageManagement';
 
 function cleanupClipboardListeners() {
+  DeviceEventEmitter.removeAllListeners('SHARE_AVAILABLE');
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
   DeviceEventEmitter.removeAllListeners('SHARED_IMAGE');
   DeviceEventEmitter.removeAllListeners('SHARED_FILES');
@@ -54,8 +56,8 @@ module.exports = async (inputData = null) => {
           await getDataFromAsyncStorage('server_url'),
           (await getDataFromAsyncStorage('ssl_ca_bundle')) || '',
         );
-        const textEncoder = new TextEncoder();
-        const textDecoder = new TextDecoder();
+        const textEncoder = new encoding.TextEncoder();
+        const textDecoder = new encoding.TextDecoder();
 
         await setDataInAsyncStorage('fileDownloadInProgress', 'false');
         await setDataInAsyncStorage('fileDownloadStatus', '');
@@ -73,6 +75,7 @@ module.exports = async (inputData = null) => {
         let sendClipBoardP2P = null;
         let stopServicesP2S = null;
         let stopServicesP2P = null;
+        let isShareTransportReady = () => false;
         let getP2PStatusMessage = null;
         let isP2PStatusMsgChanged = false;
 
@@ -213,11 +216,9 @@ module.exports = async (inputData = null) => {
           } else if (type === 'files') {
             if (
               direction.toLowerCase() === 'outbound' &&
-              typeof clipContent === 'string'
+              (typeof clipContent === 'string' || Array.isArray(clipContent))
             ) {
-              const file_paths = clipContent
-                .split(',')
-                .filter(item => item.trim() !== '');
+              const file_paths = fileUris(clipContent);
               for (const file_path of file_paths) {
                 clipContentByteLength += Number(
                   await NativeBridgeModule.getFileSize(file_path),
@@ -276,66 +277,10 @@ module.exports = async (inputData = null) => {
           return false;
         };
 
-        // Event triggered when text content is shared with the app. (or) when text selection popup menu action is invoked
-        DeviceEventEmitter.addListener('SHARED_TEXT', async event => {
-          try {
-            const clipContent = event.text;
-            if (clipContent) {
-              // A local clipboard failure must not prevent sharing the text.
-              let clipboardError = null;
-              try {
-                await NativeBridgeModule.copyTextToClipboard(clipContent);
-              } catch (error) {
-                clipboardError = error;
-              }
-              await sendClipBoard(clipContent, 'text');
-              if (clipboardError) {
-                await setDataInAsyncStorage('wsStatusMessage', '❌ Clipboard error: ' + clipboardError.message);
-              }
-            }
-          } catch (e) {
-            await setDataInAsyncStorage(
-              'wsStatusMessage',
-              '❌ Outbound Error: ' + e,
-            );
-          }
-        });
-
-        // Event listener triggered when image is shared with the app.
-        DeviceEventEmitter.addListener('SHARED_IMAGE', async event => {
-          try {
-            const clipContent = event.image;
-            if (clipContent) {
-              await sendClipBoard(clipContent, 'image');
-            }
-          } catch (e) {
-            await setDataInAsyncStorage(
-              'wsStatusMessage',
-              '❌ Outbound Error: ' + e,
-            );
-          }
-        });
-
-        // Event listener triggered when files are shared with the app.
-        DeviceEventEmitter.addListener('SHARED_FILES', async event => {
-          try {
-            const clipContent = event.files;
-            if (clipContent) {
-              await sendClipBoard(clipContent, 'files');
-            }
-          } catch (e) {
-            await setDataInAsyncStorage(
-              'wsStatusMessage',
-              '❌ Outbound Error: ' + e,
-            );
-          }
-        });
-
         //clipboard monitor
         const { ClipboardListener } = NativeModules;
         const clipboardListener = new NativeEventEmitter(ClipboardListener);
         // start clipboard listening
-        ClipboardListener.startListening();
         // clipboard listener callback
         const clipboardOnChange = clipboardListener.addListener(
           'onClipboardChange',
@@ -462,6 +407,7 @@ module.exports = async (inputData = null) => {
                         if (!(await isClipboardSyncEnabled('receive_clipboard'))) {
                           return;
                         }
+                        await NativeBridgeModule.discardPendingShare();
                         // set clipboard content
                         if (type_ === 'text') {
                           await NativeBridgeModule.copyTextToClipboard(cb);
@@ -541,6 +487,8 @@ module.exports = async (inputData = null) => {
             },
           });
 
+          isShareTransportReady = () => !!stompClient?.connected && !toggle;
+
           // start websocket stomp connection
           stompClient.activate();
 
@@ -548,12 +496,13 @@ module.exports = async (inputData = null) => {
           sendClipBoardP2S = async (clipContent, type_ = 'text') => {
             try {
               await clearFiles();
+              if (!stompClient?.connected || toggle) return false;
               if (stompClient && stompClient.connected && !toggle) {
                 if (
                   (type_ === 'image' && enable_image_sharing === 'false') ||
                   (type_ === 'files' && enable_file_sharing === 'false')
                 ) {
-                  return;
+                  return true;
                 }
 
                 if (
@@ -565,23 +514,12 @@ module.exports = async (inputData = null) => {
                       clipContent,
                     );
                   } else if (type_ === 'files') {
-                    temp = {};
-                    const file_paths = clipContent
-                      .split(',')
-                      .filter(item => item.trim() !== '');
-
-                    for (const file_path of file_paths) {
-                      temp[await NativeBridgeModule.getFileName(file_path)] =
-                        await NativeBridgeModule.getFileAsBase64(file_path);
-                    }
-                    clipContent = JSON.stringify(temp);
+                    clipContent = await encodeFiles(clipContent, NativeBridgeModule);
                   }
 
                   // clipboad content hash
                   const hcb = await hashCB(clipContent);
                   if (await newCB(hcb)) {
-                    previous_clipboard_content_hash = hcb;
-
                     if (block_image_once) {
                       block_image_once = false;
                     } else {
@@ -599,7 +537,7 @@ module.exports = async (inputData = null) => {
 
                       if (!(await isClipboardSyncEnabled('send_clipboard'))) {
                         toggle = false;
-                        return;
+                        return true;
                       }
                       // send
                       stompClient.publish({
@@ -609,10 +547,12 @@ module.exports = async (inputData = null) => {
                           type: type_,
                         }),
                       });
+                      previous_clipboard_content_hash = hcb;
                     }
                   }
                 }
               }
+              return true;
             } catch (e) {
               toggle = false;
               block_image_once = false;
@@ -667,6 +607,7 @@ module.exports = async (inputData = null) => {
           let peers = new Set(); // Current set of known peer IDs in the "room"
           let peerConnections = {}; // Map: peerId -> RTCPeerConnection
           let dataChannels = {}; // Map: peerId -> RTCDataChannel
+          isShareTransportReady = () => Object.values(dataChannels).some(channel => channel.readyState === 'open');
           let liveConnectionsCount = 0; // Track open DataChannels
           let pendingPeerList = null;
           let p2pShuttingDown = false;
@@ -943,6 +884,7 @@ module.exports = async (inputData = null) => {
           // send clipboard content P2P
           sendClipBoardP2P = async (clipContent, type_ = 'text') => {
             try {
+              if (!isShareTransportReady()) return false;
               await clearFiles();
               if (
                 (type_ === 'image' && enable_image_sharing === 'false') ||
@@ -958,23 +900,12 @@ module.exports = async (inputData = null) => {
                     clipContent,
                   );
                 } else if (type_ === 'files') {
-                  temp = {};
-                  const file_paths = clipContent
-                    .split(',')
-                    .filter(item => item.trim() !== '');
-
-                  for (const file_path of file_paths) {
-                    temp[await NativeBridgeModule.getFileName(file_path)] =
-                      await NativeBridgeModule.getFileAsBase64(file_path);
-                  }
-                  clipContent = JSON.stringify(temp);
+                  clipContent = await encodeFiles(clipContent, NativeBridgeModule);
                 }
 
                 // clipboad content hash
                 const hcb = await hashCB(clipContent);
                 if (await newCB(hcb)) {
-                  previous_clipboard_content_hash = hcb;
-
                   if (block_image_once) {
                     block_image_once = false;
                   } else {
@@ -1003,6 +934,8 @@ module.exports = async (inputData = null) => {
                       combinedRawPayloadSizeInBytes: rawPayloadSizeInBytes,
                     };
 
+                    const recipients = Object.values(dataChannels).filter(channel => channel.readyState === 'open');
+                    if (!recipients.length) return false;
                     let loopBroken = false;
                     sendingFragmentId = metadata.id;
                     for (let i = 0; i < fragments.length; i++) {
@@ -1012,7 +945,7 @@ module.exports = async (inputData = null) => {
                       }
                       if (sendingFragmentId != metadata.id) {
                         loopBroken = true;
-                        return;
+                        return false;
                       }
 
                       const fragment = fragments[i];
@@ -1024,14 +957,18 @@ module.exports = async (inputData = null) => {
                       });
                       metadata.index += 1;
 
-                      // send to all open DataChannels
-                      Object.entries(dataChannels).forEach(
-                        async ([peerId, channel]) => {
-                          if (channel.readyState === 'open') {
-                            await channel.send(messageJson);
-                          }
-                        },
-                      );
+                      // A peer joining midway cannot receive a partial batch.
+                      let sent = false;
+                      for (const channel of recipients) {
+                        if (channel.readyState === 'open') {
+                          await channel.send(messageJson);
+                          sent = true;
+                        }
+                      }
+                      if (!sent) {
+                        await resetSendingFragmentId();
+                        return false;
+                      }
 
                       // Update stats
                       if (metadata.isFragmented) {
@@ -1040,6 +977,7 @@ module.exports = async (inputData = null) => {
                       }
                     }
                     if (!loopBroken) {
+                      previous_clipboard_content_hash = hcb;
                       await resetSendingFragmentId();
                     }
                   }
@@ -1049,6 +987,7 @@ module.exports = async (inputData = null) => {
               block_image_once = false;
               p2pMsg = '❌ P2P Outbound Error: ' + JSON.stringify(e, null, 2);
               await p2pStatusMessageChanged();
+              throw e;
             }
           };
 
@@ -1126,7 +1065,7 @@ module.exports = async (inputData = null) => {
                 await resetReceivingFragments();
                 return;
               }
-              await clearFiles((expensiveCall = true));
+              await clearFiles(true);
               await resetSendingFragmentId();
 
               let cb = String(message.payload);
@@ -1214,6 +1153,7 @@ module.exports = async (inputData = null) => {
                     await resetReceivingFragments();
                     return;
                   }
+                  await NativeBridgeModule.discardPendingShare();
                   // set clipboard content
                   if (type_ === 'text') {
                     await NativeBridgeModule.copyTextToClipboard(cb);
@@ -1545,16 +1485,55 @@ module.exports = async (inputData = null) => {
 
         // send clipboard content
         const sendClipBoard = async (clipContent, type_ = 'text') => {
+          if (type_ !== 'image') block_image_once = false;
           if (!(await isClipboardSyncEnabled('send_clipboard'))) {
             block_image_once = false;
             return;
           }
-          if (server_mode === 'P2S') {
-            await sendClipBoardP2S(clipContent, type_);
-          } else if (server_mode === 'P2P') {
-            await sendClipBoardP2P(clipContent, type_);
+          const sent = server_mode === 'P2S'
+            ? await sendClipBoardP2S(clipContent, type_)
+            : await sendClipBoardP2P(clipContent, type_);
+          if (sent === false) {
+            throw new Error('Clipboard not sent: connection unavailable, busy, or interrupted. Copy/share it again when connected.');
           }
+          return sent;
         };
+
+        let deliveringShare = false;
+        async function processPendingShares() {
+          if (deliveringShare) return;
+          deliveringShare = true;
+          try {
+            while (await deliverPendingShare(
+              NativeBridgeModule,
+              isShareTransportReady,
+              async (content, type) => {
+                block_image_once = false;
+                const result = await sendClipBoard(content, type);
+                if (type === 'text') {
+                  try {
+                    await NativeBridgeModule.copyTextToClipboard(content);
+                  } catch (error) {
+                    await setDataInAsyncStorage('wsStatusMessage', '❌ Clipboard error: ' + error);
+                  }
+                }
+                return result;
+              },
+              error => setDataInAsyncStorage('wsStatusMessage', '❌ Share failed: ' + error),
+            )) {
+              // Each entry is consumed once; this only handles a newly arrived share.
+            }
+          } finally {
+            deliveringShare = false;
+          }
+        }
+        DeviceEventEmitter.addListener('SHARE_AVAILABLE', () => {
+          processPendingShares().catch(error => {
+            setDataInAsyncStorage('wsStatusMessage', '❌ Share failed: ' + error);
+          });
+        });
+
+        ClipboardListener.startListening();
 
         // terminate service when wsIsRunning is false
         const stopServices = async () => {
@@ -1592,6 +1571,8 @@ module.exports = async (inputData = null) => {
               );
               break;
             }
+
+            await processPendingShares();
 
             // The shared checker gates requests to once a day and deduplicates
             // concurrent screen/service checks. Never delay clipboard polling.

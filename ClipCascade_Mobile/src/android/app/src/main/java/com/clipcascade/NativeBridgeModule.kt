@@ -40,6 +40,17 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     }
 
     @ReactMethod
+    fun takePendingShare(promise: Promise) {
+        promise.resolve(PendingShares.take())
+    }
+
+    @ReactMethod
+    fun discardPendingShare(promise: Promise) {
+        PendingShares.clear()
+        promise.resolve(null)
+    }
+
+    @ReactMethod
     fun clearCookies(promise: Promise) {
         // The callback requires a Looper. Do not start login until removal finishes.
         UiThreadUtil.runOnUiThread {
@@ -86,18 +97,36 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
             val trimmedUri = contentUri.trim()
             val uri = Uri.parse(trimmedUri)
             var size: Long = -1
+            if (uri.scheme == "file") {
+                val file = File(requireNotNull(uri.path))
+                require(file.isFile && file.canRead()) { "Unreadable file: $uri" }
+                promise.resolve(file.length().toString())
+                return
+            }
             val projection = arrayOf(OpenableColumns.SIZE)
 
-            reactApplicationContext.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-                val sizeIndex = cursor.getColumnIndexOrThrow(OpenableColumns.SIZE)
-                if (cursor.moveToFirst()) {
-                    size = cursor.getLong(sizeIndex)
+            try {
+                reactApplicationContext.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (cursor.moveToFirst() && sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
+                        size = cursor.getLong(sizeIndex)
+                    }
                 }
+            } catch (_: Exception) {
+                // Some readable providers do not implement metadata queries.
             }
-            if (size == -1L) {
-                promise.reject("ERROR", "Failed to get file size: -1 for URI: ${trimmedUri}")
-                return
-            } 
+            if (size < 0L) {
+                size = reactApplicationContext.contentResolver.openInputStream(uri)?.use { stream ->
+                    val buffer = ByteArray(8192)
+                    var total = 0L
+                    while (true) {
+                        val count = stream.read(buffer)
+                        if (count < 0) break
+                        total += count
+                    }
+                    total
+                } ?: throw IOException("Unable to open file: $trimmedUri")
+            }
             promise.resolve(size.toString())
         } catch (e: Exception) {
             promise.reject("ERROR", "Failed to get file size: ${e.message}")
@@ -109,15 +138,24 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         try {
             val trimmedUri = contentUri.trim()
             val uri = Uri.parse(trimmedUri)
+            if (uri.scheme == "file") {
+                promise.resolve(File(requireNotNull(uri.path)).name)
+                return
+            }
             var fileName: String? = null
             val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
-            reactApplicationContext.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-                val nameIndex = cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME)
-                if (cursor.moveToFirst()) {
-                    fileName = cursor.getString(nameIndex)
+            try {
+                reactApplicationContext.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (cursor.moveToFirst() && nameIndex >= 0 && !cursor.isNull(nameIndex)) {
+                        fileName = cursor.getString(nameIndex)
+                    }
                 }
+            } catch (_: Exception) {
+                // Fall back to the URI when a provider cannot return a display name.
             }
-            if (fileName == null) {
+            if (fileName.isNullOrEmpty()) fileName = uri.lastPathSegment
+            if (fileName.isNullOrEmpty()) {
                 promise.reject("ERROR", "Failed to get file name: null for URI: ${trimmedUri}")
                 return
             }
