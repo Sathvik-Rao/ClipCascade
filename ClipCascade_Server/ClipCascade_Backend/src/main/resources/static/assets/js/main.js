@@ -252,6 +252,7 @@ async function connectMonitoring(generation) {
       monitoringSessionExpired();
       return;
     }
+    if (!(await refreshMonitoringSettings(generation))) return;
     if (CURRENT_MODE === "P2S") connectStomp(generation);
     else await connectP2P(generation);
   } catch (error) {
@@ -263,6 +264,55 @@ async function connectMonitoring(generation) {
       scheduleMonitoringReconnect(generation);
     }
   }
+}
+
+async function refreshMonitoringSettings(generation) {
+  const current = () => monitoringRequested && generation === monitoringGeneration;
+  const request = (url) => $.ajax({ url, dataType: "json", cache: false, timeout: 10000 });
+  let mode;
+  try {
+    const data = await request(ENDPOINTS.serverMode);
+    mode = data && data.mode;
+  } catch (error) {
+    // Older servers may not expose discovery. Keep the page's existing mode
+    // only for a missing endpoint, not for outages or expired sessions.
+    if (error.status !== 404) throw error;
+    mode = CURRENT_MODE;
+  }
+  if (!current()) return false;
+  if (mode !== "P2P" && mode !== "P2S") throw new Error("Unsupported server mode");
+
+  let maxSize = "∞";
+  let iceServers = [];
+  if (mode === "P2P") {
+    const data = await request(ENDPOINTS.stunUrl);
+    if (!data || typeof data.url !== "string") throw new Error("Invalid server STUN URL");
+    if (data.url) iceServers = [{ urls: data.url }];
+  } else {
+    const data = await request(ENDPOINTS.maxMessageSize);
+    if (!data || typeof data.maxmessagesize !== "number" ||
+        !Number.isFinite(data.maxmessagesize) || data.maxmessagesize < 0) {
+      throw new Error("Invalid server message size limit");
+    }
+    maxSize = data.maxmessagesize;
+  }
+  if (!current()) return false;
+
+  // Commit a complete configuration together. Detach old callbacks and peers
+  // before starting the newly selected transport.
+  disconnectStomp();
+  disconnectP2P();
+  clearTimeout(connectionTimer);
+  connectionTimer = null;
+  const changed = mode !== CURRENT_MODE;
+  CURRENT_MODE = mode;
+  MAX_MESSAGE_SIZE = maxSize;
+  stunConfig = { iceServers };
+  if (changed) autoPopulateWebSocketURL();
+  $(SELECTORS.maxMessageSize).text(
+    `Max Message Size: ${maxSize}${mode === "P2S" ? " MiB" : ""}`
+  );
+  return true;
 }
 
 function updateMonitoringControls(connected) {
@@ -559,25 +609,6 @@ function fetchServerMode() {
     });
   });
 }
-function fetchStunUrl() {
-  return new Promise((resolve, reject) => {
-    $.ajax({
-      url: ENDPOINTS.stunUrl,
-      method: "GET",
-      success: (data) => {
-        if (data && data.url) {
-          stunConfig = { iceServers: [{ urls: data.url }] };
-        }
-        resolve();
-      },
-      error: (err) => {
-        console.error("Failed to fetch STUN url:", err);
-        resolve();
-      },
-    });
-  });
-}
-
 function fetchDonationStatus() {
   return new Promise((resolve, reject) => {
     $.ajax({
@@ -654,7 +685,6 @@ function sendTextToServerStomp(textVal) {
                ----------------------------------------- */
 async function connectP2P(generation) {
   const signalingUrl = $(SELECTORS.brokerUrlInput).val();
-  await fetchStunUrl();
   if (!monitoringRequested || generation !== monitoringGeneration) return;
   const socket = new WebSocket(signalingUrl);
   p2pSignalingWebSocket = socket;

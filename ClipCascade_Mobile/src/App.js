@@ -1,3 +1,4 @@
+import {discoverServer} from './ServerDiscovery';
 import {openInitialDownloadNotification} from './DownloadNotifications';
 import {
   PermissionsAndroid,
@@ -95,6 +96,7 @@ const isCancel = error =>
  * (file) index.js
  * (file) StartForegroundService.js
  * (file) LoginSession.js
+ * (file) ServerDiscovery.js
  * (file) WebSocketStatus.js
  * (file) DevicePreferences.js
  * (file) DownloadDirectory.js
@@ -241,13 +243,8 @@ export default function App() {
   const MAX_LOGIN_AUTO_RETRY = 3; // Retry login attempts
   const FETCH_TIMEOUT = 5000; // 5 seconds
   const LOGOUT_URL = '/logout';
-  const MAXSIZE_URL = '/max-size';
   const CSRF_URL = '/csrf-token';
-  const SERVER_MODE_URL = '/server-mode';
-  const WEBSOCKET_ENDPOINT = '/clipsocket';
   const VALIDATE_URL = '/validate-session';
-  const WEBSOCKET_ENDPOINT_P2P = '/p2psignaling';
-  const STUN_URL = '/stun-url';
   const GITHUB_URL = 'https://github.com/Sathvik-Rao/ClipCascade';
   const APP_NAME = 'ClipCascade';
   const HELP_URL = `${GITHUB_URL}/blob/main/README.md`;
@@ -544,32 +541,6 @@ export default function App() {
     };
   }, []);
 
-  // Function to convert a server URL to a WebSocket URL
-  const convertToWebSocketUrl = async (inputUrl, endpoint) => {
-    if (!inputUrl || typeof inputUrl !== 'string') {
-      throw new Error('Invalid URL provided');
-    }
-
-    inputUrl = inputUrl.trim().replace(/\/+$/, '').toLowerCase(); // Remove trailing slashes and convert to lowercase
-
-    let wsUrl;
-
-    if (inputUrl.startsWith('https://')) {
-      wsUrl = inputUrl.replace('https://', 'wss://');
-    } else if (inputUrl.startsWith('http://')) {
-      wsUrl = inputUrl.replace('http://', 'ws://');
-    } else {
-      throw new Error(`Unsupported protocol in URL: ${inputUrl}`);
-    }
-
-    if (endpoint != null) {
-      wsUrl += endpoint;
-      wsUrl = wsUrl.replace(/\/+$/, '');
-    }
-
-    return wsUrl;
-  };
-
   // Generate a PBKDF2 hash to create an encryption key.
   const hash = async (data_s, password_s) => {
     try {
@@ -646,77 +617,7 @@ export default function App() {
         // get CSRF token
         data_s.csrf_token = await getCSRFToken(data_s);
 
-        // get server mode
-        const serverModeResponse = await fetchTimeout(
-          data_s.server_url + SERVER_MODE_URL,
-          {
-            method: 'GET',
-          },
-        );
-        if (!serverModeResponse.ok) {
-          return [
-            false,
-            'Login Successful but unable to get server mode; Status: ' +
-              serverModeResponse.status,
-            data_s,
-          ];
-        }
-        const serverModeResponseText = await serverModeResponse.text();
-        data_s.server_mode = String(JSON.parse(serverModeResponseText).mode);
-
-        if (data_s.server_mode === 'P2P') {
-          data_s.maxsize = '-1';
-
-          // get stun url
-          const stunUrlResponse = await fetchTimeout(
-            data_s.server_url + STUN_URL,
-            {
-              method: 'GET',
-            },
-          );
-          if (!stunUrlResponse.ok) {
-            return [
-              false,
-              'Login Successful but unable to get stun url; Status: ' +
-                stunUrlResponse.status,
-              data_s,
-            ];
-          }
-          const stunUrlResponseText = await stunUrlResponse.text();
-          data_s.stun_url = String(JSON.parse(stunUrlResponseText).url);
-
-          // convert server_url to websocket url
-          data_s.websocket_url = await convertToWebSocketUrl(
-            data_s.server_url,
-            WEBSOCKET_ENDPOINT_P2P,
-          );
-        } else if (data_s.server_mode === 'P2S') {
-          data_s.stun_url = '';
-
-          // get max size
-          const maxSizeResponse = await fetchTimeout(
-            data_s.server_url + MAXSIZE_URL,
-            {
-              method: 'GET',
-            },
-          );
-          if (!maxSizeResponse.ok) {
-            return [
-              false,
-              'Login Successful but unable to get max size; Status: ' +
-                maxSizeResponse.status,
-              data_s,
-            ];
-          }
-          const maxSizeResponseText = await maxSizeResponse.text();
-          data_s.maxsize = String(JSON.parse(maxSizeResponseText).maxsize);
-
-          // convert server_url to websocket url
-          data_s.websocket_url = await convertToWebSocketUrl(
-            data_s.server_url,
-            WEBSOCKET_ENDPOINT,
-          );
-        }
+        data_s = await discoverServer(data_s, fetchTimeout);
 
         // Hash the password for encryption
         if (data_s.cipher_enabled === 'true') {

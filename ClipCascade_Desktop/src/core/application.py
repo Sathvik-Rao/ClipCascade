@@ -9,6 +9,7 @@ from core.constants import *
 
 from core.config import Config
 from utils.request_manager import RequestManager
+from utils.transport_manager import TransportManager
 from utils.cipher_manager import CipherManager
 from utils.update_checker import UpdateChecker, parse_version
 from stomp_ws.stomp_manager import STOMPManager
@@ -63,6 +64,9 @@ class Application:
             self.request_manager = RequestManager(self.config)
             self.stomp_manager = STOMPManager(self.config)
             self.p2p_manager = P2PManager(self.config)
+            self.transport_manager = TransportManager(
+                self.config, self.request_manager, self.stomp_manager, self.p2p_manager
+            )
             self.cipher_manager = CipherManager(self.config)
         except Exception as e:
             CustomDialog(
@@ -211,19 +215,6 @@ class Application:
             )
             if login_successful:
                 self.config.data["csrf_token"] = self.request_manager.get_csrf_token()
-                self.config.data["server_mode"] = self.request_manager.get_server_mode()
-                if self.config.data["server_mode"] == "P2P":
-                    self.config.data["stun_url"] = self.request_manager.get_stun_url()
-                    self.config.data["maxsize"] = -1
-                    self.config.data["websocket_url"] = Config.convert_to_websocket_url(
-                        self.config.data["server_url"], WEBSOCKET_ENDPOINT_P2P
-                    )
-                else:
-                    self.config.data["stun_url"] = ""
-                    self.config.data["maxsize"] = self.request_manager.maxsize()
-                    self.config.data["websocket_url"] = Config.convert_to_websocket_url(
-                        self.config.data["server_url"], WEBSOCKET_ENDPOINT
-                    )
                 ws_conn_successful, msg = self._get_ws_manager().connect()
                 if ws_conn_successful:
                     self._get_ws_manager().is_login_phase = False
@@ -254,10 +245,7 @@ class Application:
                 Echo("-" * 53)
 
     def _get_ws_manager(self):
-        if self.config.data["server_mode"] == "P2P":
-            return self.p2p_manager
-        else:
-            return self.stomp_manager
+        return self.transport_manager
 
     def get_version_update_status(self) -> list | None:
         """

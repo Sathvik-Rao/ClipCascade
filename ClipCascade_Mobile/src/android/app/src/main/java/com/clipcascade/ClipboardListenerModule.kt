@@ -29,10 +29,14 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
     private val debounceTime: Long = 0 // milliseconds (increase to debounce clipboard listener)
     private val activityDebounceTime: Long = 1000 // milliseconds (increase to debounce log cat monitoring)
 
-    // logcat‐reader control
-    private var stopLogcat = false
-    private var logcatThread: Thread? = null
-    private var logcatProcess: Process? = null
+    // Each reader owns its cancellation and process. A previous thread must
+    // never destroy the process created by a later monitoring session.
+    private class LogcatReader {
+        @Volatile var stopped = false
+        @Volatile var process: Process? = null
+        var thread: Thread? = null
+    }
+    private var logcatReader: LogcatReader? = null
     
 
     override fun getName(): String {
@@ -66,21 +70,22 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
         if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P &&
             ContextCompat.checkSelfPermission(reactApplicationContext, Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
         ) {
-            // If already stopping, reset flag
-            stopLogcat = false
-
-            // Start a single dedicated thread
-            logcatThread = Thread {
+            val session = LogcatReader()
+            logcatReader = session
+            session.thread = Thread {
                 try {
                     val timeStamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
                         .format(Date())
-                    logcatProcess = Runtime.getRuntime().exec(
+                    val process = Runtime.getRuntime().exec(
                         arrayOf("logcat", "-T", timeStamp, "ClipboardService:E", "*:S")
                     )
-                    val reader = BufferedReader(InputStreamReader(logcatProcess!!.inputStream))
+                    session.process = process
+                    if (session.stopped) return@Thread
+                    val reader = BufferedReader(InputStreamReader(process.inputStream))
                     var line: String? = null
                     reader.use { br ->
-                        while (!stopLogcat && br.readLine().also { line = it } != null) {
+                        while (!session.stopped && br.readLine().also { line = it } != null) {
+                            if (session.stopped) break
                             if (line!!.contains(BuildConfig.APPLICATION_ID)) {
                                 val currentTime = System.currentTimeMillis()
                                 if (currentTime - lastActivityStartTime > activityDebounceTime) {
@@ -97,9 +102,8 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
                     e.printStackTrace()
                 } finally {
                     try {
-                        logcatProcess?.destroy()
+                        session.process?.destroy()
                     } catch (_: Exception) {}
-                    stopLogcat = false
                 }
             }.apply {
                 isDaemon = true
@@ -118,15 +122,15 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
         }
 
         // 2) Tear down logcat‐reader thread & process
-        stopLogcat = true
+        val session = logcatReader
+        logcatReader = null
+        session?.stopped = true
         try {
-            logcatThread?.interrupt()
+            session?.thread?.interrupt()
         } catch (_: Exception) {}
         try {
-            logcatProcess?.destroy()
+            session?.process?.destroy()
         } catch (_: Exception) {}
-        logcatThread = null
-        logcatProcess = null
     }
 
 

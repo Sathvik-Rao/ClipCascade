@@ -15,6 +15,7 @@ import {
   RTCIceCandidate,
   RTCSessionDescription,
 } from 'react-native-webrtc';
+import {discoverServer} from './ServerDiscovery';
 import {checkForUpdates} from './UpdateChecker';
 import {downloadDirectoryLabel} from './DownloadDirectory';
 import {webSocketErrorMessage, webSocketCloseMessage} from './WebSocketStatus';
@@ -26,6 +27,7 @@ import {
   getDataFromAsyncStorage,
   getMultipleDataFromAsyncStorage,
   clearAsyncStorage,
+  saveTransportSettings,
 } from './AsyncStorageManagement';
 
 function cleanupClipboardListeners() {
@@ -47,15 +49,31 @@ module.exports = async (inputData = null) => {
   const STOMP_DEACTIVATE_TIMEOUT_MS = 5000; // bound the STOMP deactivate() wait
 
   // forground service
-  notifee.registerForegroundService(notification => {
-    return new Promise(async () => {
+  notifee.registerForegroundService(async notification => {
+    const { ClipboardListener } = NativeModules;
+    let clipboardStarted = false;
+    const stopClipboard = async () => {
+      if (clipboardStarted) {
+        clipboardStarted = false;
+        await ClipboardListener.stopListening();
+      }
+    };
+    const runTransport = async () => {
       try {
+        let restarting = false;
+        let transportStopped = false;
         const { NativeBridgeModule } = NativeModules;
         // Restore trust before either WebSocket mode starts, including headless boot.
         await NativeModules.ServerTlsModule.configure(
           await getDataFromAsyncStorage('server_url'),
           (await getDataFromAsyncStorage('ssl_ca_bundle')) || '',
         );
+        if (!clipboardStarted) {
+          // Request native log access while monitoring is being started, before
+          // network discovery can delay it. Transport changes reuse this reader.
+          ClipboardListener.startListening();
+          clipboardStarted = true;
+        }
         const textEncoder = new encoding.TextEncoder();
         const textDecoder = new encoding.TextDecoder();
 
@@ -79,28 +97,49 @@ module.exports = async (inputData = null) => {
         let getP2PStatusMessage = null;
         let isP2PStatusMsgChanged = false;
 
-        // get data from async storage
+        // Discover in the service too: Android can start it without the app UI.
+        const keys = [
+          'server_url', 'websocket_url', 'cipher_enabled', 'maxsize',
+          'server_mode', 'stun_url', 'enable_image_sharing',
+          'enable_file_sharing', 'enable_websocket_status_notification',
+          'max_clipboard_size_local_limit_bytes',
+        ];
+        let settings = await getMultipleDataFromAsyncStorage(keys);
+        const refreshSettings = async () => {
+          while (!transportStopped && (await getDataFromAsyncStorage('wsIsRunning')) === 'true') {
+            try {
+              const next = await discoverServer(settings);
+              if (transportStopped || (await getDataFromAsyncStorage('wsIsRunning')) !== 'true') return null;
+              await saveTransportSettings(next);
+              return next;
+            } catch (error) {
+              await setDataInAsyncStorage('wsStatusMessage', '❌ ' + error.message + '; retrying…');
+              await new Promise(resolve => setTimeout(resolve, RECONNECT_WS_TIMER));
+            }
+          }
+          return null;
+        };
+        settings = await refreshSettings();
+        if (!settings) {
+          await stopClipboard();
+          await setDataInAsyncStorage('wsForegroundServiceTerminated', 'true');
+          await notifee.stopForegroundService();
+          return false;
+        }
         const {
-          websocket_url,
-          cipher_enabled,
-          maxsize: maxsizeStr,
-          server_mode,
-          stun_url,
-          enable_image_sharing,
-          enable_file_sharing,
+          websocket_url, cipher_enabled, maxsize: maxsizeStr, server_mode,
+          stun_url, enable_image_sharing, enable_file_sharing,
           enable_websocket_status_notification,
           max_clipboard_size_local_limit_bytes: maxClipboardLimitStr,
-        } = await getMultipleDataFromAsyncStorage([
-          'websocket_url',
-          'cipher_enabled',
-          'maxsize',
-          'server_mode',
-          'stun_url',
-          'enable_image_sharing',
-          'enable_file_sharing',
-          'enable_websocket_status_notification',
-          'max_clipboard_size_local_limit_bytes',
-        ]);
+        } = settings;
+        const prepareReconnect = async () => {
+          const next = await refreshSettings();
+          if (!next || transportStopped) return false;
+          // Rebuild the service's transport state when any server setting changes.
+          restarting = ['server_mode', 'websocket_url', 'stun_url', 'maxsize']
+            .some(key => next[key] !== settings[key]);
+          return !restarting;
+        };
 
         const maxsize = Number(maxsizeStr);
         let max_clipboard_size_local_limit_bytes = Number(maxClipboardLimitStr);
@@ -278,7 +317,6 @@ module.exports = async (inputData = null) => {
         };
 
         //clipboard monitor
-        const { ClipboardListener } = NativeModules;
         const clipboardListener = new NativeEventEmitter(ClipboardListener);
         // start clipboard listening
         // clipboard listener callback
@@ -357,6 +395,13 @@ module.exports = async (inputData = null) => {
           // websocket stomp client
           stompClient = new Client({
             brokerURL: websocket_url,
+            beforeConnect: async () => {
+              if (!(await prepareReconnect()) && stompClient) {
+                // Do not await deactivate inside beforeConnect: it can wait on
+                // this very connection attempt. The poll loop completes cleanup.
+                void stompClient.deactivate();
+              }
+            },
             reconnectDelay: RECONNECT_WS_TIMER,
             connectionTimeout: 5000,
             heartbeatIncoming: HEARTBEAT_INTERVAL,
@@ -562,9 +607,10 @@ module.exports = async (inputData = null) => {
 
           // stop events and connection P2S
           stopServicesP2S = async () => {
+            transportStopped = true;
             // 1) Stop clipboard listening
             try {
-              await ClipboardListener.stopListening();
+              if (!restarting) await stopClipboard();
               if (clipboardOnChange) {
                 clipboardOnChange.remove();
               }
@@ -599,7 +645,7 @@ module.exports = async (inputData = null) => {
 
             await setDataInAsyncStorage('wsStatusMessage', '✅ Disconnected');
             cleanupClipboardListeners();
-            await notifee.stopForegroundService();
+            if (!restarting) await notifee.stopForegroundService();
           };
         } else if (server_mode === 'P2P') {
           // p2p variables
@@ -755,6 +801,7 @@ module.exports = async (inputData = null) => {
 
           const initializeWebSocketSignalingClient = async () => {
             if (!signalingStopped && wsSignalingClient == null) {
+              if (!(await prepareReconnect()) || signalingStopped) return;
               const socket = new WebSocket(websocket_url);
               wsSignalingClient = socket;
               const current = () =>
@@ -993,6 +1040,7 @@ module.exports = async (inputData = null) => {
 
           // stop events and connection P2P
           stopServicesP2P = async () => {
+            transportStopped = true;
             // This service must stay stopped even if a newer service sets the
             // shared running flag back to true before an old retry completes.
             signalingStopped = true;
@@ -1000,7 +1048,7 @@ module.exports = async (inputData = null) => {
             signalingReconnectTimer = null;
             // 1) Stop listening to clipboard events
             try {
-              await ClipboardListener.stopListening();
+              if (!restarting) await stopClipboard();
               if (clipboardOnChange) {
                 clipboardOnChange.remove();
               }
@@ -1032,7 +1080,7 @@ module.exports = async (inputData = null) => {
             await setDataInAsyncStorage('wsStatusMessage', '✅ Disconnected');
             await setDataInAsyncStorage('p2pStatusMessage', '');
             cleanupClipboardListeners();
-            await notifee.stopForegroundService();
+            if (!restarting) await notifee.stopForegroundService();
           };
 
           // send message to websocket signaling server
@@ -1533,8 +1581,6 @@ module.exports = async (inputData = null) => {
           });
         });
 
-        ClipboardListener.startListening();
-
         // terminate service when wsIsRunning is false
         const stopServices = async () => {
           if (server_mode === 'P2S') {
@@ -1562,8 +1608,14 @@ module.exports = async (inputData = null) => {
             const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
             const latest = JSON.parse(json);
 
+            if (restarting && latest.wsIsRunning === 'true') {
+              await stopServices();
+              return true;
+            }
+
             // check if wsIsRunning is true or else terminate the service
             if (latest.wsIsRunning !== 'true') {
+              restarting = false;
               await stopServices();
               await setDataInAsyncStorage(
                 'wsForegroundServiceTerminated',
@@ -1663,13 +1715,20 @@ module.exports = async (inputData = null) => {
           }
         }
 
-        pollFlagsLoop();
+        return await pollFlagsLoop();
       } catch (error) {
         await setDataInAsyncStorage('wsStatusMessage', '❌ Error:' + error);
+        await stopClipboard();
         cleanupClipboardListeners();
+        await setDataInAsyncStorage('wsIsRunning', 'false');
+        await setDataInAsyncStorage('wsForegroundServiceTerminated', 'true');
         await notifee.stopForegroundService();
+        return false;
       }
-    });
+    };
+    while (await runTransport()) {
+      // Keep the foreground notification alive while replacing the transport.
+    }
   });
 
   try {
