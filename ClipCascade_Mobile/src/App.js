@@ -2,6 +2,7 @@ import {discoverServer} from './ServerDiscovery';
 import {openInitialDownloadNotification} from './DownloadNotifications';
 import {
   PermissionsAndroid,
+  findNodeHandle,
   AppState,
   Image,
   StyleSheet,
@@ -24,6 +25,7 @@ import {
 import { useEffect, useState, useRef } from 'react';
 
 import CheckBox from '@react-native-community/checkbox';
+import Clipboard from '@react-native-clipboard/clipboard';
 
 import notifee from '@notifee/react-native';
 import { pbkdf2 } from '@react-native-module/pbkdf2';
@@ -230,6 +232,47 @@ function ClipboardLimitEditor({draft, onChange, disabled}) {
 
 export default function App() {
   const { NativeBridgeModule } = NativeModules;
+  const isDark = useColorScheme() === 'dark';
+  const [showSetupGuide, setShowSetupGuide] = useState(true);
+  const setupGuidePreference = useRef({visible: true, changed: false});
+
+  useEffect(() => {
+    let active = true;
+    getDataFromAsyncStorage('show_android_setup_guide')
+      .then(value => {
+        // A late storage read must not undo a user's tap.
+        if (active && !setupGuidePreference.current.changed) {
+          const visible = value !== 'false';
+          setupGuidePreference.current.visible = visible;
+          setShowSetupGuide(visible);
+        }
+      })
+      .catch(console.warn);
+    return () => { active = false; };
+  }, []);
+
+  const toggleSetupGuide = () => {
+    const visible = !setupGuidePreference.current.visible;
+    setupGuidePreference.current = {visible, changed: true};
+    setShowSetupGuide(visible);
+    saveDevicePreference('show_android_setup_guide', String(visible))
+      .catch(() => Alert.alert(
+        'Could not save preference',
+        'Your setup guide preference could not be saved. It may reset when you reopen the app.',
+      ));
+  };
+  const [copiedCommand, setCopiedCommand] = useState('');
+  const [isChangingSync, setIsChangingSync] = useState(false);
+  const dashboardColors = {
+    backgroundColor: isDark ? '#111827' : '#f3f6fa',
+    color: isDark ? '#f3f4f6' : '#182230',
+  };
+  const cardColors = {
+    backgroundColor: isDark ? '#1f2937' : '#ffffff',
+    borderColor: isDark ? '#374151' : '#dce3ec',
+  };
+  const secondaryText = {color: isDark ? '#b8c5d6' : '#475467'};
+  const actionText = {color: isDark ? '#93c5fd' : '#175cd3'};
 
   const isMountedRef = useRef(true);
   const loginInProgressRef = useRef(false);
@@ -757,6 +800,7 @@ export default function App() {
   const foregroundService = async () => {
     if (foregroundServiceInProgressRef.current) return;
     foregroundServiceInProgressRef.current = true;
+    setIsChangingSync(true);
     try {
       if ((await getDataFromAsyncStorage('enableWSButton')) === 'true') {
         await setDataInAsyncStorage('enableWSButton', 'false');
@@ -796,6 +840,7 @@ export default function App() {
         await setDataInAsyncStorage('enableWSButton', 'true');
       } finally {
         foregroundServiceInProgressRef.current = false;
+        setIsChangingSync(false);
       }
     }
   };
@@ -819,6 +864,26 @@ export default function App() {
 
   // password
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const passwordInputRef = useRef(null);
+
+  const applyPasswordVisibility = () => {
+    const tag = findNodeHandle(passwordInputRef.current);
+    if (tag != null) {
+      NativeBridgeModule.setPasswordVisibility(tag, showPassword).catch(console.warn);
+    }
+  };
+
+  useEffect(() => {
+    const tag = findNodeHandle(passwordInputRef.current);
+    if (enableLoginPage && tag != null) {
+      NativeBridgeModule.setPasswordVisibility(tag, showPassword).catch(console.warn);
+    }
+  }, [enableLoginPage, showPassword, NativeBridgeModule]);
+
+  useEffect(() => {
+    if (!enableLoginPage) setShowPassword(false);
+  }, [enableLoginPage]);
 
   // Function to handle input changes in the login form
   const handleInputChange = (field, value) => {
@@ -1031,6 +1096,12 @@ export default function App() {
 
   // State to manage websocket page message
   const [wsPageMessage, setWsPageMessage] = useState('');
+  const syncConnected = wsIsRunning === 'true' && wsPageMessage.includes('✅ Connected');
+  const syncStatusColor = isChangingSync
+    ? (isDark ? '#fbbf24' : '#b45309')
+    : syncConnected
+      ? (isDark ? '#4ade80' : '#15803d')
+      : (isDark ? '#f87171' : '#b42318');
 
   // State to manage websocket page p2p message
   const [wsPageP2PMessage, setWsPageP2PMessage] = useState('');
@@ -1170,6 +1241,7 @@ export default function App() {
       style={{
         flex: 1,
         paddingTop: StatusBar.currentHeight,
+        backgroundColor: enableWSPage ? dashboardColors.backgroundColor : undefined,
       }}
     >
       {/* Loading Page */}
@@ -1184,7 +1256,7 @@ export default function App() {
       )}
       {/* Login Page */}
       {enableLoginPage && (
-        <ScrollView contentContainerStyle={styles.container}>
+        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
           <Text style={styles.appTitle}>{APP_NAME}</Text>
           <View style={styles.row}>
             <Text style={styles.label}>Username:</Text>
@@ -1198,14 +1270,34 @@ export default function App() {
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>Password:</Text>
-            <TextInput
-              editable={!isLoggingIn}
-              style={styles.input}
-              value={password}
-              onChangeText={text => setPassword(text)}
-              secureTextEntry
-              autoCapitalize="none"
-            />
+            <View style={styles.passwordField}>
+              <TextInput
+                editable={!isLoggingIn}
+                ref={passwordInputRef}
+                onLayout={applyPasswordVisibility}
+                style={[styles.input, styles.passwordInput]}
+                accessibilityLabel="Password"
+                value={password}
+                onChangeText={text => setPassword(text)}
+                // Keep password keyboard semantics even when native code reveals the text.
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                autoComplete="off"
+                importantForAutofill="no"
+              />
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                accessibilityState={{disabled: isLoggingIn}}
+                disabled={isLoggingIn}
+                onPress={() => setShowPassword(visible => !visible)}
+                style={styles.passwordToggle}
+              >
+                <Text style={styles.passwordMonkey}>{showPassword ? '🐵' : '🙈'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           <View style={styles.row}>
             <InfoLabel
@@ -1508,225 +1600,212 @@ export default function App() {
 
       {/* websocket page */}
       {enableWSPage && (
-        <ScrollView contentContainerStyle={styles.container}>
-          <Text style={styles.appTitle}>{APP_NAME}</Text>
-          <View style={styles.container}>
+        <ScrollView
+          style={{backgroundColor: dashboardColors.backgroundColor}}
+          contentContainerStyle={styles.dashboard}
+        >
+          <View style={styles.dashboardHeader}>
+            <Text style={[styles.dashboardTitle, {color: dashboardColors.color}]}>{APP_NAME}</Text>
             <TouchableOpacity
-              style={[
-                styles.loginButton,
-                {
-                  backgroundColor: wsIsRunning === 'true' ? '#800020' : 'green',
-                },
-              ]}
-              onPress={foregroundService}
-            >
-              <Text style={styles.loginButtonText}>
-                {wsIsRunning === 'true' ? 'Stop' : 'Start'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.loginButton, { backgroundColor: '#800020' }]}
+              accessibilityRole="button"
+              style={styles.secondaryAction}
+              disabled={isChangingSync}
               onPress={logout}
             >
-              <Text style={styles.loginButtonText}>Logout</Text>
+              <Text style={actionText}>Log out</Text>
             </TouchableOpacity>
-            {/* Display websocket status message */}
-            {wsPageMessage !== '' && (
-              <Text style={styles.message}>{wsPageMessage}</Text>
-            )}
-            {/* Display p2p status message */}
-            {wsPageP2PMessage !== '' && (
-              <Text style={styles.message}>{wsPageP2PMessage}</Text>
-            )}
-            {/* File download button */}
-            {enableFilesDownloadButton &&
-              enableFilesDownloadButton === true && (
-                <TouchableOpacity
-                  style={[styles.loginButton, { backgroundColor: '#4bab4e' }]}
-                  onPress={downloadFiles}
-                  disabled={isChoosingDownloadDirectory || isDownloadingFiles}
-                >
-                  <Text style={styles.loginButtonText}>
-                    {isDownloadingFiles ? '⏳ Downloading…' : `📥 Download ${availableFileCount === 1 ? 'File' : 'Files'}`}
-                  </Text>
-                </TouchableOpacity>
+          </View>
+          <View>
+            <View style={[styles.dashboardCard, cardColors]}>
+              <Text accessibilityRole="header" style={[styles.cardTitle, {color: dashboardColors.color}]}>
+                Clipboard sync
+              </Text>
+              <View style={styles.syncStatusRow}>
+                <View
+                  accessible={false}
+                  importantForAccessibility="no"
+                  style={[styles.syncStatusDot, {backgroundColor: syncStatusColor}]}
+                />
+                <Text style={[styles.statusLabel, {color: syncStatusColor}]} accessibilityLiveRegion="polite">
+                  {isChangingSync
+                    ? (wsIsRunning === 'true' ? 'Stopping…' : 'Starting…')
+                    : wsIsRunning !== 'true'
+                      ? 'Stopped'
+                      : /retrying|reconnect/i.test(wsPageMessage)
+                        ? 'Reconnecting…'
+                        : wsPageMessage.includes('✅ Connected')
+                          ? 'Connected'
+                          : 'Service running · Waiting for connection'}
+                </Text>
+              </View>
+              <Text style={[styles.cardBody, secondaryText]}>
+                {wsIsRunning === 'true'
+                  ? 'Clipboard sync is running in the background.'
+                  : 'Start sync to share clipboard content with your devices.'}
+              </Text>
+              {wsPageMessage !== '' && wsPageMessage !== '✅ Connected' && (
+                <Text style={[styles.statusMessage, secondaryText]} accessibilityLiveRegion="polite">{wsPageMessage}</Text>
               )}
-            {fileDownloadStatus !== '' && (
-              <Text style={styles.message} accessibilityRole="text" accessibilityLiveRegion="polite">
-                {fileDownloadStatus}
-              </Text>
-            )}
-            {/* new version display message */}
+              {wsPageP2PMessage !== '' && (
+                <Text style={[styles.statusMessage, secondaryText]}>{wsPageP2PMessage}</Text>
+              )}
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityState={{disabled: isChangingSync, busy: isChangingSync}}
+                style={[styles.primaryAction, isChangingSync && styles.disabledAction]}
+                disabled={isChangingSync}
+                onPress={foregroundService}
+              >
+                <Text style={styles.loginButtonText}>
+                  {isChangingSync ? 'Please wait…' : wsIsRunning === 'true' ? 'Stop sync' : 'Start sync'}
+                </Text>
+              </TouchableOpacity>
+            </View>
             {newVersionAvailable[0] && (
-              <TouchableOpacity
-                onPress={() => Linking.openURL(RELEASE_URL)}
-                style={{ marginTop: 10 }}
-              >
-                <Text
-                  style={[
-                    styles.message,
-                    {
-                      color: '#008080',
-                      fontWeight: 'bold',
-                      textDecorationLine: 'underline',
-                    },
-                  ]}
+              <View style={[styles.updateCard, cardColors]}>
+                <View style={styles.updateDetails}>
+                  <Text accessibilityRole="header" style={[styles.updateTitle, {color: dashboardColors.color}]}>
+                    Update available
+                  </Text>
+                  <Text style={[styles.updateVersion, secondaryText]}>
+                    {APP_VERSION} <Text style={styles.updateArrow}>➜</Text> {newVersionAvailable[1]}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  accessibilityRole="link"
+                  accessibilityLabel={`Update ClipCascade to ${newVersionAvailable[1]}`}
+                  accessibilityHint="Opens the release download page"
+                  onPress={() => Linking.openURL(RELEASE_URL)}
+                  style={[styles.updateButton, {borderColor: actionText.color}]}
                 >
-                  New version available! 🚀 Click here to update ({APP_VERSION}{' '}
-                  ➞ {newVersionAvailable[1]})
-                </Text>
-              </TouchableOpacity>
+                  <Text style={[styles.updateButtonText, actionText]}>Update</Text>
+                </TouchableOpacity>
+              </View>
             )}
-            <View style={{ marginTop: 20, paddingHorizontal: 10 }}>
-              <Text
-                style={[styles.message, { fontWeight: 'bold', fontSize: 18 }]}
+            {(enableFilesDownloadButton || isDownloadingFiles || isChoosingDownloadDirectory) && (
+              <View style={[styles.dashboardCard, cardColors]}>
+                <Text accessibilityRole="header" style={[styles.cardTitle, {color: dashboardColors.color}]}>
+                  File transfers
+                </Text>
+                <Text style={[styles.cardBody, secondaryText]}>
+                  {enableFilesDownloadButton
+                    ? `${availableFileCount} ${availableFileCount === 1 ? 'file' : 'files'} available to download`
+                    : 'Incoming files will appear here.'}
+                </Text>
+                {enableFilesDownloadButton && (
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityState={{disabled: isChoosingDownloadDirectory || isDownloadingFiles, busy: isDownloadingFiles}}
+                    style={[styles.primaryAction, (isChoosingDownloadDirectory || isDownloadingFiles) && styles.disabledAction]}
+                    onPress={downloadFiles}
+                    disabled={isChoosingDownloadDirectory || isDownloadingFiles}
+                  >
+                    <Text style={styles.loginButtonText}>
+                      {isChoosingDownloadDirectory ? 'Choosing folder…' : isDownloadingFiles ? 'Downloading…' : `Download ${availableFileCount === 1 ? 'file' : 'files'}`}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {isDownloadingFiles && <ActivityIndicator style={styles.transferActivity} color={actionText.color} />}
+                {fileDownloadStatus !== '' && (
+                  <Text style={[styles.cardBody, secondaryText]} accessibilityLiveRegion="polite">
+                    {fileDownloadStatus}
+                  </Text>
+                )}
+              </View>
+            )}
+            <View style={[styles.dashboardCard, cardColors]}>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityState={{expanded: showSetupGuide}}
+                style={styles.guideToggle}
+                onPress={toggleSetupGuide}
               >
-                Instructions
+                <Text style={[styles.cardTitle, {color: dashboardColors.color}]}>Android setup guide</Text>
+                <Text style={actionText}>{showSetupGuide ? 'Hide' : 'Show'}</Text>
+              </TouchableOpacity>
+              <Text style={[styles.cardBody, secondaryText]}>
+                Share manually, enable automatic sharing, and keep sync running.
               </Text>
+              {showSetupGuide && (
+                <View>
+                  <View style={styles.guideSection}>
+                    <Text accessibilityRole="header" style={[styles.guideSectionTitle, {color: dashboardColors.color}]}>
+                      How to share
+                    </Text>
+                    <Text style={[styles.guideText, secondaryText]}>
+                      1. Select text, an image, or files.{'\n'}
+                      2. Tap “Share” <Text style={styles.sharingArrow}>➜</Text> “ClipCascade”.
+                    </Text>
+                    <Text style={[styles.guideText, secondaryText]}>
+                      Or tap “ClipCascade” instead of “Copy” when selecting text.
+                    </Text>
+                    <Text style={[styles.guideText, secondaryText]}>
+                      On Android 10+, automatic sending from the background is restricted. To enable it, follow the ADB setup below. Receiving still works automatically while sync is running.
+                    </Text>
+                  </View>
 
-              <View style={{ marginTop: 15 }}>
-                <Text
-                  style={[
-                    styles.label,
-                    { fontWeight: 'bold', marginBottom: 5 },
-                  ]}
-                >
-                  Clipboard Sharing on Android 10+:
-                </Text>
-                <Text style={styles.label}>
-                  On Android 10 and above, clipboard monitoring has been
-                  restricted for privacy reasons. To share clipboard content
-                  using ClipCascade:
-                </Text>
-                <View style={{ marginTop: 10, marginLeft: 15 }}>
-                  <Text style={styles.label}>
-                    1. Select the text, image, or files you want to copy.
-                  </Text>
-                  <Text style={styles.label}>
-                    2. Tap 'Share', select 'ClipCascade'.
-                  </Text>
-                  <Text style={[styles.label, { marginLeft: 15 }]}>(or)</Text>
-                  <Text style={[styles.label, { marginLeft: 15 }]}>
-                    Tap 'ClipCascade' instead of 'Copy'.
-                  </Text>
+                  <View style={[styles.guideSection, styles.guideDivider, {borderColor: cardColors.borderColor}]}>
+                    <Text accessibilityRole="header" style={[styles.guideSectionTitle, {color: dashboardColors.color}]}>
+                      Share automatically · ADB setup
+                    </Text>
+                    <Text style={[styles.guideText, secondaryText]}>
+                      Works with or without root. Run these commands in order from a computer with ADB connected to your phone.
+                    </Text>
+                    {[
+                      ['1. Allow clipboard monitoring', 'adb -d shell pm grant com.clipcascade android.permission.READ_LOGS', 'Grants READ_LOGS so ClipCascade can detect clipboard access events in Android’s system logs and trigger automatic clipboard monitoring. This does not change how content is received.'],
+                      ['2. Allow drawing over other apps', 'adb -d shell appops set com.clipcascade SYSTEM_ALERT_WINDOW allow', 'Allows ClipCascade to briefly focus a small overlay to read clipboard content when Android restricts background access. You can also grant this permission in Android settings under Drawing over other apps.'],
+                      ['3. Stop the app to apply permissions', 'adb -d shell am force-stop com.clipcascade', 'Stops ClipCascade so it can restart with the new permissions. After running this command, reopen the app and start sync.'],
+                    ].map(([title, command, info]) => (
+                      <View key={command} style={styles.adbStep}>
+                        <View style={styles.adbStepHeader}>
+                          <InfoLabel
+                            style={[styles.guideText, styles.adbStepTitle, {color: dashboardColors.color}]}
+                            label={title}
+                            info={info}
+                          />
+                          <TouchableOpacity
+                            accessibilityRole="button"
+                            accessibilityLabel={`Copy command: ${title}`}
+                            style={styles.copyCommand}
+                            onPress={() => {
+                              Clipboard.setString(command);
+                              setCopiedCommand(command);
+                            }}
+                          >
+                            <Text style={actionText} accessibilityLiveRegion="polite">{copiedCommand === command ? 'Copied' : 'Copy'}</Text>
+                          </TouchableOpacity>
+                        </View>
+                        <ScrollView horizontal style={[styles.commandBox, {backgroundColor: dashboardColors.backgroundColor}]}>
+                          <Text selectable style={[styles.commandText, secondaryText]}>{command}</Text>
+                        </ScrollView>
+                      </View>
+                    ))}
+                  </View>
+
+                  <View style={[styles.guideSection, styles.guideDivider, {borderColor: cardColors.borderColor}]}>
+                    <Text accessibilityRole="header" style={[styles.guideSectionTitle, {color: dashboardColors.color}]}>
+                      Keep sync running
+                    </Text>
+                    <Text style={[styles.guideText, secondaryText]}>
+                      Disable battery optimization for ClipCascade and check your phone’s power manager to reduce background interruptions.
+                    </Text>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      style={[styles.guideSettingsButton, {borderColor: cardColors.borderColor}]}
+                      onPress={async () => await notifee.openBatteryOptimizationSettings()}
+                    >
+                      <Text style={actionText}>Battery optimization settings</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      style={[styles.guideSettingsButton, {borderColor: cardColors.borderColor}]}
+                      onPress={async () => await notifee.openPowerManagerSettings()}
+                    >
+                      <Text style={actionText}>Power manager settings</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                <Text
-                  style={[
-                    styles.label,
-                    { marginTop: 5, fontSize: 15, fontStyle: 'italic' },
-                  ]}
-                >
-                  There's also a workaround to enable clipboard sharing in the
-                  background. Scroll down for setup instructions.
-                </Text>
-              </View>
-
-              <View style={{ marginTop: 20 }}>
-                <Text
-                  style={[
-                    styles.label,
-                    { fontWeight: 'bold', marginBottom: 5 },
-                  ]}
-                >
-                  Background Clipboard Reception:
-                </Text>
-                <Text style={styles.label}>
-                  ClipCascade automatically receives clipboard content in the
-                  background. No manual action is required to receive data.
-                </Text>
-              </View>
-
-              <View style={{ marginTop: 20 }}>
-                <Text
-                  style={[
-                    styles.label,
-                    { fontWeight: 'bold', marginBottom: 5 },
-                  ]}
-                >
-                  Important Note:
-                </Text>
-                <Text style={styles.label}>
-                  To ensure uninterrupted performance, please disable battery
-                  optimization for ClipCascade. This will prevent the system
-                  from stopping the app when it's running in the foreground.
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={[styles.loginButton, { backgroundColor: 'black' }]}
-                onPress={async () =>
-                  await notifee.openBatteryOptimizationSettings()
-                }
-              >
-                <Text style={styles.loginButtonText}>
-                  Battery Optimization Settings
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.loginButton, { backgroundColor: 'black' }]}
-                onPress={async () => await notifee.openPowerManagerSettings()}
-              >
-                <Text style={styles.loginButtonText}>
-                  Power Manager Settings
-                </Text>
-              </TouchableOpacity>
-
-              {/* ADB Commands Section */}
-              <View style={{ marginTop: 20 }}>
-                <Text
-                  style={[
-                    styles.label,
-                    { fontWeight: 'bold', marginBottom: 5 },
-                  ]}
-                >
-                  Automatic Clipboard Monitoring Setup:
-                </Text>
-                <Text style={styles.label}>
-                  On rooted/non-rooted devices, to enable automatic clipboard
-                  monitoring you need to execute these 3 ADB commands:
-                </Text>
-                <View style={{ marginTop: 10, marginLeft: 15 }}>
-                  <Text style={styles.label}>
-                    1. Enable the READ_LOGS permission:
-                  </Text>
-                  <Text
-                    selectable
-                    style={[
-                      styles.label,
-                      { fontWeight: 'bold', marginLeft: 15 },
-                    ]}
-                  >
-                    {`> adb -d shell pm grant com.clipcascade android.permission.READ_LOGS`}
-                  </Text>
-
-                  <Text style={styles.label}>
-                    2. Allow "Drawing over other apps", also accessible from
-                    Settings:
-                  </Text>
-                  <Text
-                    selectable
-                    style={[
-                      styles.label,
-                      { fontWeight: 'bold', marginLeft: 15 },
-                    ]}
-                  >
-                    {`> adb -d shell appops set com.clipcascade SYSTEM_ALERT_WINDOW allow`}
-                  </Text>
-
-                  <Text style={styles.label}>
-                    3. Kill the app for the new permissions to take effect:
-                  </Text>
-                  <Text
-                    selectable
-                    style={[
-                      styles.label,
-                      { fontWeight: 'bold', marginLeft: 15 },
-                    ]}
-                  >
-                    {`> adb -d shell am force-stop com.clipcascade`}
-                  </Text>
-                </View>
-              </View>
+              )}
             </View>
           </View>
           {/* Footer */}
@@ -1770,6 +1849,68 @@ export default function App() {
 
 // view styles
 const styles = StyleSheet.create({
+  dashboard: {
+    padding: 20,
+    width: '100%',
+    maxWidth: 680,
+    alignSelf: 'center',
+  },
+  dashboardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  dashboardTitle: {fontSize: 26, lineHeight: 36, paddingVertical: 2, fontWeight: '700', flex: 1},
+  secondaryAction: {minHeight: 48, paddingHorizontal: 12, justifyContent: 'center'},
+  dashboardCard: {borderWidth: 1, borderRadius: 16, padding: 20, marginBottom: 16},
+  cardTitle: {fontSize: 18, paddingVertical: 4, includeFontPadding: true, fontWeight: '600', flexShrink: 1},
+  cardBody: {fontSize: 15, lineHeight: 24, paddingVertical: 2, flexShrink: 0, includeFontPadding: true, marginTop: 10},
+  // Native font metrics accommodate Android emoji and fallback glyphs.
+  statusMessage: {fontSize: 15, paddingVertical: 4, includeFontPadding: true, flexShrink: 0, marginTop: 10},
+  syncStatusRow: {flexDirection: 'row', alignItems: 'center', marginTop: 10},
+  syncStatusDot: {width: 10, height: 10, borderRadius: 5, marginRight: 10},
+  statusLabel: {fontSize: 20, paddingVertical: 4, includeFontPadding: true, flex: 1, fontWeight: '600'},
+  primaryAction: {
+    minHeight: 48,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#175cd3',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  updateCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 12,
+  },
+  updateDetails: {flexGrow: 1, flexBasis: 160},
+  updateTitle: {fontSize: 16, fontWeight: '600', paddingVertical: 2},
+  updateArrow: {fontSize: 13, fontWeight: '400'},
+  updateVersion: {fontSize: 14, marginTop: 4, paddingVertical: 2},
+  updateButton: {minHeight: 44, borderWidth: 1, borderRadius: 8, paddingHorizontal: 16, paddingVertical: 10, justifyContent: 'center', alignItems: 'center'},
+  updateButtonText: {fontSize: 14, fontWeight: '600'},
+  disabledAction: {opacity: 0.5},
+  transferActivity: {marginTop: 12},
+  guideSection: {marginTop: 16},
+  guideDivider: {borderTopWidth: 1, paddingTop: 16},
+  guideSectionTitle: {fontSize: 16, lineHeight: 24, fontWeight: '600'},
+  sharingArrow: {fontSize: 15, fontWeight: '400'},
+  guideText: {fontSize: 14, lineHeight: 22, paddingVertical: 2, marginTop: 6},
+  adbStep: {marginTop: 10},
+  adbStepHeader: {flexDirection: 'row', alignItems: 'center'},
+  adbStepTitle: {flex: 1, marginTop: 0},
+  copyCommand: {minHeight: 44, minWidth: 56, alignItems: 'center', justifyContent: 'center'},
+  commandBox: {borderRadius: 8},
+  commandText: {fontSize: 13, lineHeight: 22, padding: 12, fontFamily: 'monospace'},
+  guideSettingsButton: {minHeight: 44, justifyContent: 'center', padding: 12, borderWidth: 1, borderRadius: 8, marginTop: 10},
+  guideToggle: {minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'},
   container: {
     padding: 20,
   },
@@ -1917,6 +2058,10 @@ const styles = StyleSheet.create({
   caRemoveButton: {
     marginLeft: 8,
   },
+  passwordField: {flex: 2, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, borderWidth: 1, borderColor: '#ccc', borderRadius: 5},
+  passwordInput: {flex: 1, minWidth: 0, borderWidth: 0, paddingHorizontal: 0},
+  passwordToggle: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center'},
+  passwordMonkey: {fontSize: 18, paddingVertical: 2},
   input: {
     flex: 2,
     borderWidth: 1,

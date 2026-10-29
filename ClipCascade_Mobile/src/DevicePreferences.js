@@ -12,6 +12,7 @@ export const DEVICE_PREFERENCE_FIELDS = new Set([
   'enable_file_sharing',
   'send_clipboard',
   'receive_clipboard',
+  'show_android_setup_guide',
 ]);
 
 export const isValidClipboardLimit = value =>

@@ -59,6 +59,7 @@ class TaskbarPanel:
         self.download_status = ""
         self.file_download_items = None
         self._stopped = threading.Event()
+        self.previous_connection_status = None
         self.previous_stats: str = ""
         self.previous_stats_items = None
 
@@ -215,23 +216,24 @@ class TaskbarPanel:
         )
         menu_items = [
             Menu.SEPARATOR,
-            item("🗒️ Open Logs", self._open_logs),
-            item("📂 Program Files", self._open_program_location),
+            item("Open logs", self._open_logs),
+            item("Program files", self._open_program_location),
+            item("Help / About", Menu(
+                item("Help", self._open_help),
+                item("Homepage", self._open_homepage),
+                item("GitHub", self._open_github),
+                item("Donate", self._open_donate),
+                Menu.SEPARATOR,
+                item(f"Version {APP_VERSION}{version_suffix}", None, enabled=False),
+            )),
             Menu.SEPARATOR,
-            item("🏠 Homepage", self._open_homepage),
-            item("❓ Help", self._open_help),
-            item("💟 Donate", self._open_donate),
-            item("🌐 GitHub", self._open_github),
-            Menu.SEPARATOR,
-            item(f"ℹ️ Version v{APP_VERSION}{version_suffix}", None, enabled=False),
-            Menu.SEPARATOR,
-            item("🔒 Logoff and Quit", self._on_logoff),
-            item("❌ Quit", self._on_quit),
+            item("Log out and quit", self._on_logoff),
+            item("Quit", self._on_quit),
         ]
 
         # Add connect/disconnect option (top of the menu - 0 index)
         if not self.is_connected:
-            menu_items.insert(0, item("🔗 Connect", self._on_connect, default=True))
+            menu_items.insert(0, item("Start sync", self._on_connect, default=True))
         else:
             if self.is_disconnecting and self.disconnecting_items is not None:
                 menu_items.insert(
@@ -239,7 +241,7 @@ class TaskbarPanel:
                     item(self.disconnecting_items[0], self.disconnecting_items[2]),
                 )
             else:
-                menu_items.insert(0, item("⛓️‍💥 Disconnect", self._on_disconnect))
+                menu_items.insert(0, item("Stop sync", self._on_disconnect))
 
         # Add update option (before the last 3 items)
         if self.new_version_available is not None and self.new_version_available[0]:
@@ -277,7 +279,20 @@ class TaskbarPanel:
                 ),
             )
 
+        status, status_dot = self._connection_status()
+        menu_items.insert(0, item(f"{status_dot} Clipboard sync: {status}", None, enabled=False))
         return Menu(*menu_items)
+
+    def _connection_status(self):
+        if self.is_disconnecting:
+            return "Stopping…", "🟠"
+        if not self.is_connected:
+            return "Stopped", "🔴"
+        if self.ws_interface is not None and self.ws_interface.is_connected:
+            return "Connected", "🟢"
+        if self.ws_interface is not None and self.ws_interface.disconnected:
+            return "Disconnected", "🔴"
+        return "Reconnecting…", "🔴"
 
     @on_main_thread
     def update_menu(self, item_: tuple = None):
@@ -303,9 +318,13 @@ class TaskbarPanel:
                         preference="update_notifications",
                     )
             current_stats = self.ws_interface.get_stats()
-            if current_stats is not None and self.previous_stats != current_stats:
+            connection_status = self._connection_status()
+            stats_changed = current_stats is not None and self.previous_stats != current_stats
+            if stats_changed:
                 self.previous_stats = current_stats
                 self.previous_stats_items = (current_stats, 0, None)
+            if stats_changed or connection_status != self.previous_connection_status:
+                self.previous_connection_status = connection_status
                 self.update_menu()
             self._stopped.wait(1)
 

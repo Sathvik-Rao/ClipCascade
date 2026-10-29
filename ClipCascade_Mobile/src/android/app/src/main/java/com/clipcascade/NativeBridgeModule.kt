@@ -11,6 +11,8 @@ import android.webkit.CookieManager
 import com.facebook.react.bridge.UiThreadUtil
 import android.net.Uri
 import android.os.TransactionTooLargeException
+import android.os.Build
+import android.view.inputmethod.EditorInfo
 import android.provider.OpenableColumns
 import android.util.Base64
 import android.content.Intent
@@ -18,6 +20,10 @@ import android.content.ActivityNotFoundException
 import android.provider.DocumentsContract
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.text.method.PasswordTransformationMethod
+import android.view.View
+import android.widget.EditText
+import com.facebook.react.uimanager.UIManagerModule
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -37,6 +43,42 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
     override fun getName(): String {
         return "NativeBridgeModule"
+    }
+
+    // Keep secure input semantics, but never reveal the most recently typed character.
+    @ReactMethod
+    fun setPasswordVisibility(viewTag: Double, visible: Boolean, promise: Promise) {
+        val uiManager = reactApplicationContext.getNativeModule(UIManagerModule::class.java)
+        if (uiManager == null) {
+            promise.reject("PASSWORD_INPUT_ERROR", "UI manager is unavailable")
+            return
+        }
+        uiManager.addUIBlock { views ->
+            try {
+                val input = views.resolveView(viewTag.toInt()) as EditText
+                // Ask the IME not to learn this field, whether its text is hidden or visible.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    input.imeOptions = input.imeOptions or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+                }
+                val start = input.selectionStart
+                val end = input.selectionEnd
+                // Explicitly clear our custom transformation when revealing the password.
+                input.transformationMethod = if (visible) null else object : PasswordTransformationMethod() {
+                    override fun getTransformation(source: CharSequence, view: View): CharSequence =
+                        object : CharSequence {
+                            override val length: Int get() = source.length
+                            override fun get(index: Int): Char = '\u2022'
+                            override fun subSequence(startIndex: Int, endIndex: Int): CharSequence =
+                                "\u2022".repeat(endIndex - startIndex)
+                            override fun toString(): String = "\u2022".repeat(length)
+                        }
+                }
+                if (start >= 0 && end >= 0) input.setSelection(start, end)
+                promise.resolve(null)
+            } catch (error: Exception) {
+                promise.reject("PASSWORD_INPUT_ERROR", "Could not configure password masking", error)
+            }
+        }
     }
 
     @ReactMethod
