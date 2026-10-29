@@ -659,7 +659,8 @@ cd /path/to/clipcascade/src/ && sudo python3 main.py
   
 #### Web Dashboard and Administration
 
-- Web pages follow your system's light/dark theme on each page load; use the theme toggle to switch the current page's appearance.
+- Web pages follow your system's light/dark theme until you use the theme toggle. Your manual choice is saved in browser local storage and restored across page loads when storage is available.
+- Use your browser's install or **Add to Home Screen** option, where supported, to open the web dashboard as an app.
 - The Admin Panel user list and the Advanced page's User Details, Online Users, and BFA tracker tables support searching, sorting, and pagination. Advanced tables also have resizable columns. Online Users shows active WebSocket connections in both P2S and P2P modes.
 - Administrators can revoke sessions for an individual user or use **Revoke All Sessions**. Editing or deleting an account, or changing its password, also revokes its sessions and disconnects its active WebSocket connections on this server without a restart. Deleted or renamed usernames remain reserved until the server restarts.
 
@@ -1124,7 +1125,7 @@ Connection status notifications appear on the main login screen, outside advance
 
 Device preferences save as you change them, without requiring a successful login: notification settings, local clipboard size limit, send/receive clipboard, image/file sharing, password-storage preference, the default download folder on desktop and Android, and Android startup/periodic checks. Server address, credentials, encryption settings, and custom CA configuration are saved after successful login.
 
-- **Local clipboard size limit (bytes)**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. You can set a local size limit by specifying a value in bytes (e.g., 512 KiB = 524288 bytes) to test different thresholds suitable for your device. This local limit works alongside the server-specified limit to ensure smoother operation without crashes. For example, on Android (particularly on the Pixel 6a as of 2024), the platform limit(for text) is typically less than 1 MiB. Since the server limit cannot go below 1 MiB, setting the local limit to around 900,000 bytes on the Pixel 6a can help prevent crashes.
+- **Local clipboard size limit**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. Set a local limit to test a suitable threshold for your device; it applies to incoming and outgoing clipboard content alongside server and platform limits. On the desktop login window and Android, choose **Bytes**, **KiB**, **MiB**, or **GiB**. Decimal values such as `1.5 MiB` are supported and rounded to the nearest byte; 1 KiB = 1024 bytes. Leave the value blank or select **No local limit** to remove the local limit. The Linux CLI accepts an integer byte count, or a blank value for no local limit. The server's `CC_MAX_MESSAGE_SIZE_IN_BYTES` setting can also set a limit below 1 MiB.
 - **Store Password Locally (not recommended)**: Enable this option if you frequently encounter session logouts. While the app stores session cookies for an extended period, a server restart may prompt a re-login unless the server enables session persistence. If re-entering the password becomes tedious, you can use this option to store your password locally for convenience. Disabling this option immediately clears the saved password.
    > Note: This option will only work if encryption is disabled, as encryption requires the raw password to generate a password hash.
 - **Send Clipboard**: Share clipboard changes from this device. Enabled by default. Disable it to stop sending while still receiving updates if **Receive Clipboard** is enabled.
@@ -1145,6 +1146,8 @@ Device preferences save as you change them, without requiring a successful login
   <img src="https://github.com/user-attachments/assets/6a8b903c-ee52-444c-a14e-bed70e31dcee" alt="connection_status_notification" width="250" />
 
 - **Default download folder**: Select a folder to save downloads without prompting each time. Changes save immediately and persist across restarts. Cancelling the picker keeps the current setting. Clear the default to choose a destination for each download instead; this does not delete downloaded files.
+
+  **Android:** If the saved folder is no longer writable or accessible, the app asks you to select a replacement and saves it as the new default.
 
 #### Desktop (Specific):
 
@@ -1181,7 +1184,11 @@ You can adjust these settings in the **advanced settings** section on the login 
 * * * * * * *
 
 ### 📋 Clipboard Functioning
+
 - **Text and Images**: These are directly copied to the clipboard, enabling seamless sharing across devices.  
+
+  **Android:** Content can exceed Android's system clipboard transaction limit even when ClipCascade's local limit is disabled. If copying fails with a system-limit message, use a smaller image or text selection, or transfer large text as a file. Increasing ClipCascade's limit cannot bypass Android's restriction.
+
 - **Files**: When files are received, a notification icon appears in the system tray (on desktop platforms). Since the clipboard does not store files, only their file paths are retained.  
   
    <table>
@@ -1198,7 +1205,6 @@ You can adjust these settings in the **advanced settings** section on the login 
         <td><img src="https://github.com/user-attachments/assets/c06e8584-fbed-4ae1-b3b3-d12664115178" alt="android_home_screen" width="150" /></td>
     </tr>
    </table>
-
 
 - **Clipboard Monitoring**:
 
