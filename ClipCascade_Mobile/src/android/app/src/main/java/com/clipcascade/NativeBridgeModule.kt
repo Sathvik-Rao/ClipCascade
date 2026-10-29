@@ -13,6 +13,9 @@ import android.net.Uri
 import android.os.TransactionTooLargeException
 import android.provider.OpenableColumns
 import android.util.Base64
+import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.provider.DocumentsContract
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -274,6 +277,43 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         } catch (e: Exception) {
             // Revoked grants and unavailable document providers require selecting a folder again.
             promise.resolve(false)
+        }
+    }
+
+    @ReactMethod
+    fun openDownloadDirectory(contentUri: String, promise: Promise) {
+        UiThreadUtil.runOnUiThread {
+            try {
+                val treeUri = Uri.parse(contentUri)
+                require(treeUri.scheme == "content" && DocumentsContract.isTreeUri(treeUri)) {
+                    "Invalid download folder URI"
+                }
+                val documentUri = DocumentsContract.buildDocumentUriUsingTree(
+                    treeUri, DocumentsContract.getTreeDocumentId(treeUri)
+                )
+                val context: Context = currentActivity ?: reactApplicationContext
+                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(documentUri, DocumentsContract.Document.MIME_TYPE_DIR)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    if (currentActivity == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try {
+                    context.startActivity(viewIntent)
+                } catch (_: ActivityNotFoundException) {
+                    // Some file managers cannot view a document directory directly.
+                    // The system Files picker can still show its contents at this URI.
+                    val browseIntent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                        putExtra(DocumentsContract.EXTRA_INITIAL_URI, documentUri)
+                        if (currentActivity == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(browseIntent)
+                }
+                promise.resolve(null)
+            } catch (e: Exception) {
+                promise.reject("OPEN_FOLDER_ERROR", "Unable to open this folder in Files: ${e.message}", e)
+            }
         }
     }
 

@@ -55,6 +55,8 @@ class TaskbarPanel:
         self.is_disconnecting = False
         self.disconnecting_items = None
         self.is_file_download_enabled = False
+        self._download_in_progress = False
+        self.download_status = ""
         self.file_download_items = None
         self._stopped = threading.Event()
         self.previous_stats: str = ""
@@ -257,8 +259,12 @@ class TaskbarPanel:
                     self.file_download_items[0],
                     self.file_download_items[2],
                     default=True,
+                    enabled=not self._download_in_progress,
                 ),
             )
+
+        if self.download_status:
+            menu_items.insert(0, item(self.download_status, None, enabled=False))
 
         # Add stats option (top of the menu - 0 index)
         if self.previous_stats_items is not None:
@@ -408,10 +414,12 @@ class TaskbarPanel:
 
     @on_main_thread
     def enable_files_download(self, files):
+        if not self._download_in_progress:
+            self.download_status = ""
         self.is_file_download_enabled = True
         self.icon.icon = self.create_clipboard_icon_with_dot()
         self.file_download_items = (
-            "📥 Download File(s)",
+            f"📥 Download {'File' if len(files) == 1 else 'Files'}",
             0,
             lambda icon, item: self._on_download(icon, item, files),
         )
@@ -419,13 +427,22 @@ class TaskbarPanel:
 
     @on_main_thread
     def disable_files_download(self):
+        if not self._download_in_progress:
+            self.download_status = ""
         self.is_file_download_enabled = False
         self.file_download_items = None
         self.icon.icon = self.create_clipboard_icon()
         self.update_menu()
 
+    @on_main_thread
+    def _set_download_status(self, message):
+        self.download_status = message
+        self.update_menu()
+
     def _on_download(self, icon, item, files):
-        """Download the files to the user's Downloads folder."""
+        if self._download_in_progress:
+            return
+        self._download_in_progress = True
         try:
             try:
                 if self.config.data["default_file_download_location"] != "":
@@ -434,11 +451,12 @@ class TaskbarPanel:
                     ]
                 else:
                     target_directory = filedialog.askdirectory(
-                        title="Select location to Save File(s)",
+                        title=f"Select location to save {'file' if len(files) == 1 else 'files'}",
                         initialdir=get_downloads_folder(),
                     )
                 if not target_directory:
                     logging.debug("No directory selected. Exiting.")
+                    self._download_in_progress = False
                     return
             except RuntimeError as re:
                 target_directory = os.path.join(
@@ -456,20 +474,42 @@ class TaskbarPanel:
                     timeout=5000,
                 ).mainloop()
 
-            # Save each file to the chosen directory
-            for filename, file_obj in files.items():
-                file_path = os.path.join(target_directory, filename)
-                with open(file_path, "wb") as f:
-                    f.write(file_obj.getvalue())
-                logging.debug(f"Saved: {file_path}")
+            pending_files = list(files.items())
+            total = len(pending_files)
+            self._set_download_status(f"Saving 0 of {total} {'file' if total == 1 else 'files'}…")
 
+            def save_files():
+                saved = 0
+                notifier = NotificationManager(self.config)
+                failed = False
+                try:
+                    for filename, file_obj in pending_files:
+                        file_path = os.path.join(target_directory, filename)
+                        with open(file_path, "wb") as f:
+                            f.write(file_obj.getvalue())
+                        saved += 1
+                        self._set_download_status(f"Saving {saved} of {total} {'file' if total == 1 else 'files'}…")
+                    message = f"Downloaded {saved} {'file' if saved == 1 else 'files'} to: {target_directory}"
+                    title = "ClipCascade: Download complete"
+                except Exception as error:
+                    failed = True
+                    logging.exception("Failed to download files")
+                    message = f"Download failed. Saved {saved} of {total} {'file' if total == 1 else 'files'}. {error}"
+                    title = "ClipCascade: Download failed"
+                finally:
+                    self._download_in_progress = False
+                self._set_download_status(message)
+                notifier.notify(
+                    title, message,
+                    preference=None if failed else "download_notifications",
+                )
+
+            threading.Thread(target=save_files, daemon=True).start()
         except Exception as e:
-            msg = f"An error occurred while downloading files. Error: {e}"
-            logging.error(msg)
-            CustomDialog(
-                msg,
-                msg_type="error",
-            ).mainloop()
+            self._download_in_progress = False
+            logging.exception("Failed to start file download")
+            self._set_download_status(f"Download failed: {e}")
+            CustomDialog(f"Download failed: {e}", msg_type="error").mainloop()
 
     def _on_logoff(self, icon, item):
         if PLATFORM == MACOS:

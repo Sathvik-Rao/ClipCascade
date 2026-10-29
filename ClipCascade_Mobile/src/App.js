@@ -1,3 +1,4 @@
+import {openInitialDownloadNotification} from './DownloadNotifications';
 import {
   PermissionsAndroid,
   AppState,
@@ -94,6 +95,8 @@ const isCancel = error =>
  * (file) LoginSession.js
  * (file) WebSocketStatus.js
  * (file) DevicePreferences.js
+ * (file) DownloadDirectory.js
+ * (file) DownloadNotifications.js
  * (file) ClipboardLimit.js
  * (file) AppVersion.js
  * (file) UpdateChecker.js
@@ -305,6 +308,7 @@ export default function App() {
     relaunch_on_boot: 'false',
     enable_websocket_status_notification: 'false',
     update_notifications: 'true',
+    download_notifications: 'true',
     enable_periodic_checks: 'true',
     send_clipboard: 'true',
     receive_clipboard: 'true',
@@ -379,6 +383,10 @@ export default function App() {
       await setDataInAsyncStorage('filesAvailableToDownload', 'false');
       await setDataInAsyncStorage('downloadFiles', 'false');
       await setDataInAsyncStorage('dirPath', '');
+      if ((await getDataFromAsyncStorage('fileDownloadInProgress')) !== 'true') {
+        await setDataInAsyncStorage('fileDownloadStatus', '');
+        setFileDownloadStatus('');
+      }
       await notifee.cancelNotification(
         'ClipCascade_Download_Files_Notification_Id',
       );
@@ -803,11 +811,18 @@ export default function App() {
       'server_mode',
       'p2pStatusMessage',
       'filesAvailableToDownload',
+      'availableFileCount',
+      'fileDownloadStatus',
+      'fileDownloadInProgress',
+      'downloadFiles',
     ];
 
     while (isMountedRef.current) {
       const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
       const latest = JSON.parse(json);
+      setAvailableFileCount(Number(latest.availableFileCount) || 0);
+      setFileDownloadStatus(latest.fileDownloadStatus || '');
+      setIsDownloadingFiles(latest.fileDownloadInProgress === 'true' || latest.downloadFiles === 'true');
 
       if (latest.wsIsRunning === 'true') {
         // Websocket status message
@@ -1120,6 +1135,9 @@ export default function App() {
   const [enableFilesDownloadButton, setEnableFilesDownloadButton] =
     useState(false);
 
+  const [availableFileCount, setAvailableFileCount] = useState(0);
+  const [fileDownloadStatus, setFileDownloadStatus] = useState('');
+  const [isDownloadingFiles, setIsDownloadingFiles] = useState(false);
   const [downloadDirectory, setDownloadDirectory] = useState('');
   const [isChoosingDownloadDirectory, setIsChoosingDownloadDirectory] = useState(false);
   const downloadActionInProgress = useRef(false);
@@ -1131,7 +1149,7 @@ export default function App() {
   };
 
   const changeDownloadDirectory = async (clear = false) => {
-    if (downloadActionInProgress.current) {
+    if (downloadActionInProgress.current || isDownloadingFiles) {
       return;
     }
     downloadActionInProgress.current = true;
@@ -1168,7 +1186,7 @@ export default function App() {
       <TouchableOpacity
         style={styles.caButton}
         onPress={() => changeDownloadDirectory()}
-        disabled={isChoosingDownloadDirectory || isLoggingIn}
+        disabled={isChoosingDownloadDirectory || isDownloadingFiles || isLoggingIn}
         accessibilityRole="button"
         accessibilityLabel="Change download folder"
       >
@@ -1178,7 +1196,7 @@ export default function App() {
         <TouchableOpacity
           style={[styles.caButton, styles.caRemoveButton]}
           onPress={() => changeDownloadDirectory(true)}
-          disabled={isChoosingDownloadDirectory || isLoggingIn}
+          disabled={isChoosingDownloadDirectory || isDownloadingFiles || isLoggingIn}
           accessibilityRole="button"
           accessibilityLabel="Clear default download folder"
         >
@@ -1188,9 +1206,13 @@ export default function App() {
     </View>
   );
 
+  useEffect(() => {
+    openInitialDownloadNotification();
+  }, []);
+
   // download files
   const downloadFiles = async () => {
-    if (downloadActionInProgress.current) {
+    if (downloadActionInProgress.current || isDownloadingFiles) {
       return;
     }
     downloadActionInProgress.current = true;
@@ -1202,7 +1224,10 @@ export default function App() {
         const uri = await resolveDownloadDirectory();
         setDownloadDirectory((await getDownloadDirectory()) || '');
         await setDataInAsyncStorage('dirPath', uri);
+        await setDataInAsyncStorage('fileDownloadStatus', 'Download queued…');
         await setDataInAsyncStorage('downloadFiles', 'true');
+        setFileDownloadStatus('Download queued…');
+        setIsDownloadingFiles(true);
       } else {
         setEnableFilesDownloadButton(false);
       }
@@ -1532,6 +1557,18 @@ export default function App() {
                     onValueChange={value => handleInputChange('update_notifications', String(value))}
                   />
                 </View>
+                <View style={styles.row}>
+                  <InfoLabel
+                    style={styles.label}
+                    label="Notify when downloads finish:"
+                    info="Shows a notification after files are saved. Enabled by default. Saving progress, the in-app result, and download failures remain visible when disabled."
+                  />
+                  <CheckBox
+                    disabled={isLoggingIn}
+                    value={data.download_notifications === 'true'}
+                    onValueChange={value => handleInputChange('download_notifications', String(value))}
+                  />
+                </View>
               </SettingsGroup>
             </>
           )}
@@ -1603,13 +1640,18 @@ export default function App() {
                 <TouchableOpacity
                   style={[styles.loginButton, { backgroundColor: '#4bab4e' }]}
                   onPress={downloadFiles}
-                  disabled={isChoosingDownloadDirectory}
+                  disabled={isChoosingDownloadDirectory || isDownloadingFiles}
                 >
                   <Text style={styles.loginButtonText}>
-                    📥 Download File(s)
+                    {isDownloadingFiles ? '⏳ Downloading…' : `📥 Download ${availableFileCount === 1 ? 'File' : 'Files'}`}
                   </Text>
                 </TouchableOpacity>
               )}
+            {fileDownloadStatus !== '' && (
+              <Text style={styles.message} accessibilityRole="text" accessibilityLiveRegion="polite">
+                {fileDownloadStatus}
+              </Text>
+            )}
             {/* new version display message */}
             {newVersionAvailable[0] && (
               <TouchableOpacity
@@ -1654,7 +1696,7 @@ export default function App() {
                 </Text>
                 <View style={{ marginTop: 10, marginLeft: 15 }}>
                   <Text style={styles.label}>
-                    1. Select the text, image, or file(s) you want to copy.
+                    1. Select the text, image, or files you want to copy.
                   </Text>
                   <Text style={styles.label}>
                     2. Tap 'Share', select 'ClipCascade'.

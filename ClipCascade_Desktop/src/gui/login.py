@@ -581,6 +581,19 @@ class LoginForm(tk.Tk):
             "Clipboard content may appear on your lock screen. Disabled by default.",
         )
 
+        download_label = ttk.Label(self.notification_settings_frame, text="Notify when downloads finish:")
+        download_label.grid(row=2, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.download_notifications_var = tk.BooleanVar(value=self.config.data["download_notifications"])
+        download_checkbox = ttk.Checkbutton(
+            self.notification_settings_frame, variable=self.download_notifications_var, takefocus=False,
+        )
+        download_checkbox.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
+        self._add_tooltip(
+            [download_label, download_checkbox],
+            "Shows a notification after files are saved. Enabled by default.\n"
+            "Saving progress and download failures remain visible when disabled.",
+        )
+
         # Configure grid weights for extra_frame
         self.extra_frame.columnconfigure(1, weight=1)
 
@@ -588,6 +601,7 @@ class LoginForm(tk.Tk):
         for field, variable in (
             ("notification", self.notification_var),
             ("update_notifications", self.update_notifications_var),
+            ("download_notifications", self.download_notifications_var),
             ("clipboard_notifications", self.clipboard_notifications_var),
             ("save_password", self.save_password_var),
             ("send_clipboard", self.send_clipboard_var),
@@ -853,6 +867,7 @@ class LoginForm(tk.Tk):
         self.config.data["cipher_enabled"] = self.cipher_var.get()
         self.config.data["notification"] = self.notification_var.get()
         self.config.data["update_notifications"] = self.update_notifications_var.get()
+        self.config.data["download_notifications"] = self.download_notifications_var.get()
         self.config.data["clipboard_notifications"] = self.clipboard_notifications_var.get()
 
         # extra fields

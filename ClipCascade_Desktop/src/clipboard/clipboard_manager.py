@@ -50,12 +50,11 @@ class ClipboardManager:
 
     def reset_files_download(self):
         """
-        Resets the files download flag and disables the download functionality in the system tray if enabled.
+        Clear pending files and any completed download status for the old clipboard item.
         """
-        if self.is_files_download_enabled:
-            self.is_files_download_enabled = False
-            if self.sys_tray:
-                self.sys_tray.disable_files_download()
+        self.is_files_download_enabled = False
+        if self.sys_tray:
+            self.sys_tray.disable_files_download()
 
     @staticmethod
     def hash_clipboard(clipboard: str) -> int:

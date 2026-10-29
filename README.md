@@ -1139,6 +1139,7 @@ Device preferences save as you change them, without requiring a successful login
   **Android:** Tap **Import** to select a certificate bundle (up to 1 MiB). The app saves a copy after successful login and restores it for background connections. Imported certificates are trusted alongside system CAs only for the configured server hostname; other hostnames use system trust. Tap **Replace** to import another bundle, or **Remove** and log in to return to system trust only.
 
 - **Notify when an update is available**: Enabled by default on desktop and Android. Disable it to stop update alerts; update checks and the visible update status remain available.
+- **Notify when downloads finish**: Enabled by default on desktop and Android, under advanced notification settings. Disable it to hide successful-download notifications. Saving progress, visible download results, and failure feedback remain available. Desktop does not show a separate download-start notification. Changes save immediately.
 - **Show connection status notifications**: Receive alerts when the WebSocket connection is lost or restored. Available on desktop and Android; enabled by default on desktop and disabled by default on Android. This setting is on the main login screen, outside advanced settings.
 
   <img src="https://github.com/user-attachments/assets/6a8b903c-ee52-444c-a14e-bed70e31dcee" alt="connection_status_notification" width="250" />

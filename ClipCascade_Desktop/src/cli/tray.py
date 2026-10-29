@@ -320,7 +320,7 @@ class TaskbarPanel:
     def enable_files_download(self, files):
         self.is_file_download_enabled = True
         self.file_download_items = (
-            "📥 Download File(s)",
+            f"📥 Download {'File' if len(files) == 1 else 'Files'}",
             0,
             lambda: self._on_download(files),
         )
@@ -332,11 +332,12 @@ class TaskbarPanel:
         self.update_menu()
 
     def _on_download(self, files):
+        saved = 0
         try:
             if self.config.data["default_file_download_location"] != "":
                 target_directory = self.config.data["default_file_download_location"]
             else:
-                target_directory = input("Enter the location to save file(s): ").strip()
+                target_directory = input(f"Enter the location to save {'file' if len(files) == 1 else 'files'}: ").strip()
             if not target_directory:
                 CustomDialog(
                     "No input provided. Please enter a valid directory path.",
@@ -363,11 +364,13 @@ class TaskbarPanel:
                 file_path = os.path.join(target_directory, filename)
                 with open(file_path, "wb") as f:
                     f.write(file_obj.getvalue())
+                saved += 1
                 logging.debug(f"Saved: {file_path}")
-            CustomDialog("Done.", msg_type="success").mainloop()
+                CustomDialog(f"Saved {saved} of {len(files)} {'file' if len(files) == 1 else 'files'}: {filename}", msg_type="info").mainloop()
+            CustomDialog(f"Downloaded {len(files)} {'file' if len(files) == 1 else 'files'} to: {target_directory}", msg_type="success").mainloop()
 
         except Exception as e:
-            msg = f"An error occurred while downloading files. Error: {e}"
+            msg = f"Download failed. Saved {saved} of {len(files)} {'file' if len(files) == 1 else 'files'}. {e}"
             logging.error(msg)
             CustomDialog(
                 msg,

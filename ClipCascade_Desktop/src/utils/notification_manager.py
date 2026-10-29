@@ -37,7 +37,7 @@ class NotificationManager:
                 message = ", ".join(name[:200] for name in names[:3])
                 if len(names) > 3:
                     message += f" (+{len(names) - 3} more)"
-                message = f"{len(names)} file(s) available to download: {message}"
+                message = f"{len(names)} {'file' if len(names) == 1 else 'files'} available to download: {message}"
             else:
                 return
 
@@ -60,7 +60,7 @@ class NotificationManager:
 
     def notify(self, title: str, message: str, app_name: str = APP_NAME, timeout=10,
                preference="notification"):
-        if self.config.data.get(preference, True):
+        if preference is None or self.config.data.get(preference, True):
             try:
                 if PLATFORM == WINDOWS or (
                     PLATFORM.startswith(LINUX) and not LINUX_USE_CLI_UI

@@ -85,8 +85,14 @@ class MainActivity : ReactActivity() {
     }
 
     private fun handleIntent(intent: Intent) {
-        // Handle single shared text
-        if (Intent.ACTION_SEND == intent.action && "text/plain" == intent.type) {
+        val sharedFileUri = if (Intent.ACTION_SEND == intent.action) {
+            intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+        } else {
+            null
+        }
+
+        // A text/plain attachment is a file, even if a text preview is also supplied.
+        if (Intent.ACTION_SEND == intent.action && "text/plain" == intent.type && sharedFileUri == null) {
             val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
             sharedText?.let {
                 sendToReactNative("SHARED_TEXT", "text", it)
@@ -103,16 +109,14 @@ class MainActivity : ReactActivity() {
 
         // Handle single image
         else if (Intent.ACTION_SEND == intent.action && intent.type?.startsWith("image/") == true) {
-            val imageUri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-            imageUri?.let {
+            sharedFileUri?.let {
                 sendToReactNative("SHARED_IMAGE", "image", it.toString())
             }
         }
         
         // Handle single file (any type)
-        else if (Intent.ACTION_SEND == intent.action && intent.type != null) {
-            val fileUri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-            fileUri?.let {
+        else if (Intent.ACTION_SEND == intent.action && sharedFileUri != null) {
+            sharedFileUri.let {
                 sendToReactNative("SHARED_FILES", "files", it.toString())
             }
         }

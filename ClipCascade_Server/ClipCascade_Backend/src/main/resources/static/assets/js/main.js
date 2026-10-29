@@ -370,16 +370,44 @@ function base64EncodeUnicode(str) {
   }
   return btoa(binary);
 }
-function downloadFile(filename, base64Content) {
-  const blob = new Blob([atob(base64Content)], { type: "text/plain" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+async function downloadFile(filename, base64Content, button) {
+  if (button && button.disabled) return;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Preparing…";
+  }
+  const status = button ? button.closest("td").querySelector(".download-status") : null;
+  const report = (message) => {
+    if (status) status.textContent = message;
+    else showStatusMessage(message, "info");
+  };
+  report("Preparing download…");
+  let url;
+  let a;
+  try {
+    // Let the browser paint the pending state before decoding the payload.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const bytes = Uint8Array.from(atob(base64Content), (char) => char.charCodeAt(0));
+    const blob = new Blob([bytes], { type: "text/plain;charset=utf-8" });
+    url = URL.createObjectURL(blob);
+    a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    report(`Download started: ${filename}. Check your browser's downloads for progress.`);
+  } catch (error) {
+    console.error("Failed to start download:", error);
+    report("Download failed to start. Please try again.");
+  } finally {
+    if (a) a.remove();
+    // Allow the browser time to consume the object URL.
+    if (url) setTimeout(() => URL.revokeObjectURL(url), 60000);
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Download";
+    }
+  }
 }
 function copyToClipboard(text) {
   navigator.clipboard
@@ -882,10 +910,11 @@ function displayIncomingMessage(message) {
             <td>
               <div class="button-container">
                 <button class="btn btn-primary download-btn"
-                        onclick="downloadFile('${filename}', '${encodedText}')">Download</button>
+                        onclick="downloadFile('${filename}', '${encodedText}', this)">Download</button>
                 <button class="btn btn-default copy-btn"
                         onclick="copyToClipboard('${escapedPayload}')">Copy</button>
               </div>
+              <div class="download-status" role="status" aria-live="polite"></div>
             </td>
           </tr>
         `);

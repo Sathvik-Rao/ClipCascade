@@ -8,7 +8,7 @@ from core.constants import *
 
 class Config:
     DEVICE_PREFERENCE_FIELDS = frozenset({
-        "notification", "update_notifications", "clipboard_notifications", "save_password",
+        "notification", "update_notifications", "download_notifications", "clipboard_notifications", "save_password",
         "max_clipboard_size_local_limit_bytes",
         "enable_image_sharing", "enable_file_sharing", "default_file_download_location",
         "send_clipboard", "receive_clipboard",
@@ -29,6 +29,7 @@ class Config:
             "csrf_token": "",
             "notification": True,
             "update_notifications": True,
+            "download_notifications": True,
             "clipboard_notifications": False,
             "save_password": False,
             "password": "",

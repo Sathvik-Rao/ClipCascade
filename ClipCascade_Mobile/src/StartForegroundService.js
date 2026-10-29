@@ -2,7 +2,6 @@ import {
   NativeEventEmitter,
   NativeModules,
   DeviceEventEmitter,
-  Alert,
 } from 'react-native';
 
 import notifee, { AndroidImportance } from '@notifee/react-native';
@@ -17,6 +16,7 @@ import {
   RTCSessionDescription,
 } from 'react-native-webrtc';
 import {checkForUpdates} from './UpdateChecker';
+import {downloadDirectoryLabel} from './DownloadDirectory';
 import {webSocketErrorMessage, webSocketCloseMessage} from './WebSocketStatus';
 import {isClipboardSyncEnabled} from './DevicePreferences';
 
@@ -56,6 +56,9 @@ module.exports = async (inputData = null) => {
         );
         const textEncoder = new TextEncoder();
         const textDecoder = new TextDecoder();
+
+        await setDataInAsyncStorage('fileDownloadInProgress', 'false');
+        await setDataInAsyncStorage('fileDownloadStatus', '');
 
         let previous_clipboard_content_hash = '';
         let toggle = false; // p2s toggle
@@ -353,6 +356,11 @@ module.exports = async (inputData = null) => {
         const clearFiles = async (expensiveCall = false) => {
           files_in_memory = null;
           if (!expensiveCall) {
+            // A finished download belongs to the previous clipboard item.
+            // Keep active saving progress visible until that batch finishes.
+            if ((await getDataFromAsyncStorage('fileDownloadInProgress')) !== 'true') {
+              await setDataInAsyncStorage('fileDownloadStatus', '');
+            }
             await notifee.cancelNotification(
               'ClipCascade_Download_Files_Notification_Id',
             );
@@ -362,11 +370,13 @@ module.exports = async (inputData = null) => {
           }
         };
 
-        const showFilesDownloadNotification = async msg => {
+        const showFilesDownloadNotification = async files => {
+          const count = Object.keys(JSON.parse(files)).length;
+          await setDataInAsyncStorage('availableFileCount', String(count));
           // Display a silent notification
           await notifee.displayNotification({
             id: 'ClipCascade_Download_Files_Notification_Id',
-            title: msg,
+            title: `📥 Download ${count === 1 ? 'File' : 'Files'}`,
             android: {
               channelId: 'ClipCascade',
               smallIcon: 'ic_small_icon',
@@ -461,9 +471,7 @@ module.exports = async (inputData = null) => {
                           );
                           block_image_once = true;
                         } else if (type_ === 'files') {
-                          await showFilesDownloadNotification(
-                            '📥 Download File(s)',
-                          );
+                          await showFilesDownloadNotification(cb);
 
                           files_in_memory = cb;
                           await setDataInAsyncStorage(
@@ -1215,7 +1223,7 @@ module.exports = async (inputData = null) => {
                     );
                     block_image_once = true;
                   } else if (type_ === 'files') {
-                    await showFilesDownloadNotification('📥 Download File(s)');
+                    await showFilesDownloadNotification(cb);
 
                     files_in_memory = cb;
                     await setDataInAsyncStorage(
@@ -1604,40 +1612,70 @@ module.exports = async (inputData = null) => {
 
             // check if user wants to download files
             if (
-              latest.downloadFiles === 'true' &&
-              latest.filesAvailableToDownload === 'true'
+              latest.downloadFiles === 'true'
             ) {
-              try {
-                await setDataInAsyncStorage('downloadFiles', 'false');
-                const dirPath = await getDataFromAsyncStorage('dirPath');
-
-                // display progress notification
-                await notifee.displayNotification({
-                  id: 'ClipCascade_Download_Files_Progress_Notification_Id',
-                  title: 'Downloading File(s)...',
-                  android: {
-                    channelId: 'ClipCascade_Progress',
-                    smallIcon: 'ic_small_icon',
-                    progress: {
-                      indeterminate: true,
+              let saved = 0;
+              let total = 0;
+              let dirPath = '';
+              const downloadId = String(Date.now());
+              const reportDownload = async (message, inProgress, canOpenFolder = false, failed = false) => {
+                await setDataInAsyncStorage('fileDownloadStatus', message);
+                // Notification permission must not determine whether saving succeeds.
+                try {
+                  if (!inProgress && !failed &&
+                      (await getDataFromAsyncStorage('download_notifications')) === 'false') {
+                    await notifee.cancelNotification('ClipCascade_Download_Files_Progress_Notification_Id');
+                    return;
+                  }
+                  await notifee.displayNotification({
+                    id: 'ClipCascade_Download_Files_Progress_Notification_Id',
+                    title: inProgress ? 'Downloading files…' : 'File download',
+                    body: canOpenFolder ? `${message} Tap to open folder.` : message,
+                    data: canOpenFolder ? {downloadDirectory: dirPath, downloadId} : {},
+                    android: {
+                      channelId: 'ClipCascade_Progress',
+                      smallIcon: 'ic_small_icon',
+                      onlyAlertOnce: true,
+                      ongoing: inProgress,
+                      progress: inProgress ? {max: total, current: saved} : undefined,
+                      pressAction: {id: canOpenFolder ? 'open-download-folder' : 'default', launchActivity: 'default'},
                     },
-                  },
-                });
-
-                if (files_in_memory != null) {
-                  // save files
+                  });
+                } catch (notificationError) {
+                  console.warn('Could not show download notification', notificationError);
+                }
+              };
+              try {
+                // Snapshot the batch; incoming clipboard updates can replace files_in_memory.
+                const files = JSON.parse(files_in_memory || '{}');
+                const entries = Object.entries(files);
+                total = entries.length;
+                await setDataInAsyncStorage('fileDownloadInProgress', 'true');
+                await setDataInAsyncStorage('downloadFiles', 'false');
+                dirPath = await getDataFromAsyncStorage('dirPath');
+                if (!total || latest.filesAvailableToDownload !== 'true') {
+                  throw new Error('Files are no longer available. Share them again to retry.');
+                }
+                await reportDownload(`Saving 0 of ${total} ${total === 1 ? 'file' : 'files'}…`, true);
+                for (const [name, content] of entries) {
                   await NativeBridgeModule.saveBase64Files(
                     dirPath,
-                    files_in_memory,
+                    JSON.stringify({[name]: content}),
                   );
+                  saved += 1;
+                  await reportDownload(`Saving ${saved} of ${total} ${total === 1 ? 'file' : 'files'}…`, true);
                 }
+                await reportDownload(`Downloaded ${saved} ${saved === 1 ? 'file' : 'files'} to ${downloadDirectoryLabel(dirPath)}.`, false, true);
               } catch (e) {
-                // Alert is displayed only when the app is open because this is called from foreground service
-                Alert.alert('Error', 'Failed to download files: ' + e);
-              } finally {
-                await notifee.cancelNotification(
-                  'ClipCascade_Download_Files_Progress_Notification_Id',
+                await reportDownload(
+                  `Download failed. Saved ${saved} of ${total} ${total === 1 ? 'file' : 'files'}${dirPath ? ` to ${downloadDirectoryLabel(dirPath)}` : ''}. ${e.message || String(e)}`,
+                  false,
+                  saved > 0,
+                  true,
                 );
+              } finally {
+                await setDataInAsyncStorage('downloadFiles', 'false');
+                await setDataInAsyncStorage('fileDownloadInProgress', 'false');
               }
             }
             await sleep(1000);

@@ -42,7 +42,17 @@ export const downloadDirectoryLabel = uri => {
     return 'Ask where to save each download';
   }
   try {
-    return decodeURIComponent(uri.split('/tree/')[1] || uri);
+    const documentId = decodeURIComponent(uri.split('/tree/')[1]?.split('/document/')[0] || uri);
+    if (uri.startsWith('content://com.android.externalstorage.documents/tree/')) {
+      const separator = documentId.indexOf(':');
+      if (separator !== -1) {
+        const volume = documentId.slice(0, separator);
+        const path = documentId.slice(separator + 1);
+        const root = volume === 'primary' ? 'Internal storage' : `Storage (${volume})`;
+        return path ? `${root}/${path}` : root;
+      }
+    }
+    return documentId;
   } catch {
     return uri;
   }
