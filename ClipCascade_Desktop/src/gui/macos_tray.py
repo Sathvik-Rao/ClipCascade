@@ -47,6 +47,24 @@ class MacOSTrayIcon(Icon):
                 native_menu.addItem_(updated.copy())
                 continue
             current = native_menu.itemAtIndex_(position)
+            if current.title() != updated.title():
+                # Align existing actions before updating their properties. A
+                # file-to-text refresh must remove Download File, not relabel
+                # its attributed row and remove the original Stop sync row.
+                matching_position = next((
+                    index for index in range(position + 1, native_menu.numberOfItems())
+                    if native_menu.itemAtIndex_(index).title() == updated.title()
+                ), None)
+                if matching_position is not None:
+                    for _ in range(matching_position - position):
+                        native_menu.removeItemAtIndex_(position)
+                    current = native_menu.itemAtIndex_(position)
+                elif any(
+                    updated_menu.itemAtIndex_(index).title() == current.title()
+                    for index in range(position + 1, updated_menu.numberOfItems())
+                ):
+                    native_menu.insertItem_atIndex_(updated.copy(), position)
+                    continue
             if (current.isSeparatorItem() != updated.isSeparatorItem()
                     or bool(current.submenu()) != bool(updated.submenu())):
                 native_menu.removeItemAtIndex_(position)
