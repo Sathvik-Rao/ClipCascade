@@ -127,13 +127,16 @@ class TaskbarPanel:
             self.icon.stop()
 
     def _begin_macos_shutdown(self, logoff=False):
-        if self._stopped.is_set():
-            return
-        self._stopped.set()
+        with self._download_lock:
+            if self._stopped.is_set():
+                return
+            self._stopped.set()
         logging.info("macOS shutdown requested (logoff=%s)", logoff)
         # Leave the watchdog armed after the UI closes, including while Python
         # waits for remaining threads. Normal process exit kills this daemon.
-        self._shutdown_watchdog = threading.Timer(MACOS_SHUTDOWN_TIMEOUT, os._exit, args=(1,))
+        self._shutdown_watchdog = threading.Timer(
+            MACOS_SHUTDOWN_TIMEOUT, self._macos_shutdown_timeout,
+        )
         self._shutdown_watchdog.daemon = True
         self._shutdown_watchdog.start()
 
@@ -143,6 +146,7 @@ class TaskbarPanel:
 
         def cleanup():
             try:
+                self._wait_for_file_save()
                 if self.on_shutdown_callback:
                     self.on_shutdown_callback(logoff)
             except Exception:
@@ -152,6 +156,18 @@ class TaskbarPanel:
 
         threading.Thread(target=cleanup, name="MacOSShutdown", daemon=True).start()
         self._poll_macos_shutdown()
+
+    def _macos_shutdown_timeout(self):
+        # A large download may legitimately take longer than the network
+        # cleanup timeout. Never force-exit in the middle of writing it.
+        if self._save_thread is not None and self._save_thread.is_alive():
+            self._shutdown_watchdog = threading.Timer(
+                MACOS_SHUTDOWN_TIMEOUT, self._macos_shutdown_timeout,
+            )
+            self._shutdown_watchdog.daemon = True
+            self._shutdown_watchdog.start()
+        else:
+            os._exit(1)
 
     def _poll_macos_shutdown(self):
         # Network cleanup may dispatch pasteboard work back to the main thread.
@@ -478,6 +494,8 @@ class TaskbarPanel:
 
     @on_main_thread
     def enable_files_download(self, files):
+        if self._stopped.is_set():
+            return
         if not self._download_in_progress:
             self.download_status = ""
         self.is_file_download_enabled = True
@@ -491,6 +509,8 @@ class TaskbarPanel:
 
     @on_main_thread
     def disable_files_download(self):
+        if self._stopped.is_set():
+            return
         if not self._download_in_progress:
             self.download_status = ""
         self.is_file_download_enabled = False
@@ -500,6 +520,8 @@ class TaskbarPanel:
 
     @on_main_thread
     def _set_download_status(self, message):
+        if self._stopped.is_set():
+            return
         self.download_status = message
         self.update_menu()
 
@@ -631,19 +653,16 @@ class TaskbarPanel:
                     preference=None if failed else "download_notifications",
                 )
 
-            if PLATFORM == WINDOWS:
-                # Serialize starting a save against shutdown: either shutdown
-                # sees and waits for this thread, or no new save can start.
-                with self._download_lock:
-                    if self._stopped.is_set():
-                        self._download_in_progress = False
-                        return
-                    self._save_thread = threading.Thread(
-                        target=save_files, name="WindowsFileSave", daemon=False,
-                    )
-                    self._save_thread.start()
-            else:
-                threading.Thread(target=save_files, daemon=True).start()
+            # Serialize starting a save against shutdown on every platform:
+            # shutdown either waits for this save or prevents it from starting.
+            with self._download_lock:
+                if self._stopped.is_set():
+                    self._download_in_progress = False
+                    return
+                self._save_thread = threading.Thread(
+                    target=save_files, name="FileSave", daemon=False,
+                )
+                self._save_thread.start()
         except Exception as e:
             self._download_in_progress = False
             logging.exception("Failed to start file download")
@@ -655,55 +674,43 @@ class TaskbarPanel:
             else:
                 self._show_tray_message(f"Download failed: {e}")
 
-    def _begin_windows_shutdown(self, logoff=False):
+    def _wait_for_file_save(self):
+        save_thread = self._save_thread
+        if save_thread is not None and save_thread.is_alive():
+            logging.info("Waiting for file saving to finish before quitting")
+            save_thread.join()
+
+    def _begin_threaded_shutdown(self, logoff=False):
         with self._download_lock:
             if self._stopped.is_set():
                 return
             self._stopped.set()
-            save_thread = self._save_thread
 
         def finish_shutdown():
             try:
-                if save_thread is not None and save_thread.is_alive():
-                    logging.info("Waiting for file saving to finish before quitting")
-                    save_thread.join()
+                self._wait_for_file_save()
                 if logoff and self.on_logoff_callback:
                     self.on_logoff_callback()
             except Exception as error:
-                logging.exception("Windows shutdown cleanup failed")
+                logging.exception("Tray shutdown cleanup failed")
                 self._show_tray_message(f"Failed to finish logging off: {error}")
             finally:
-                # pystray posts WM_STOP to its UI thread. Tk is destroyed by
-                # run() on its owning thread after that message loop returns.
+                # Each backend schedules stop on its UI loop. On Windows, run()
+                # then destroys Tk on the thread that created it.
                 self.icon.stop()
 
         threading.Thread(
-            target=finish_shutdown, name="WindowsShutdown", daemon=False,
+            target=finish_shutdown, name="TrayShutdown", daemon=False,
         ).start()
 
     def _on_logoff(self, icon, item):
-        if PLATFORM == WINDOWS:
-            self._begin_windows_shutdown(logoff=True)
-            return
         if PLATFORM == MACOS:
             self._begin_macos_shutdown(logoff=True)
             return
-        self._stopped.set()
-        try:
-            if self.on_logoff_callback:
-                self.on_logoff_callback()
-            self.icon.stop()
-        except Exception as e:
-            self._show_tray_message(
-                f"An error occurred while logging off: {e}", msg_type="error"
-            )
+        self._begin_threaded_shutdown(logoff=True)
 
     def _on_quit(self, icon, item):
-        if PLATFORM == WINDOWS:
-            self._begin_windows_shutdown()
-            return
         if PLATFORM == MACOS:
             self._begin_macos_shutdown()
             return
-        self._stopped.set()
-        self.icon.stop()
+        self._begin_threaded_shutdown()
