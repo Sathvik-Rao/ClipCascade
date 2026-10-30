@@ -48,7 +48,9 @@ class MainActivity : ReactActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null) intent?.let { handleIntent(it) }
+        intent?.let {
+            if (savedInstanceState == null) handleIntent(it) else clearShareIntent(it)
+        }
 
         try{
             val bridgeData = AsyncStorageBridge(applicationContext)
@@ -82,8 +84,16 @@ class MainActivity : ReactActivity() {
     }
 
     private fun handleIntent(intent: Intent) {
+        // Android may restore the task's original share intent from Recents,
+        // even after the activity's own intent has been consumed.
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) {
+            clearShareIntent(intent)
+        }
         ClipboardContent.fromIntent(intent, contentResolver)?.let { content ->
             PendingShares.add(content)
+            // Buffer first, then consume before notifying JavaScript. Keep URI
+            // grant flags so the buffered attachments remain readable.
+            clearShareIntent(intent)
             try {
                 reactInstanceManager.currentReactContext
                     ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
@@ -106,6 +116,21 @@ class MainActivity : ReactActivity() {
                 }
             }
         }
+    }
+
+    private fun clearShareIntent(intent: Intent) {
+        if (intent.action != Intent.ACTION_SEND &&
+            intent.action != Intent.ACTION_SEND_MULTIPLE &&
+            intent.action != Intent.ACTION_PROCESS_TEXT) return
+
+        intent.action = Intent.ACTION_MAIN
+        intent.removeExtra(Intent.EXTRA_STREAM)
+        intent.removeExtra(Intent.EXTRA_TEXT)
+        intent.removeExtra(Intent.EXTRA_HTML_TEXT)
+        intent.removeExtra(Intent.EXTRA_PROCESS_TEXT)
+        intent.clipData = null
+        intent.type = null
+        setIntent(intent)
     }
 
 }
