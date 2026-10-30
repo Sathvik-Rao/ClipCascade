@@ -66,7 +66,11 @@ class TaskbarPanel:
         Echo("-" * 53)
         self.update_menu(no_dialog=True)
         if sys.stdin.isatty() and sys.stdout.isatty():
-            self._prompt_session = PromptSession(refresh_interval=0.5)
+            # Reuse the prompt's terminal space after Enter instead of leaving
+            # a completed copy of the whole menu in scrollback.
+            self._prompt_session = PromptSession(
+                refresh_interval=0.5, erase_when_done=True
+            )
         # Redirect background notifications above the live prompt instead of
         # letting them overwrite the menu or the user's partially typed choice.
         with patch_stdout() if self._prompt_session is not None else nullcontext():
@@ -96,7 +100,6 @@ class TaskbarPanel:
             if choice in self._displayed_numbered_menu:
                 fun = self._displayed_numbered_menu[choice][1]
                 if fun is not None:
-                    Echo("Please wait...")
                     fun()
             else:
                 Echo("Invalid choice.")
