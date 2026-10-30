@@ -71,6 +71,10 @@ class WindowsTrayIcon(Icon):
             callbacks.append(self._handler(entry))
             command_id = len(callbacks)
             if entry is Menu.SEPARATOR:
+                # The shape check guarantees this is already a separator.
+                # Do not reset its type while Windows is tracking the menu.
+                if not insert:
+                    continue
                 info = win32.MENUITEMINFO(
                     cbSize=ctypes.sizeof(win32.MENUITEMINFO),
                     fMask=win32.MIIM_FTYPE, fType=win32.MFT_SEPARATOR,
@@ -90,6 +94,10 @@ class WindowsTrayIcon(Icon):
                     | (win32.MFS_DISABLED if not entry.enabled else 0),
                     fType=win32.MFT_RADIOCHECK if entry.radio else 0,
                 )
+                if not insert:
+                    # Existing submenus are already attached. Only insertion
+                    # changes ownership; a live refresh updates their contents.
+                    info.fMask &= ~win32.MIIM_SUBMENU
             if insert:
                 win32.InsertMenuItem(hmenu, position, True, ctypes.byref(info))
             else:

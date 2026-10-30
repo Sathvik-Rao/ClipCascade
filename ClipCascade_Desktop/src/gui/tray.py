@@ -462,10 +462,53 @@ class TaskbarPanel:
         self.download_status = message
         self.update_menu()
 
+    def _choose_download_directory(self, files):
+        options = {
+            "parent": self.root,
+            "title": f"Select location to save {'file' if len(files) == 1 else 'files'}",
+            "initialdir": get_downloads_folder(),
+        }
+        if PLATFORM != WINDOWS:
+            return filedialog.askdirectory(**options)
+
+        # Windows downloads run on a dedicated thread. Create and destroy its
+        # Tk owner on that same thread; never use the tray thread's Tk objects.
+        from pythoncom import CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED
+
+        CoInitializeEx(COINIT_APARTMENTTHREADED)
+        picker_root = None
+        try:
+            picker_root = tk.Tk()
+            picker_root.withdraw()
+            picker_root.attributes("-topmost", True)
+            options["parent"] = picker_root
+            return filedialog.askdirectory(**options)
+        finally:
+            try:
+                if picker_root is not None:
+                    picker_root.destroy()
+            finally:
+                CoUninitialize()
+
     def _on_download(self, icon, item, files):
         if self._download_in_progress:
             return
         self._download_in_progress = True
+        if PLATFORM == WINDOWS:
+            # A shell dialog must not run inside pystray's window procedure.
+            # Keep the tray message loop free to process refreshes and clicks.
+            try:
+                threading.Thread(
+                    target=self._start_download, args=(files,),
+                    name="WindowsFileDownload", daemon=True,
+                ).start()
+            except Exception:
+                self._download_in_progress = False
+                raise
+            return
+        self._start_download(files)
+
+    def _start_download(self, files):
         try:
             try:
                 if self.config.data["default_file_download_location"] != "":
@@ -473,29 +516,28 @@ class TaskbarPanel:
                         "default_file_download_location"
                     ]
                 else:
-                    target_directory = filedialog.askdirectory(
-                        title=f"Select location to save {'file' if len(files) == 1 else 'files'}",
-                        initialdir=get_downloads_folder(),
-                    )
+                    target_directory = self._choose_download_directory(files)
                 if not target_directory:
                     logging.debug("No directory selected. Exiting.")
                     self._download_in_progress = False
                     return
-            except RuntimeError as re:
+            except (RuntimeError, tk.TclError) as error:
                 target_directory = os.path.join(
                     get_program_files_directory(), "downloads"
                 )
                 if not os.path.exists(target_directory):
                     os.makedirs(target_directory)
                 logging.error(
-                    f"A runtime error occurred while starting filedialog to select a directory. Error: {re}.\n"
+                    f"Failed to open the download directory picker. Error: {error}.\n"
                     + f"Setting the default location to the program directory '{target_directory}'."
                 )
-                CustomDialog(
-                    f"ClipCascade 📥: Saving files to the program directory '{target_directory}'.",
-                    msg_type="info",
-                    timeout=5000,
-                ).mainloop()
+                message = f"ClipCascade 📥: Saving files to the program directory '{target_directory}'."
+                if PLATFORM == WINDOWS:
+                    NotificationManager(self.config).notify(
+                        "ClipCascade: Download location", message, preference=None,
+                    )
+                else:
+                    CustomDialog(message, msg_type="info", timeout=5000).mainloop()
 
             pending_files = list(files.items())
             total = len(pending_files)
@@ -532,7 +574,12 @@ class TaskbarPanel:
             self._download_in_progress = False
             logging.exception("Failed to start file download")
             self._set_download_status(f"Download failed: {e}")
-            CustomDialog(f"Download failed: {e}", msg_type="error").mainloop()
+            if PLATFORM == WINDOWS:
+                NotificationManager(self.config).notify(
+                    "ClipCascade: Download failed", str(e), preference=None,
+                )
+            else:
+                CustomDialog(f"Download failed: {e}", msg_type="error").mainloop()
 
     def _on_logoff(self, icon, item):
         if PLATFORM == MACOS:
