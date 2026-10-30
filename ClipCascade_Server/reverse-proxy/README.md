@@ -9,6 +9,9 @@ Choose **one** proxy below. Each bundled setup runs ClipCascade plus that proxy,
 keeps the database in `./cc_users`, and exposes only the proxy to the internet.
 Use an existing-proxy option if something already owns ports 80/443.
 
+The backend network allows outbound connections for server update checks.
+The backend port is not published by the bundled proxy setups.
+
 | Your setup | Files / instructions |
 | --- | --- |
 | Nginx, with a certificate you already manage | [Nginx](#nginx) |

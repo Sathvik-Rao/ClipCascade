@@ -93,7 +93,7 @@ def _monitor_x_wl_clipboard(
         mime_list = [m.strip() for m in mime_list if len(m.strip()) > 0]
         type_ = convert_mime_to_generic_type(mime_list, enable_image_monitoring, enable_file_monitoring)
         image_mime = "image/png" if "image/png" in mime_list else next((m for m in mime_list if m.startswith("image/")), None)
-        text_mime = next((m for m in mime_list if m in TEXT_MIMES), None)
+        text_mime = next((m for m in TEXT_MIMES if m in mime_list), None)
 
         # Text
         if type_ == "text":
@@ -104,7 +104,7 @@ def _monitor_x_wl_clipboard(
             else:
                 success, text = execute_command("wl-paste", "-t", text_mime, "-n")
             if success:
-                text = text.decode("utf-8")
+                text = _decode_clipboard_text(text, text_mime)
                 if len(text) > 0 and text != previous_clipboard:
                     previous_clipboard = text
                     if _callback_update:
@@ -240,13 +240,13 @@ def _monitor_wl_watch(enable_image_monitoring=False, enable_file_monitoring=Fals
             mime_list = [m.strip() for m in mime_list if len(m.strip()) > 0]
             type_ = convert_mime_to_generic_type(mime_list, enable_image_monitoring, enable_file_monitoring)
             image_mime = "image/png" if "image/png" in mime_list else next((m for m in mime_list if m.startswith("image/")), None)
-            text_mime = next((m for m in mime_list if m in TEXT_MIMES), None)
+            text_mime = next((m for m in TEXT_MIMES if m in mime_list), None)
 
             # Text
             if type_ == "text":
                 success, text = execute_command("wl-paste", "-t", text_mime, "-n")
                 if success:
-                    text = text.decode("utf-8")
+                    text = _decode_clipboard_text(text, text_mime)
                     if len(text) > 0 and text != previous_clipboard:
                         previous_clipboard = text
                         if _callback_update:
@@ -330,9 +330,19 @@ def _monitor_wl_watch(enable_image_monitoring=False, enable_file_monitoring=Fals
 
 
 TEXT_MIMES = (
-    "text/plain", "text/plain;charset=utf-8", "STRING", "TEXT",
-    "COMPOUND_TEXT", "UTF8_STRING",
+    "UTF8_STRING", "text/plain;charset=utf-8", "text/plain", "STRING",
+    "TEXT", "COMPOUND_TEXT",
 )
+
+
+def _decode_clipboard_text(content, mime):
+    # X11 STRING uses Latin-1. Prefer UTF-8 targets above when available.
+    try:
+        return content.decode("latin-1" if mime == "STRING" else "utf-8")
+    except UnicodeDecodeError:
+        # A malformed clipboard item must not stop monitoring later copies.
+        logging.warning("Ignoring clipboard text with invalid encoding for %s", mime)
+        return ""
 
 
 def convert_mime_to_generic_type(mime_list, enable_image_monitoring=True, enable_file_monitoring=True):

@@ -23,5 +23,5 @@ services:
       - backend
 
 networks:
-  backend:
-    internal: true
+  # Allow outbound server update checks; the backend port stays unpublished.
+  backend: {}
