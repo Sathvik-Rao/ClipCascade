@@ -376,6 +376,8 @@ To install the ClipCascade mobile application on your Android device, follow the
 
 ClipCascade supports automatic clipboard monitoring for both rooted and non-rooted devices. To activate this feature, execute the following ADB commands.
 
+> These permissions can also be granted using [Shizuku](https://shizuku.rikka.app/guide/setup/) through **Grant permissions using Shizuku** in the app's Android setup guide.
+
 ##### Install ADB
 
 Before proceeding, make sure ADB is installed on your system. Follow the instructions [here](https://www.xda-developers.com/install-adb-windows-macos-linux/) to install ADB on Windows, macOS, or Linux.

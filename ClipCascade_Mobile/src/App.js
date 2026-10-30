@@ -84,6 +84,9 @@ const isCancel = error =>
  * (file) android\app\src\main\java\com\clipcascade\MainApplication.kt
  * (file) android\app\src\main\java\com\clipcascade\NativeBridgeModule.kt
  * (file) android\app\src\main\java\com\clipcascade\NativeBridgePackage.kt
+ * (file) android\app\src\main\java\com\clipcascade\PermissionGrantService.kt
+ * (file) android\app\src\main\java\com\clipcascade\ShizukuPermissionsModule.kt
+ * (file) android\app\src\main\aidl\com\clipcascade\IPermissionGrantService.aidl
  * (file) android\app\src\main\java\com\clipcascade\PendingShares.kt
  * (file) android\app\src\main\java\com\clipcascade\ScheduleService.kt
  * (file) android/app/src/main/java/com/clipcascade/ServerTls.kt
@@ -262,6 +265,65 @@ export default function App() {
       ));
   };
   const [copiedCommand, setCopiedCommand] = useState('');
+  const [showShizukuSetup, setShowShizukuSetup] = useState(false);
+  const [grantingPermissions, setGrantingPermissions] = useState(false);
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
+  const [permissionSetupStatus, setPermissionSetupStatus] = useState('');
+  const permissionSetupPending = useRef(false);
+  const runShizukuPermissionSetup = async () => {
+    if (permissionSetupPending.current) return;
+    permissionSetupPending.current = true;
+    setGrantingPermissions(true);
+    setPermissionsGranted(false);
+    setPermissionSetupStatus('Waiting for Shizuku. Allow ClipCascade access when prompted.');
+    try {
+      const result = await NativeModules.ShizukuPermissions.grantPermissions();
+      if (result.readLogs && result.overlay) {
+        setPermissionsGranted(true);
+        setPermissionSetupStatus('Permissions granted. Close ClipCascade to apply them, then reopen it and start sync. Allow log access when Android asks.');
+      } else {
+        const missing = [
+          !result.readLogs && 'READ_LOGS',
+          !result.overlay && 'drawing over other apps',
+        ].filter(Boolean).join(' and ');
+        setPermissionSetupStatus(`Still missing: ${missing}. ${result.error || 'Check Shizuku and retry, or use the ADB commands below.'}`);
+      }
+    } catch (error) {
+      setPermissionSetupStatus(error.message || 'Unable to grant permissions. Check Shizuku and try again.');
+    } finally {
+      permissionSetupPending.current = false;
+      setGrantingPermissions(false);
+    }
+  };
+  const grantPermissionsWithShizuku = () => Alert.alert(
+    'Grant permissions and close ClipCascade?',
+    'Android may close ClipCascade as soon as permissions are granted, stopping sync. Reopen the app manually, start sync, and allow log access when Android asks. If the app stays open, use “Close app to apply permissions”.',
+    [
+      {text: 'Cancel', style: 'cancel'},
+      {text: 'Continue', onPress: runShizukuPermissionSetup},
+    ],
+  );
+  const closeAppWithShizuku = () => Alert.alert(
+    'Close ClipCascade?',
+    'ClipCascade will close and sync will stop. Reopen the app manually, start sync, and allow log access when Android asks.',
+    [
+      {text: 'Cancel', style: 'cancel'},
+      {text: 'Close app', onPress: async () => {
+        if (permissionSetupPending.current) return;
+        permissionSetupPending.current = true;
+        setGrantingPermissions(true);
+        setPermissionSetupStatus('Closing ClipCascade…');
+        try {
+          await NativeModules.ShizukuPermissions.forceStopApp();
+        } catch (error) {
+          setPermissionSetupStatus(`${error.message || 'Unable to close ClipCascade.'} You can force stop it from Android App info, then reopen it.`);
+        } finally {
+          permissionSetupPending.current = false;
+          setGrantingPermissions(false);
+        }
+      }},
+    ],
+  );
   const [isChangingSync, setIsChangingSync] = useState(false);
   const dashboardColors = {
     backgroundColor: isDark ? '#111827' : '#f3f6fa',
@@ -1751,6 +1813,53 @@ export default function App() {
                     <Text style={[styles.guideText, secondaryText]}>
                       Works with or without root. Run these commands in order from a computer with ADB connected to your phone.
                     </Text>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityState={{expanded: showShizukuSetup}}
+                      style={styles.shizukuToggle}
+                      onPress={() => setShowShizukuSetup(visible => !visible)}
+                    >
+                      <Text style={[actionText, styles.shizukuLink]}>No computer to run ADB? (Shizuku)</Text>
+                    </TouchableOpacity>
+                    {showShizukuSetup && (
+                      <View>
+                        <Text style={[styles.guideText, secondaryText]}>
+                          Install and start Shizuku, then tap the button and allow ClipCascade access. On Android 11+, Shizuku can start using wireless debugging without a computer. Shizuku is only needed for setup.
+                        </Text>
+                        <TouchableOpacity
+                          accessibilityRole="link"
+                          style={styles.guideSettingsButton}
+                          onPress={() => Linking.openURL('https://shizuku.rikka.app/guide/setup/')}
+                        >
+                          <Text style={actionText}>Shizuku installation and setup</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          accessibilityRole="button"
+                          accessibilityState={{disabled: grantingPermissions, busy: grantingPermissions}}
+                          disabled={grantingPermissions}
+                          style={[styles.guideSettingsButton, {borderColor: cardColors.borderColor}]}
+                          onPress={grantPermissionsWithShizuku}
+                        >
+                          <Text style={actionText}>{grantingPermissions ? 'Granting permissions…' : 'Grant permissions using Shizuku'}</Text>
+                        </TouchableOpacity>
+                        {!!permissionSetupStatus && (
+                          <Text accessibilityLiveRegion="polite" style={[styles.guideText, secondaryText]}>
+                            {permissionSetupStatus}
+                          </Text>
+                        )}
+                        {permissionsGranted && (
+                          <TouchableOpacity
+                            accessibilityRole="button"
+                            accessibilityState={{disabled: grantingPermissions, busy: grantingPermissions}}
+                            disabled={grantingPermissions}
+                            style={[styles.guideSettingsButton, {borderColor: cardColors.borderColor}]}
+                            onPress={closeAppWithShizuku}
+                          >
+                            <Text style={actionText}>Close app to apply permissions</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
                     {[
                       ['1. Allow clipboard monitoring', 'adb -d shell pm grant com.clipcascade android.permission.READ_LOGS', 'Grants READ_LOGS so ClipCascade can detect clipboard access events in Android’s system logs and trigger automatic clipboard monitoring. This does not change how content is received.'],
                       ['2. Allow drawing over other apps', 'adb -d shell appops set com.clipcascade SYSTEM_ALERT_WINDOW allow', 'Allows ClipCascade to briefly focus a small overlay to read clipboard content when Android restricts background access. You can also grant this permission in Android settings under Drawing over other apps.'],
@@ -1903,6 +2012,8 @@ const styles = StyleSheet.create({
   guideSectionTitle: {fontSize: 16, lineHeight: 24, fontWeight: '600'},
   sharingArrow: {fontSize: 15, fontWeight: '400'},
   guideText: {fontSize: 14, lineHeight: 22, paddingVertical: 2, marginTop: 6},
+  shizukuToggle: {alignSelf: 'flex-start', paddingVertical: 8},
+  shizukuLink: {fontSize: 13, textDecorationLine: 'underline'},
   adbStep: {marginTop: 10},
   adbStepHeader: {flexDirection: 'row', alignItems: 'center'},
   adbStepTitle: {flex: 1, marginTop: 0},
