@@ -9,8 +9,11 @@ class LinuxTrayIcon(Icon):
     @mainloop
     def _update_menu(self):
         if getattr(self, '_menu_handle', None) is None:
-            # The backend also attaches the initial menu to AppIndicator.
-            super()._update_menu()
+            # Already on the GTK loop. Calling the decorated backend method
+            # would queue menu creation behind _show(), which needs the handle
+            # before AppIndicator can become ACTIVE. Run the pinned pystray
+            # backend's implementation now, including its set_menu() call.
+            super()._update_menu.__wrapped__(self)
             return
         self._sync_menu(self._menu_handle, self.menu)
 
