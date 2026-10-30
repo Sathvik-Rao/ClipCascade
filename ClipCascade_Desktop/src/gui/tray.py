@@ -216,24 +216,24 @@ class TaskbarPanel:
         )
         menu_items = [
             Menu.SEPARATOR,
-            item("Open logs", self._open_logs),
-            item("Program files", self._open_program_location),
-            item("Help / About", Menu(
-                item("Help", self._open_help),
-                item("Homepage", self._open_homepage),
-                item("GitHub", self._open_github),
-                item("Donate", self._open_donate),
+            item("🗒️ Open logs", self._open_logs),
+            item("📂 Program files", self._open_program_location),
+            item("❓ Help / About", Menu(
+                item("❓ Help", self._open_help),
+                item("🏠 Homepage", self._open_homepage),
+                item("🌐 GitHub", self._open_github),
+                item("💟 Donate", self._open_donate),
                 Menu.SEPARATOR,
-                item(f"Version {APP_VERSION}{version_suffix}", None, enabled=False),
+                item(f"ℹ️ Version {APP_VERSION}{version_suffix}", None, enabled=False),
             )),
             Menu.SEPARATOR,
-            item("Log out and quit", self._on_logoff),
-            item("Quit", self._on_quit),
+            item("🔒 Log out and quit", self._on_logoff),
+            item("❌ Quit", self._on_quit),
         ]
 
         # Add connect/disconnect option (top of the menu - 0 index)
         if not self.is_connected:
-            menu_items.insert(0, item("Start sync", self._on_connect, default=True))
+            menu_items.insert(0, item("🔗 Start sync", self._on_connect, default=True))
         else:
             if self.is_disconnecting and self.disconnecting_items is not None:
                 menu_items.insert(
@@ -241,7 +241,7 @@ class TaskbarPanel:
                     item(self.disconnecting_items[0], self.disconnecting_items[2]),
                 )
             else:
-                menu_items.insert(0, item("Stop sync", self._on_disconnect))
+                menu_items.insert(0, item("⛓️‍💥 Stop sync", self._on_disconnect))
 
         # Add update option (before the last 3 items)
         if self.new_version_available is not None and self.new_version_available[0]:
