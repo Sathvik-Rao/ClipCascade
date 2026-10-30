@@ -5,10 +5,11 @@ import gc
 import time
 
 from utils.window_manager import center_window
+from gui.tk_owner import GuiWindow
 from core.constants import *
 
 
-class CustomDialog(tk.Tk):
+class CustomDialog(GuiWindow):
     def __init__(self, message, msg_type="info", timeout=None):
         super().__init__()
         self.message = message

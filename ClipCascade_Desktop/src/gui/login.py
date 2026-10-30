@@ -14,6 +14,7 @@ from core.clipboard_limit import (
     LIMIT_UNITS, NO_LOCAL_LIMIT, format_clipboard_limit, parse_clipboard_limit,
 )
 from gui.info import CustomDialog
+from gui.tk_owner import GuiWindow
 from core.constants import *
 
 
@@ -62,7 +63,7 @@ class HoverTooltip:
             self.tooltip_window = None
 
 
-class LoginForm(tk.Tk):
+class LoginForm(GuiWindow):
     def watch_updates(self, checker):
         """Poll on Tk's UI thread; never touch Tk from the network worker."""
         def poll():

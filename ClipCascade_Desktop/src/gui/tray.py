@@ -12,6 +12,7 @@ from utils.main_thread import on_main_thread
 from utils.notification_manager import NotificationManager
 from core.config import Config
 from gui.info import CustomDialog
+from gui.tk_owner import get_gui_root
 from core.constants import *
 
 if PLATFORM == MACOS:
@@ -76,7 +77,10 @@ class TaskbarPanel:
         self.previous_stats: str = ""
         self.previous_stats_items = None
 
-        self.root = tk.Tk()
+        self.root = (
+            get_gui_root() if PLATFORM == MACOS or PLATFORM.startswith(LINUX)
+            else tk.Tk()
+        )
         self.root.withdraw()  # Hide the root window
 
         # Hide dock icon on macOS after creating tkinter window
@@ -108,7 +112,10 @@ class TaskbarPanel:
                 self.root.destroy()
             return
         if PLATFORM != MACOS:
-            self.icon.run()
+            try:
+                self.icon.run()
+            finally:
+                self._stopped.set()
             return
 
         # PyObjC callbacks re-entering Tk's macOS mainloop can corrupt its
@@ -117,10 +124,7 @@ class TaskbarPanel:
             self.icon.run_with_shutdown(lambda: self._on_quit(None, None))
         finally:
             self._stopped.set()
-            try:
-                self.icon.stop()
-            finally:
-                self.root.destroy()
+            self.icon.stop()
 
     def _begin_macos_shutdown(self, logoff=False):
         if self._stopped.is_set():
@@ -363,7 +367,7 @@ class TaskbarPanel:
             self._stopped.wait(1)
 
     def _show_tray_message(self, message, msg_type="error", timeout=None):
-        if PLATFORM == WINDOWS:
+        if PLATFORM in (WINDOWS, MACOS) or PLATFORM.startswith(LINUX):
             NotificationManager(self.config).notify(
                 f"ClipCascade: {'Error' if msg_type == 'error' else 'Information'}",
                 message, preference=None,
@@ -500,6 +504,26 @@ class TaskbarPanel:
         self.update_menu()
 
     def _choose_download_directory(self, files):
+        if (PLATFORM == MACOS or PLATFORM.startswith(LINUX)) and threading.current_thread() is not threading.main_thread():
+            # A GTK callback can be serviced by the clipboard's GTK loop.
+            # Let the existing download fallback handle this without touching Tk.
+            raise RuntimeError("Download picker must run on the main thread")
+        if PLATFORM == MACOS:
+            # AppKit owns the tray loop. A Tk picker would re-enter Tcl from
+            # an AppKit callback, which can corrupt Tk's saved thread state.
+            from AppKit import NSOpenPanel, NSModalResponseOK
+            from Foundation import NSURL
+
+            panel = NSOpenPanel.openPanel()
+            panel.setTitle_(f"Select location to save {'file' if len(files) == 1 else 'files'}")
+            panel.setCanChooseDirectories_(True)
+            panel.setCanChooseFiles_(False)
+            panel.setAllowsMultipleSelection_(False)
+            panel.setCanCreateDirectories_(True)
+            panel.setDirectoryURL_(NSURL.fileURLWithPath_(get_downloads_folder()))
+            if panel.runModal() == NSModalResponseOK:
+                return str(panel.URL().path())
+            return ""
         options = {
             "parent": self.root,
             "title": f"Select location to save {'file' if len(files) == 1 else 'files'}",
@@ -669,7 +693,6 @@ class TaskbarPanel:
             if self.on_logoff_callback:
                 self.on_logoff_callback()
             self.icon.stop()
-            self.root.quit()
         except Exception as e:
             self._show_tray_message(
                 f"An error occurred while logging off: {e}", msg_type="error"
@@ -684,4 +707,3 @@ class TaskbarPanel:
             return
         self._stopped.set()
         self.icon.stop()
-        self.root.quit()
