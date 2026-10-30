@@ -18,6 +18,10 @@ if PLATFORM == MACOS:
     from PyObjCTools import AppHelper
     from gui.macos_tray import MacOSTrayIcon as TrayIcon
     from clipboard import clipboard_monitor_mac
+elif PLATFORM == WINDOWS:
+    from gui.windows_tray import WindowsTrayIcon as TrayIcon
+elif PLATFORM.startswith(LINUX) and Icon.__module__ in ("pystray._gtk", "pystray._appindicator"):
+    from gui.linux_tray import LinuxTrayIcon as TrayIcon
 else:
     TrayIcon = Icon
 
