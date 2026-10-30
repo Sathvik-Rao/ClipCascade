@@ -5,7 +5,7 @@ import time
 import tkinter as tk
 from tkinter import filedialog
 import webbrowser
-from pystray import Icon, MenuItem as item, Menu
+from pystray import Icon, MenuItem, Menu
 from PIL import Image, ImageDraw
 
 from utils.main_thread import on_main_thread
@@ -29,6 +29,13 @@ if PLATFORM != WINDOWS:
     import subprocess
 
 MACOS_SHUTDOWN_TIMEOUT = 15
+
+
+def item(text, action, *, key=None, **kwargs):
+    entry = MenuItem(text, action, **kwargs)
+    # Dynamic labels need an identity independent of their displayed text.
+    entry._clipcascade_key = key if key is not None else text
+    return entry
 
 
 class TaskbarPanel:
@@ -60,6 +67,8 @@ class TaskbarPanel:
         self.disconnecting_items = None
         self.is_file_download_enabled = False
         self._download_in_progress = False
+        self._download_lock = threading.Lock()
+        self._save_thread = None
         self.download_status = ""
         self.file_download_items = None
         self._stopped = threading.Event()
@@ -91,6 +100,13 @@ class TaskbarPanel:
         self.update_stats()  # Start the stats update thread
 
     def run(self):
+        if PLATFORM == WINDOWS:
+            try:
+                self.icon.run_with_shutdown(lambda: self._on_quit(None, None))
+            finally:
+                self._stopped.set()
+                self.root.destroy()
+            return
         if PLATFORM != MACOS:
             self.icon.run()
             return
@@ -228,7 +244,10 @@ class TaskbarPanel:
                 item("🌐 GitHub", self._open_github),
                 item("💟 Donate", self._open_donate),
                 Menu.SEPARATOR,
-                item(f"ℹ️ Version {APP_VERSION}{version_suffix}", None, enabled=False),
+                item(
+                    f"ℹ️ Version {APP_VERSION}{version_suffix}", None,
+                    enabled=False, key="version",
+                ),
             )),
             Menu.SEPARATOR,
             item("🔒 Log out and quit", self._on_logoff),
@@ -242,10 +261,13 @@ class TaskbarPanel:
             if self.is_disconnecting and self.disconnecting_items is not None:
                 menu_items.insert(
                     self.disconnecting_items[1],
-                    item(self.disconnecting_items[0], self.disconnecting_items[2]),
+                    item(
+                        self.disconnecting_items[0], self.disconnecting_items[2],
+                        enabled=False, key="stop_sync",
+                    ),
                 )
             else:
-                menu_items.insert(0, item("⛓️‍💥 Stop sync", self._on_disconnect))
+                menu_items.insert(0, item("⛓️‍💥 Stop sync", self._on_disconnect, key="stop_sync"))
 
         # Add update option (before the last 3 items)
         if self.new_version_available is not None and self.new_version_available[0]:
@@ -254,6 +276,7 @@ class TaskbarPanel:
                 item(
                     f"🔄 Update ({self.new_version_available[2]} ➞ {self.new_version_available[1]})",
                     self._on_update,
+                    key="update",
                 ),
             )
 
@@ -266,11 +289,14 @@ class TaskbarPanel:
                     self.file_download_items[2],
                     default=True,
                     enabled=not self._download_in_progress,
+                    key="download",
                 ),
             )
 
         if self.download_status:
-            menu_items.insert(0, item(self.download_status, None, enabled=False))
+            menu_items.insert(0, item(
+                self.download_status, None, enabled=False, key="download_status",
+            ))
 
         # Add stats option (top of the menu - 0 index)
         if self.previous_stats_items is not None:
@@ -280,11 +306,15 @@ class TaskbarPanel:
                     self.previous_stats_items[0],
                     self.previous_stats_items[2],
                     enabled=self.previous_stats_items[2] is not None,
+                    key="stats",
                 ),
             )
 
         status, status_dot = self._connection_status()
-        menu_items.insert(0, item(f"{status_dot} Clipboard sync: {status}", None, enabled=False))
+        menu_items.insert(0, item(
+            f"{status_dot} Clipboard sync: {status}", None,
+            enabled=False, key="connection_status",
+        ))
         return Menu(*menu_items)
 
     def _connection_status(self):
@@ -332,18 +362,29 @@ class TaskbarPanel:
                 self.update_menu()
             self._stopped.wait(1)
 
-    @staticmethod
-    def open_webbrowser(url):
+    def _show_tray_message(self, message, msg_type="error", timeout=None):
+        if PLATFORM == WINDOWS:
+            NotificationManager(self.config).notify(
+                f"ClipCascade: {'Error' if msg_type == 'error' else 'Information'}",
+                message, preference=None,
+            )
+            return
+        dialog = CustomDialog(message, msg_type=msg_type, timeout=timeout)
+        # Wait only for this dialog, not for every Tk window (including the
+        # hidden tray owner) to be destroyed.
+        dialog.wait_window()
+
+    def open_webbrowser(self, url):
         try:
-            webbrowser.open(url)
+            if not webbrowser.open(url):
+                self._show_tray_message(f"Unable to open the browser. Here is the URL: {url}")
         except Exception as e:
-            CustomDialog(
+            self._show_tray_message(
                 f"Failed to open the browser. Here is the URL: {url}\nError: {e}",
-                msg_type="error",
-            ).mainloop()
+            )
 
     def _on_update(self, icon, item):
-        TaskbarPanel.open_webbrowser(self.new_version_available[3])
+        self.open_webbrowser(self.new_version_available[3])
 
     def _on_connect(self, icon, item):
         if self.on_connect_callback:
@@ -390,17 +431,17 @@ class TaskbarPanel:
         self.update_menu()
 
     def _open_homepage(self, icon, item):
-        TaskbarPanel.open_webbrowser(self.config.data["server_url"])
+        self.open_webbrowser(self.config.data["server_url"])
 
     def _open_github(self, icon, item):
-        TaskbarPanel.open_webbrowser(self.github_url)
+        self.open_webbrowser(self.github_url)
 
     def _open_help(self, icon, item):
-        TaskbarPanel.open_webbrowser(HELP_URL)
+        self.open_webbrowser(HELP_URL)
 
     def _open_donate(self, icon, item):
         if self.donation_url is not None:
-            TaskbarPanel.open_webbrowser(self.donation_url)
+            self.open_webbrowser(self.donation_url)
 
     def open_location(self, path):
         if PLATFORM == WINDOWS:
@@ -416,24 +457,20 @@ class TaskbarPanel:
             try:
                 self.open_location(log_file_path)
             except Exception as e:
-                CustomDialog(
+                self._show_tray_message(
                     f"Failed to open the log file '{log_file_path}'.\nError: {e}",
-                    msg_type="error",
-                ).mainloop()
+                )
         else:
-            CustomDialog(
-                f"Log file not found at '{log_file_path}'.", msg_type="error"
-            ).mainloop()
+            self._show_tray_message(f"Log file not found at '{log_file_path}'.")
 
     def _open_program_location(self, icon, item):
         try:
             program_location = get_program_files_directory()
             self.open_location(program_location)
         except Exception as e:
-            CustomDialog(
+            self._show_tray_message(
                 f"Failed to open the program location '{program_location}'.\nError: {e}",
-                msg_type="error",
-            ).mainloop()
+            )
 
     @on_main_thread
     def enable_files_download(self, files):
@@ -491,7 +528,7 @@ class TaskbarPanel:
                 CoUninitialize()
 
     def _on_download(self, icon, item, files):
-        if self._download_in_progress:
+        if self._stopped.is_set() or self._download_in_progress:
             return
         self._download_in_progress = True
         if PLATFORM == WINDOWS:
@@ -520,6 +557,7 @@ class TaskbarPanel:
                 if not target_directory:
                     logging.debug("No directory selected. Exiting.")
                     self._download_in_progress = False
+                    self.update_menu()
                     return
             except (RuntimeError, tk.TclError) as error:
                 target_directory = os.path.join(
@@ -537,7 +575,7 @@ class TaskbarPanel:
                         "ClipCascade: Download location", message, preference=None,
                     )
                 else:
-                    CustomDialog(message, msg_type="info", timeout=5000).mainloop()
+                    self._show_tray_message(message, msg_type="info", timeout=5000)
 
             pending_files = list(files.items())
             total = len(pending_files)
@@ -569,7 +607,19 @@ class TaskbarPanel:
                     preference=None if failed else "download_notifications",
                 )
 
-            threading.Thread(target=save_files, daemon=True).start()
+            if PLATFORM == WINDOWS:
+                # Serialize starting a save against shutdown: either shutdown
+                # sees and waits for this thread, or no new save can start.
+                with self._download_lock:
+                    if self._stopped.is_set():
+                        self._download_in_progress = False
+                        return
+                    self._save_thread = threading.Thread(
+                        target=save_files, name="WindowsFileSave", daemon=False,
+                    )
+                    self._save_thread.start()
+            else:
+                threading.Thread(target=save_files, daemon=True).start()
         except Exception as e:
             self._download_in_progress = False
             logging.exception("Failed to start file download")
@@ -579,9 +629,38 @@ class TaskbarPanel:
                     "ClipCascade: Download failed", str(e), preference=None,
                 )
             else:
-                CustomDialog(f"Download failed: {e}", msg_type="error").mainloop()
+                self._show_tray_message(f"Download failed: {e}")
+
+    def _begin_windows_shutdown(self, logoff=False):
+        with self._download_lock:
+            if self._stopped.is_set():
+                return
+            self._stopped.set()
+            save_thread = self._save_thread
+
+        def finish_shutdown():
+            try:
+                if save_thread is not None and save_thread.is_alive():
+                    logging.info("Waiting for file saving to finish before quitting")
+                    save_thread.join()
+                if logoff and self.on_logoff_callback:
+                    self.on_logoff_callback()
+            except Exception as error:
+                logging.exception("Windows shutdown cleanup failed")
+                self._show_tray_message(f"Failed to finish logging off: {error}")
+            finally:
+                # pystray posts WM_STOP to its UI thread. Tk is destroyed by
+                # run() on its owning thread after that message loop returns.
+                self.icon.stop()
+
+        threading.Thread(
+            target=finish_shutdown, name="WindowsShutdown", daemon=False,
+        ).start()
 
     def _on_logoff(self, icon, item):
+        if PLATFORM == WINDOWS:
+            self._begin_windows_shutdown(logoff=True)
+            return
         if PLATFORM == MACOS:
             self._begin_macos_shutdown(logoff=True)
             return
@@ -592,11 +671,14 @@ class TaskbarPanel:
             self.icon.stop()
             self.root.quit()
         except Exception as e:
-            CustomDialog(
+            self._show_tray_message(
                 f"An error occurred while logging off: {e}", msg_type="error"
-            ).mainloop()
+            )
 
     def _on_quit(self, icon, item):
+        if PLATFORM == WINDOWS:
+            self._begin_windows_shutdown()
+            return
         if PLATFORM == MACOS:
             self._begin_macos_shutdown()
             return
