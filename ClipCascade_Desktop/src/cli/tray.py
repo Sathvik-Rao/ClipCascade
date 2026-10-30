@@ -9,6 +9,7 @@ from itertools import count
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.utils import get_cwidth
 
 from cli.echo import Echo
 from cli.info import CustomDialog
@@ -114,44 +115,39 @@ class TaskbarPanel:
             return self._displayed_menu
 
     def get_max_width(self):
-        """Determine the maximum width of menu item texts."""
-        menu_texts = [
-            item[0] if isinstance(item, tuple) else "" for item in self.menu_items
+        """Measure terminal columns using the same widths as the prompt renderer."""
+        return max(get_cwidth(row) for row in self._menu_rows())
+
+    def _menu_rows(self):
+        counter = count(1)
+        return [
+            (f"{next(counter):<2}. {item[0]}" if callable(item[1]) else f"    {item[0]}")
+            if isinstance(item, tuple) else ""
+            for item in self.menu_items
         ]
-        return max(len(text) for text in menu_texts) + 1
 
     def display_menu(self):
         Echo(self._format_menu())
 
     def _format_menu(self):
-        counter = count(1)
-        max_width = self.get_max_width()
+        inner_width = max(self.get_max_width(), get_cwidth(" MAIN MENU ")) + 2
         lines = []
 
         # Box Top Border
-        lines.append("\n╔" + "═" * (max_width + 6) + "╗")
-        lines.append(f"║{' MAIN MENU ':^{max_width + 6}}║")
-        lines.append("╠" + "═" * (max_width + 6) + "╣")
+        lines.append("\n╔" + "═" * inner_width + "╗")
+        lines.append(f"║{' MAIN MENU ':^{inner_width}}║")
+        lines.append("╠" + "═" * inner_width + "╣")
 
         # Menu Items
-        for item in self.menu_items:
-            if isinstance(item, tuple):
-                width = max_width
-                # The version icon uses the same variation selector as Open Logs,
-                # so both rows need the extra padding to align the right border.
-                if any(label in item[0].lower() for label in ("disconnect", "logs", "version")):
-                    if "disconnecting" in item[0].lower():
-                        width -= 1
-                    else:
-                        width += 1
-                else:
-                    width -= 1
-                lines.append(f"║ {next(counter):<2}. {item[0]:<{width}} ║")
+        for row in self._menu_rows():
+            if row:
+                padding = " " * (inner_width - get_cwidth(row) - 2)
+                lines.append(f"║ {row}{padding} ║")
             else:
-                lines.append(f"║ {'─' * (max_width + 4)} ║")
+                lines.append(f"║ {'─' * (inner_width - 2)} ║")
 
         # Box Bottom Border
-        lines.append("╚" + "═" * (max_width + 6) + "╝")
+        lines.append("╚" + "═" * inner_width + "╝")
         return "\n".join(lines)
 
     def create_menu(self, item_: tuple = None):
@@ -217,7 +213,8 @@ class TaskbarPanel:
         # Create numbered menu
         counter = count(1)
         numbered_menu = {
-            next(counter): item for item in menu_items if isinstance(item, tuple)
+            next(counter): item for item in menu_items
+            if isinstance(item, tuple) and callable(item[1])
         }
 
         return (menu_items, numbered_menu)
