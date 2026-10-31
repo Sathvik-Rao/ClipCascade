@@ -8,11 +8,22 @@ import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.Promise
 import androidx.work.WorkManager
 import android.webkit.CookieManager
+import com.facebook.react.bridge.UiThreadUtil
 import android.net.Uri
+import android.os.TransactionTooLargeException
+import android.os.Build
+import android.view.inputmethod.EditorInfo
 import android.provider.OpenableColumns
 import android.util.Base64
+import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.provider.DocumentsContract
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.text.method.PasswordTransformationMethod
+import android.view.View
+import android.widget.EditText
+import com.facebook.react.uimanager.UIManagerModule
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -34,15 +45,70 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         return "NativeBridgeModule"
     }
 
+    // Keep secure input semantics, but never reveal the most recently typed character.
+    @ReactMethod
+    fun setPasswordVisibility(viewTag: Double, visible: Boolean, promise: Promise) {
+        val uiManager = reactApplicationContext.getNativeModule(UIManagerModule::class.java)
+        if (uiManager == null) {
+            promise.reject("PASSWORD_INPUT_ERROR", "UI manager is unavailable")
+            return
+        }
+        uiManager.addUIBlock { views ->
+            try {
+                val input = views.resolveView(viewTag.toInt()) as EditText
+                // Ask the IME not to learn this field, whether its text is hidden or visible.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    input.imeOptions = input.imeOptions or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+                }
+                val start = input.selectionStart
+                val end = input.selectionEnd
+                // Explicitly clear our custom transformation when revealing the password.
+                input.transformationMethod = if (visible) null else object : PasswordTransformationMethod() {
+                    override fun getTransformation(source: CharSequence, view: View): CharSequence =
+                        object : CharSequence {
+                            override val length: Int get() = source.length
+                            override fun get(index: Int): Char = '\u2022'
+                            override fun subSequence(startIndex: Int, endIndex: Int): CharSequence =
+                                "\u2022".repeat(endIndex - startIndex)
+                            override fun toString(): String = "\u2022".repeat(length)
+                        }
+                }
+                if (start >= 0 && end >= 0) input.setSelection(start, end)
+                promise.resolve(null)
+            } catch (error: Exception) {
+                promise.reject("PASSWORD_INPUT_ERROR", "Could not configure password masking", error)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun takePendingShare(promise: Promise) {
+        promise.resolve(PendingShares.take())
+    }
+
+    @ReactMethod
+    fun discardPendingShare(promise: Promise) {
+        PendingShares.clear()
+        promise.resolve(null)
+    }
+
     @ReactMethod
     fun clearCookies(promise: Promise) {
-        try {
-            val cookieManager = CookieManager.getInstance()
-            cookieManager.removeAllCookies(null)
-            cookieManager.flush()
-            promise.resolve("Cookies cleared successfully!")
-        } catch (e: Exception) {
-            promise.reject("COOKIE_ERROR", "Failed to clear cookies", e)
+        // The callback requires a Looper. Do not start login until removal finishes.
+        UiThreadUtil.runOnUiThread {
+            try {
+                val cookieManager = CookieManager.getInstance()
+                cookieManager.removeAllCookies {
+                    try {
+                        cookieManager.flush()
+                        promise.resolve("Cookies cleared successfully!")
+                    } catch (e: Exception) {
+                        promise.reject("COOKIE_ERROR", "Failed to clear cookies", e)
+                    }
+                }
+            } catch (e: Exception) {
+                promise.reject("COOKIE_ERROR", "Failed to clear cookies", e)
+            }
         }
     }
     
@@ -73,18 +139,36 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
             val trimmedUri = contentUri.trim()
             val uri = Uri.parse(trimmedUri)
             var size: Long = -1
+            if (uri.scheme == "file") {
+                val file = File(requireNotNull(uri.path))
+                require(file.isFile && file.canRead()) { "Unreadable file: $uri" }
+                promise.resolve(file.length().toString())
+                return
+            }
             val projection = arrayOf(OpenableColumns.SIZE)
 
-            reactApplicationContext.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-                val sizeIndex = cursor.getColumnIndexOrThrow(OpenableColumns.SIZE)
-                if (cursor.moveToFirst()) {
-                    size = cursor.getLong(sizeIndex)
+            try {
+                reactApplicationContext.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (cursor.moveToFirst() && sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
+                        size = cursor.getLong(sizeIndex)
+                    }
                 }
+            } catch (_: Exception) {
+                // Some readable providers do not implement metadata queries.
             }
-            if (size == -1L) {
-                promise.reject("ERROR", "Failed to get file size: -1 for URI: ${trimmedUri}")
-                return
-            } 
+            if (size < 0L) {
+                size = reactApplicationContext.contentResolver.openInputStream(uri)?.use { stream ->
+                    val buffer = ByteArray(8192)
+                    var total = 0L
+                    while (true) {
+                        val count = stream.read(buffer)
+                        if (count < 0) break
+                        total += count
+                    }
+                    total
+                } ?: throw IOException("Unable to open file: $trimmedUri")
+            }
             promise.resolve(size.toString())
         } catch (e: Exception) {
             promise.reject("ERROR", "Failed to get file size: ${e.message}")
@@ -96,15 +180,24 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         try {
             val trimmedUri = contentUri.trim()
             val uri = Uri.parse(trimmedUri)
+            if (uri.scheme == "file") {
+                promise.resolve(File(requireNotNull(uri.path)).name)
+                return
+            }
             var fileName: String? = null
             val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
-            reactApplicationContext.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-                val nameIndex = cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME)
-                if (cursor.moveToFirst()) {
-                    fileName = cursor.getString(nameIndex)
+            try {
+                reactApplicationContext.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (cursor.moveToFirst() && nameIndex >= 0 && !cursor.isNull(nameIndex)) {
+                        fileName = cursor.getString(nameIndex)
+                    }
                 }
+            } catch (_: Exception) {
+                // Fall back to the URI when a provider cannot return a display name.
             }
-            if (fileName == null) {
+            if (fileName.isNullOrEmpty()) fileName = uri.lastPathSegment
+            if (fileName.isNullOrEmpty()) {
                 promise.reject("ERROR", "Failed to get file name: null for URI: ${trimmedUri}")
                 return
             }
@@ -148,6 +241,52 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         return outputStream.toByteArray()
     }
 
+    private fun writeAndroidClipboard(clipData: ClipData, contentType: String, promise: Promise) {
+        try {
+            val clipboard = reactApplicationContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(clipData)
+            promise.resolve("$contentType copied to clipboard.")
+        } catch (error: Exception) {
+            // Android can wrap Binder failures inside RuntimeException.
+            val causes = generateSequence(error as Throwable) { it.cause }.toList()
+            val sizeError = causes.firstOrNull { it is TransactionTooLargeException }
+            val accessError = causes.firstOrNull { it is SecurityException }
+            when {
+                sizeError != null -> promise.reject(
+                    "ANDROID_CLIPBOARD_SIZE_LIMIT",
+                    "Android could not copy this $contentType because it is too large for a system clipboard transaction. " +
+                        "This is an Android operating-system limitation, separate from ClipCascade's configured " +
+                        "clipboard size limit. Increasing or disabling the limit in ClipCascade cannot bypass " +
+                        "Android's restriction. " +
+                        (if (contentType == "text") "Copy a smaller portion of the text, or transfer it as a text file instead."
+                         else "Try copying a smaller image."),
+                    error,
+                )
+                accessError != null -> promise.reject(
+                    "ANDROID_CLIPBOARD_ACCESS_DENIED",
+                    "Android denied access to write $contentType to the clipboard. " +
+                        "Check device clipboard restrictions. (${accessError.javaClass.simpleName}: ${accessError.message})",
+                    error,
+                )
+                else -> promise.reject(
+                    "ANDROID_CLIPBOARD_WRITE_FAILED",
+                    "Android could not write $contentType to the clipboard. " +
+                        "(${error.javaClass.simpleName}: ${error.message})",
+                    error,
+                )
+            }
+        }
+    }
+
+    @ReactMethod
+    fun copyTextToClipboard(text: String, promise: Promise) {
+        try {
+            writeAndroidClipboard(ClipData.newPlainText(null, text), "text", promise)
+        } catch (error: Exception) {
+            promise.reject("TEXT_PREPARATION_ERROR", "Could not prepare text for the clipboard: ${error.message}", error)
+        }
+    }
+
     @ReactMethod
     fun copyBase64ImageToClipboardUsingCache(base64String: String, promise: Promise) {
         try {
@@ -176,13 +315,10 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
             // Copy the URI to clipboard
             val clipData = ClipData.newUri(reactApplicationContext.contentResolver, "Image", imageUri)
-            val clipboard = reactApplicationContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(clipData)
-
-            promise.resolve("Image copied to clipboard.")
+            writeAndroidClipboard(clipData, "image", promise)
 
         } catch (e: Exception) {
-            promise.reject("ERROR", "Failed to copy image to clipboard: ${e.message}")
+            promise.reject("IMAGE_PREPARATION_ERROR", "Could not prepare the image for the clipboard: ${e.message}", e)
         }
     }
 
@@ -205,6 +341,58 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         if (files != null) {
             for (file in files) {
                 file.delete()
+            }
+        }
+    }
+
+    @ReactMethod
+    fun isDownloadDirectoryAvailable(contentUri: String, promise: Promise) {
+        try {
+            val uri = Uri.parse(contentUri)
+            val hasWriteGrant = reactApplicationContext.contentResolver.persistedUriPermissions.any {
+                it.uri == uri && it.isWritePermission
+            }
+            val directory = DocumentFile.fromTreeUri(reactApplicationContext, uri)
+            promise.resolve(hasWriteGrant && directory != null && directory.isDirectory && directory.canWrite())
+        } catch (e: Exception) {
+            // Revoked grants and unavailable document providers require selecting a folder again.
+            promise.resolve(false)
+        }
+    }
+
+    @ReactMethod
+    fun openDownloadDirectory(contentUri: String, promise: Promise) {
+        UiThreadUtil.runOnUiThread {
+            try {
+                val treeUri = Uri.parse(contentUri)
+                require(treeUri.scheme == "content" && DocumentsContract.isTreeUri(treeUri)) {
+                    "Invalid download folder URI"
+                }
+                val documentUri = DocumentsContract.buildDocumentUriUsingTree(
+                    treeUri, DocumentsContract.getTreeDocumentId(treeUri)
+                )
+                val context: Context = currentActivity ?: reactApplicationContext
+                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(documentUri, DocumentsContract.Document.MIME_TYPE_DIR)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    if (currentActivity == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try {
+                    context.startActivity(viewIntent)
+                } catch (_: ActivityNotFoundException) {
+                    // Some file managers cannot view a document directory directly.
+                    // The system Files picker can still show its contents at this URI.
+                    val browseIntent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                        putExtra(DocumentsContract.EXTRA_INITIAL_URI, documentUri)
+                        if (currentActivity == null) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(browseIntent)
+                }
+                promise.resolve(null)
+            } catch (e: Exception) {
+                promise.reject("OPEN_FOLDER_ERROR", "Unable to open this folder in Files: ${e.message}", e)
             }
         }
     }

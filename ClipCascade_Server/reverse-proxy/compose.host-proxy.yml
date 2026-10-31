@@ -1,0 +1,5 @@
+# Only for Nginx/Caddy/etc. running directly on the same host, outside Docker.
+services:
+  clipcascade:
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"

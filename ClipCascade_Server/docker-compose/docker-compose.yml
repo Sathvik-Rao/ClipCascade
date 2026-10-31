@@ -59,7 +59,7 @@ services:
       # # Default: stun:stun.l.google.com:19302
       # - CC_P2P_STUN_URL=stun:stun.l.google.com:19302
 
-      # # ⚙️ Specifies which domains are allowed to connect to the WebSocket (CORS policy).
+      # # ⚙️ Specifies which domains are allowed to connect to the WebSocket (origin check).
       # # Replace the URL with your ClipCascade server's domain.
       # # If not set, all origins are allowed by default, which may be less secure.
       # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com

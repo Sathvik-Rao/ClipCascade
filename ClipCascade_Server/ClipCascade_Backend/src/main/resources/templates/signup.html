@@ -3,6 +3,11 @@
   <head>
     <!-- Apply the saved or system theme before the page is painted. -->
     <script src="/assets/js/theme.js"></script>
+    <link rel="manifest" href="/assets/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/assets/images/apple-touch-icon.png" />
+    <meta name="theme-color" content="#2866c4" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="ClipCascade" />
     <title>ClipCascade - Create Account</title>
     <meta charset="utf-8" />
     <meta
@@ -53,6 +58,7 @@
       }
     </style>
     <link rel="stylesheet" href="/assets/css/theme.css" />
+    <link rel="stylesheet" href="/assets/css/responsive.css" />
   </head>
   <body class="auth-page">
     <div class="theme-corner"><button type="button" id="theme-toggle" class="theme-toggle" role="switch"
@@ -94,6 +100,10 @@
             type="text"
             id="username"
             name="username"
+            autocomplete="username"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
             class="form-control"
             placeholder="Username"
             required="required"
@@ -108,6 +118,7 @@
             type="password"
             id="password"
             name="password"
+            autocomplete="new-password"
             class="form-control"
             placeholder="Password"
             required="required"
@@ -123,6 +134,7 @@
             type="password"
             id="confirmPassword"
             name="confirmPassword"
+            autocomplete="new-password"
             class="form-control"
             placeholder="Confirm Password"
             required="required"

@@ -80,6 +80,17 @@ Secure attributes; never decode or invent it.
 4. Verify the session with `GET /whoami`. Fetch `GET /csrf-token` after login to
    obtain the current token for subsequent mutations.
 
+A reused anonymous session need not return a fresh `Set-Cookie` on `GET /login`.
+Use a cookie jar throughout; do not copy a complete `Set-Cookie` value (including
+its attributes) into a request's `Cookie` header. `/validate-session` returning
+exactly `OK` is also an authentication check. A failed form login can return
+HTTP 200 after following its redirect, so the final HTTP status alone is insufficient.
+
+For deployments, see the [reverse-proxy setups and connection checker](reverse-proxy/README.md).
+Preserve the public HTTPS origin and port in forwarding headers. Native clients
+must reach the whole application without an external interactive SSO challenge,
+including authenticated metadata routes and the `/` login-success redirect.
+
 `POST`, `PUT`, and `DELETE` requests require a CSRF token, including login,
 signup, and logout. For authenticated JSON requests, send the token in the header
 named by `headerName` in `/csrf-token` (normally `X-CSRF-TOKEN`). Form requests can

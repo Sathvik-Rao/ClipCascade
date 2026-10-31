@@ -8,6 +8,7 @@ import queue
 import threading
 
 import pasteboard
+from AppKit import NSPasteboard
 from PyObjCTools import AppHelper
 from utils.main_thread import on_main_thread
 
@@ -53,35 +54,42 @@ def _poll(session):
         return
     try:
         # Create and retain every native pasteboard object on the main thread.
-        if not session['boards']:
-            session['boards'] = [(kind, pasteboard.Pasteboard()) for kind in session['kinds']]
-        updates = {}
-        for kind, pb in session['boards']:
-            value = pb.get_file_urls(diff=True) if kind == 'files' else pb.get_contents(
+        if session['reader'] is None:
+            session['reader'] = pasteboard.Pasteboard()
+            session['board'] = NSPasteboard.generalPasteboard()
+            session['change_count'] = session['board'].changeCount()
+            return
+        change_count = session['board'].changeCount()
+        if change_count == session['change_count']:
+            return
+
+        # Use one change counter for the entire clipboard. Per-format diff
+        # cursors can get out of step when the clipboard changes during a read,
+        # causing a file's text representation to be sent on a later poll.
+        event = None
+        pb = session['reader']
+        for kind in session['kinds']:
+            value = pb.get_file_urls() if kind == 'files' else pb.get_contents(
                 type={'text': pasteboard.String, 'png': pasteboard.PNG, 'tiff': pasteboard.TIFF}[kind],
-                diff=True,
             )
             if value:
-                updates[kind] = value
-        if not session['first']:
-            event = None
-            if 'files' in updates:
-                event = ('files', updates['files'])
-            elif 'text' in updates:
-                event = ('text', updates['text'])
-            elif 'png' in updates or 'tiff' in updates:
-                if _block_image_once:
-                    _block_image_once = False
-                else:
-                    event = ('image', updates.get('png', updates.get('tiff')))
-            if event:
-                # Only the latest clipboard matters if conversion falls behind.
-                try:
-                    session['queue'].get_nowait()
-                except queue.Empty:
-                    pass
-                session['queue'].put_nowait(event)
-        session['first'] = False
+                event = ('image' if kind in ('png', 'tiff') else kind, value)
+                break
+
+        # Discard a mixed snapshot and retry the latest version next poll.
+        if session['board'].changeCount() != change_count:
+            return
+        session['change_count'] = change_count
+        if event and event[0] == 'image' and _block_image_once:
+            _block_image_once = False
+            return
+        if event:
+            # Only the latest clipboard matters if conversion falls behind.
+            try:
+                session['queue'].get_nowait()
+            except queue.Empty:
+                pass
+            session['queue'].put_nowait(event)
     except Exception:
         logging.exception("Error polling pasteboard")
     finally:
@@ -98,7 +106,7 @@ def on_update(callback, enable_image_monitoring=False, enable_file_monitoring=Fa
     kinds = (['files'] if enable_file_monitoring else []) + ['text']
     if enable_image_monitoring:
         kinds += ['png', 'tiff']
-    session = dict(callback=callback, kinds=kinds, boards=[], first=True,
+    session = dict(callback=callback, kinds=kinds, reader=None, board=None, change_count=None,
                    queue=queue.Queue(maxsize=1), stop=threading.Event())
     _session = session
     worker = threading.Thread(target=_deliver, args=(session,), daemon=True)
@@ -114,7 +122,8 @@ def stop():
         _session['stop'].set()
         # Release native references on the main thread too; never join a worker
         # from AppKit (it may be finishing a clipboard/network callback).
-        _session['boards'].clear()
+        _session['reader'] = None
+        _session['board'] = None
         _session = None
     _block_image_once = False
     _pb_writer = None

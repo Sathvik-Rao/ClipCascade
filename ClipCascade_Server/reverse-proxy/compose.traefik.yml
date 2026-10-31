@@ -1,0 +1,34 @@
+services:
+  traefik:
+    image: traefik:v3.6
+    restart: unless-stopped
+    depends_on:
+      - clipcascade
+    command:
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=:${HTTPS_PORT:-443}
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?Set ACME_EMAIL in .env}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --accesslog=true
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./traefik:/etc/traefik/dynamic:ro
+      - traefik_certs:/letsencrypt
+    # The file provider needs no Docker socket or public dashboard.
+    networks:
+      - backend
+      - edge
+
+networks:
+  edge:
+
+volumes:
+  traefik_certs:

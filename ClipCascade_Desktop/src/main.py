@@ -9,6 +9,8 @@
 # This script serves as the entry point for the ClipCascade application,
 # initializing and running the core application logic.
 
+import sys
+
 from core.application import Application
 
 
@@ -17,7 +19,12 @@ class Main:
         Application().run()
 
 def main():
-    Main()
+    try:
+        Main()
+    except KeyboardInterrupt:
+        # Application.run() performs cleanup before the interrupt reaches here.
+        # A console Ctrl+C is an expected exit, not an application error.
+        sys.exit(130)
 
 if __name__ == "__main__":
     main()

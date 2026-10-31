@@ -10,7 +10,11 @@ import os
 from utils.window_manager import center_window
 from utils.notification_manager import NotificationManager
 from core.config import Config
+from core.clipboard_limit import (
+    LIMIT_UNITS, NO_LOCAL_LIMIT, format_clipboard_limit, parse_clipboard_limit,
+)
 from gui.info import CustomDialog
+from gui.tk_owner import GuiWindow
 from core.constants import *
 
 
@@ -59,7 +63,7 @@ class HoverTooltip:
             self.tooltip_window = None
 
 
-class LoginForm(tk.Tk):
+class LoginForm(GuiWindow):
     def watch_updates(self, checker):
         """Poll on Tk's UI thread; never touch Tk from the network worker."""
         def poll():
@@ -270,10 +274,10 @@ class LoginForm(tk.Tk):
         self.extra_canvas = tk.Canvas(
             self.extra_frame_container,
             borderwidth=0,
+            highlightthickness=0,
             background="#f0f0f0",
             takefocus=False,
         )
-        self.extra_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Add a vertical scrollbar to the canvas
         self.scrollbar = ttk.Scrollbar(
@@ -283,6 +287,8 @@ class LoginForm(tk.Tk):
             takefocus=False,
         )
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        # Reserve the scrollbar's space before the expanding canvas is packed.
+        self.extra_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Configure the canvas to use the scrollbar
         self.extra_canvas.configure(yscrollcommand=self.scrollbar.set)
@@ -299,13 +305,24 @@ class LoginForm(tk.Tk):
             lambda event: self.extra_canvas.configure(scrollregion=self.extra_canvas.bbox("all")),
         )
 
-        # Bind a configure event to the container to adjust the width
-        self.extra_frame_container.bind("<Configure>", self._on_extra_container_configure)
+        # Use the actual viewport width, including on the first layout pass.
+        self.extra_canvas.bind("<Configure>", self._on_extra_canvas_configure)
+
+        # Native labeled borders separate related advanced settings.
+        for row, attribute, title in (
+            (0, "security_settings_frame", "Security"),
+            (1, "clipboard_settings_frame", "Clipboard sharing"),
+            (2, "notification_settings_frame", "Notifications"),
+        ):
+            group = ttk.LabelFrame(self.extra_frame, text=title, padding=(10, 8))
+            group.grid(row=row, column=0, sticky=tk.EW, pady=(0, 12))
+            group.columnconfigure(1, weight=1)
+            setattr(self, attribute, group)
 
         # Hash Rounds
-        hash_rounds_label = ttk.Label(self.extra_frame, text="Key derivation iterations:")
+        hash_rounds_label = ttk.Label(self.security_settings_frame, text="Key derivation iterations:")
         hash_rounds_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.hash_rounds_entry = ttk.Entry(self.extra_frame, width=50, font=("Helvetica", 13))
+        self.hash_rounds_entry = ttk.Entry(self.security_settings_frame, width=50, font=("Helvetica", 13))
         self.hash_rounds_entry.insert(0, str(self.config.data["hash_rounds"]))
         self.hash_rounds_entry.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
         self._add_tooltip(
@@ -318,9 +335,9 @@ class LoginForm(tk.Tk):
         )
 
         # Salt
-        salt_label = ttk.Label(self.extra_frame, text="Encryption salt:")
+        salt_label = ttk.Label(self.security_settings_frame, text="Encryption salt:")
         salt_label.grid(row=1, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.salt_entry = ttk.Entry(self.extra_frame, width=50, font=("Helvetica", 13))
+        self.salt_entry = ttk.Entry(self.security_settings_frame, width=50, font=("Helvetica", 13))
         self.salt_entry.insert(0, self.config.data["salt"])
         self.salt_entry.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
         self._add_tooltip(
@@ -334,13 +351,13 @@ class LoginForm(tk.Tk):
 
         # Save Password Locally Checkbox
         save_password_label = ttk.Label(
-            self.extra_frame,
+            self.security_settings_frame,
             text="Store Password Locally\n(not recommended; \nonly works if encryption is disabled):",
         )
         save_password_label.grid(row=2, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.save_password_var = tk.BooleanVar(value=self.config.data["save_password"])
         self.save_password_checkbox = ttk.Checkbutton(
-            self.extra_frame,
+            self.security_settings_frame,
             variable=self.save_password_var,
             takefocus=False,
         )
@@ -352,41 +369,73 @@ class LoginForm(tk.Tk):
             "Note: only works when encryption is disabled. Not recommended on shared or untrusted devices.",
         )
 
-        # Maximum Clipboard Size - Local Limit
+        # Keep the saved preference in bytes while editing in readable units.
         local_clipboard_size_label = ttk.Label(
-            self.extra_frame, text="Local clipboard size limit (bytes):"
+            self.clipboard_settings_frame, text="Local clipboard size limit:"
         )
-        local_clipboard_size_label.grid(row=3, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        local_clipboard_size_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        limit_frame = ttk.Frame(self.clipboard_settings_frame)
+        limit_frame.grid(row=0, column=1, padx=10, pady=5, sticky=tk.EW)
+        limit_frame.columnconfigure(0, weight=1)
+        amount, unit = format_clipboard_limit(self.config.data["max_clipboard_size_local_limit_bytes"])
+        self.clipboard_limit_amount_var = tk.StringVar(value=amount)
+        self.clipboard_limit_unit_var = tk.StringVar(value=unit)
         self.local_clipboard_size_entry = ttk.Entry(
-            self.extra_frame, width=50, font=("Helvetica", 13)
+            limit_frame, width=12, textvariable=self.clipboard_limit_amount_var,
+            font=("Helvetica", 13),
         )
-        self.local_clipboard_size_entry.insert(
-            0, str(self.config.data["max_clipboard_size_local_limit_bytes"] or "")
+        self.local_clipboard_size_entry.grid(row=0, column=0, sticky=tk.EW)
+        self.clipboard_limit_unit = ttk.Combobox(
+            limit_frame, textvariable=self.clipboard_limit_unit_var,
+            values=(NO_LOCAL_LIMIT, *LIMIT_UNITS), state="readonly", width=12,
         )
-        self.local_clipboard_size_entry.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W + tk.E)
+        self.clipboard_limit_unit.grid(row=0, column=1, padx=(6, 0), sticky=tk.EW)
+        # Scroll the settings, without letting the combobox class binding edit
+        # and immediately save the selected unit as the pointer passes over it.
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            self.clipboard_limit_unit.bind(sequence, self._on_clipboard_unit_mousewheel)
+        self.clipboard_limit_error_var = tk.StringVar()
+        ttk.Label(limit_frame, textvariable=self.clipboard_limit_error_var,
+                  foreground="#b42318", wraplength=300).grid(
+            row=1, column=0, columnspan=2, sticky=tk.W,
+        )
+        self.local_clipboard_size_entry.configure(
+            state="disabled" if unit == NO_LOCAL_LIMIT else "normal"
+        )
         self._add_tooltip(
-            [local_clipboard_size_label, self.local_clipboard_size_entry],
-            "Optional local limit for incoming and outgoing clipboard content, in bytes. Must be a positive integer.\n"
-            "\n"
-            "Examples:\n"
-            "- 512 KiB = 524288 bytes\n"
-            "- 1 MiB = 1048576 bytes\n"
-            "\n"
-            "Leave blank for no local limit. Server and platform limits still apply. A smaller limit can help if large clipboard content causes problems on your device.",
+            [local_clipboard_size_label, self.local_clipboard_size_entry, self.clipboard_limit_unit],
+            "Limit incoming and outgoing clipboard content. Choose a number and unit, "
+            "or leave blank for no local limit.\n\n1 KiB = 1024 bytes; 1 MiB = 1024 KiB. "
+            "Decimals such as 1.5 MiB are supported and rounded to the nearest byte.\n\n"
+            "Server and platform limits still apply.",
         )
+        self.clipboard_limit_amount_var.trace_add("write", self._save_clipboard_limit)
+        self.clipboard_limit_unit_var.trace_add("write", self._change_clipboard_limit_unit)
+
+        for row, field, label, help_text in (
+            (1, "send_clipboard", "Send Clipboard:", "Share clipboard changes from this device."),
+            (2, "receive_clipboard", "Receive Clipboard:", "Apply clipboard updates from other devices."),
+        ):
+            variable = tk.BooleanVar(value=self.config.data[field])
+            setattr(self, field + "_var", variable)
+            label_widget = ttk.Label(self.clipboard_settings_frame, text=label)
+            label_widget.grid(row=row, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+            checkbox = ttk.Checkbutton(self.clipboard_settings_frame, variable=variable, takefocus=False)
+            checkbox.grid(row=row, column=1, padx=10, pady=5, sticky=tk.W)
+            self._add_tooltip([label_widget, checkbox], help_text)
 
         # Enable Image Sharing Checkbox
-        enable_image_sharing_label = ttk.Label(self.extra_frame, text="Enable Image Sharing:")
-        enable_image_sharing_label.grid(row=4, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        enable_image_sharing_label = ttk.Label(self.clipboard_settings_frame, text="Enable Image Sharing:")
+        enable_image_sharing_label.grid(row=3, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.enable_image_sharing_var = tk.BooleanVar(
             value=self.config.data["enable_image_sharing"]
         )
         self.enable_image_sharing_checkbox = ttk.Checkbutton(
-            self.extra_frame,
+            self.clipboard_settings_frame,
             variable=self.enable_image_sharing_var,
             takefocus=False,
         )
-        self.enable_image_sharing_checkbox.grid(row=4, column=1, padx=10, pady=5, sticky=tk.W)
+        self.enable_image_sharing_checkbox.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
         self._add_tooltip(
             [enable_image_sharing_label, self.enable_image_sharing_checkbox],
             "Allows this device to send copied images to other devices.\n"
@@ -395,15 +444,15 @@ class LoginForm(tk.Tk):
         )
 
         # Enable File Sharing Checkbox
-        enable_file_sharing_label = ttk.Label(self.extra_frame, text="Enable File Sharing:")
-        enable_file_sharing_label.grid(row=5, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        enable_file_sharing_label = ttk.Label(self.clipboard_settings_frame, text="Enable File Sharing:")
+        enable_file_sharing_label.grid(row=4, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.enable_file_sharing_var = tk.BooleanVar(value=self.config.data["enable_file_sharing"])
         self.enable_file_sharing_checkbox = ttk.Checkbutton(
-            self.extra_frame,
+            self.clipboard_settings_frame,
             variable=self.enable_file_sharing_var,
             takefocus=False,
         )
-        self.enable_file_sharing_checkbox.grid(row=5, column=1, padx=10, pady=5, sticky=tk.W)
+        self.enable_file_sharing_checkbox.grid(row=4, column=1, padx=10, pady=5, sticky=tk.W)
         self._add_tooltip(
             [enable_file_sharing_label, self.enable_file_sharing_checkbox],
             "Allows this device to send copied or shared files to other devices.\n"
@@ -413,13 +462,13 @@ class LoginForm(tk.Tk):
 
         # Default File Download Location
         default_file_download_location_label = ttk.Label(
-            self.extra_frame, text="Default download folder:"
+            self.clipboard_settings_frame, text="Default download folder:"
         )
         default_file_download_location_label.grid(
-            row=6, column=0, padx=(0, 10), pady=5, sticky=tk.W
+            row=5, column=0, padx=(0, 10), pady=5, sticky=tk.W
         )
-        download_path_frame = ttk.Frame(self.extra_frame)
-        download_path_frame.grid(row=6, column=1, padx=10, pady=5, sticky=tk.EW)
+        download_path_frame = ttk.Frame(self.clipboard_settings_frame)
+        download_path_frame.grid(row=5, column=1, padx=10, pady=5, sticky=tk.EW)
         download_path_frame.columnconfigure(0, weight=1)
         self.default_file_download_location_entry = ttk.Entry(
             download_path_frame, width=30, font=("Helvetica", 13)
@@ -460,10 +509,10 @@ class LoginForm(tk.Tk):
         )
 
         # SSL CA bundle (private / corporate PKI)
-        ssl_ca_label = ttk.Label(self.extra_frame, text="Custom CA certificate bundle:")
-        ssl_ca_label.grid(row=7, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        ca_path_frame = ttk.Frame(self.extra_frame)
-        ca_path_frame.grid(row=7, column=1, padx=10, pady=5, sticky=tk.EW)
+        ssl_ca_label = ttk.Label(self.security_settings_frame, text="Custom CA certificate bundle:")
+        ssl_ca_label.grid(row=3, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        ca_path_frame = ttk.Frame(self.security_settings_frame)
+        ca_path_frame.grid(row=3, column=1, padx=10, pady=5, sticky=tk.EW)
         ca_path_frame.columnconfigure(0, weight=1)
         self.ssl_ca_bundle_entry = ttk.Entry(
             ca_path_frame, width=30, font=("Helvetica", 13)
@@ -510,27 +559,60 @@ class LoginForm(tk.Tk):
             "Clear the custom CA certificate bundle.\nLog in to use default certificate trust.",
         )
 
-        update_label = ttk.Label(self.extra_frame, text="Notify when an update is available:")
-        update_label.grid(row=8, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        update_label = ttk.Label(self.notification_settings_frame, text="Notify when an update is available:")
+        update_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         self.update_notifications_var = tk.BooleanVar(value=self.config.data["update_notifications"])
         update_checkbox = ttk.Checkbutton(
-            self.extra_frame, variable=self.update_notifications_var, takefocus=False,
+            self.notification_settings_frame, variable=self.update_notifications_var, takefocus=False,
         )
-        update_checkbox.grid(row=8, column=1, padx=10, pady=5, sticky=tk.W)
+        update_checkbox.grid(row=0, column=1, padx=10, pady=5, sticky=tk.W)
         self._add_tooltip(
             [update_label, update_checkbox],
             "Checks at startup and once a day while running.\n"
             "Alerts once per new version each session. Enabled by default.",
         )
 
+        clipboard_label = ttk.Label(self.notification_settings_frame, text="Notify when clipboard content is received:")
+        clipboard_label.grid(row=1, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.clipboard_notifications_var = tk.BooleanVar(
+            value=self.config.data["clipboard_notifications"]
+        )
+        clipboard_checkbox = ttk.Checkbutton(
+            self.notification_settings_frame, variable=self.clipboard_notifications_var, takefocus=False,
+        )
+        clipboard_checkbox.grid(row=1, column=1, padx=10, pady=5, sticky=tk.W)
+        self._add_tooltip(
+            [clipboard_label, clipboard_checkbox],
+            "Shows a notification for clipboard content received from another device.\n"
+            "Includes a text preview, image dimensions, or file names.\n"
+            "Clipboard content may appear on your lock screen. Disabled by default.",
+        )
+
+        download_label = ttk.Label(self.notification_settings_frame, text="Notify when downloads finish:")
+        download_label.grid(row=2, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.download_notifications_var = tk.BooleanVar(value=self.config.data["download_notifications"])
+        download_checkbox = ttk.Checkbutton(
+            self.notification_settings_frame, variable=self.download_notifications_var, takefocus=False,
+        )
+        download_checkbox.grid(row=2, column=1, padx=10, pady=5, sticky=tk.W)
+        self._add_tooltip(
+            [download_label, download_checkbox],
+            "Shows a notification after files are saved. Enabled by default.\n"
+            "Saving progress and download failures remain visible when disabled.",
+        )
+
         # Configure grid weights for extra_frame
-        self.extra_frame.columnconfigure(1, weight=1)
+        self.extra_frame.columnconfigure(0, weight=1)
 
         # Bind after initialization so opening the form never writes defaults.
         for field, variable in (
             ("notification", self.notification_var),
             ("update_notifications", self.update_notifications_var),
+            ("download_notifications", self.download_notifications_var),
+            ("clipboard_notifications", self.clipboard_notifications_var),
             ("save_password", self.save_password_var),
+            ("send_clipboard", self.send_clipboard_var),
+            ("receive_clipboard", self.receive_clipboard_var),
             ("enable_image_sharing", self.enable_image_sharing_var),
             ("enable_file_sharing", self.enable_file_sharing_var),
         ):
@@ -540,7 +622,6 @@ class LoginForm(tk.Tk):
             )
         self._preference_entries = []
         for field, entry in (
-            ("max_clipboard_size_local_limit_bytes", self.local_clipboard_size_entry),
             ("default_file_download_location", self.default_file_download_location_entry),
         ):
             variable = tk.StringVar(value=entry.get())
@@ -585,6 +666,7 @@ class LoginForm(tk.Tk):
             self.hash_rounds_entry,
             self.salt_entry,
             self.local_clipboard_size_entry,
+            self.clipboard_limit_unit,
             self.default_file_download_location_entry,
             self.download_folder_browse_button,
             self.download_folder_clear_button,
@@ -593,7 +675,10 @@ class LoginForm(tk.Tk):
             self.ca_bundle_clear_button,
         )
         for w in extra_entries:
-            w.configure(takefocus=bool(self.show_extra))
+            w.configure(takefocus=bool(self.show_extra) and (
+                w is not self.local_clipboard_size_entry
+                or self.clipboard_limit_unit_var.get() != NO_LOCAL_LIMIT
+            ))
 
     def _clear_path(self, entry):
         # Entry deletion also updates its StringVar and saved device preference.
@@ -670,6 +755,7 @@ class LoginForm(tk.Tk):
             self.hash_rounds_entry,
             self.salt_entry,
             self.local_clipboard_size_entry,
+            self.clipboard_limit_unit,
             self.default_file_download_location_entry,
             self.download_folder_browse_button,
             self.download_folder_clear_button,
@@ -713,6 +799,16 @@ class LoginForm(tk.Tk):
             self.extra_canvas.bind_all("<Button-4>", self._on_mousewheel_linux)
             self.extra_canvas.bind_all("<Button-5>", self._on_mousewheel_linux)
 
+    def _on_clipboard_unit_mousewheel(self, event):
+        """Route wheel input to the settings instead of changing the unit."""
+        if PLATFORM == WINDOWS:
+            self._on_mousewheel_windows(event)
+        elif PLATFORM == MACOS:
+            self._on_mousewheel_mac(event)
+        elif PLATFORM.startswith(LINUX):
+            self._on_mousewheel_linux(event)
+        return "break"
+
     def _on_mousewheel_windows(self, event):
         """Handle mouse wheel scrolling on Windows."""
         self.extra_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -728,10 +824,9 @@ class LoginForm(tk.Tk):
         elif event.num == 5:
             self.extra_canvas.yview_scroll(1, "units")
 
-    def _on_extra_container_configure(self, event):
-        """Adjust the width of the extra_frame as the container is resized."""
-        canvas_width = event.width - self.scrollbar.winfo_width()
-        self.extra_canvas.itemconfigure(self.extra_frame_window, width=canvas_width)
+    def _on_extra_canvas_configure(self, event):
+        """Keep the settings groups inside the canvas viewport when resized."""
+        self.extra_canvas.itemconfigure(self.extra_frame_window, width=max(1, event.width))
 
     @staticmethod
     def remove_trailing_slash(entry):
@@ -740,6 +835,26 @@ class LoginForm(tk.Tk):
     def _save_preference(self, field, value):
         if not self.config.save_preferences({field: value}):
             CustomDialog("Unable to save device preferences.", msg_type="error").mainloop()
+
+    def _change_clipboard_limit_unit(self, *_):
+        unlimited = self.clipboard_limit_unit_var.get() == NO_LOCAL_LIMIT
+        self.local_clipboard_size_entry.configure(state="disabled" if unlimited else "normal")
+        if unlimited:
+            self.clipboard_limit_amount_var.set("")
+        else:
+            self._save_clipboard_limit()
+        self._sync_login_tab_order()
+
+    def _save_clipboard_limit(self, *_):
+        try:
+            value = parse_clipboard_limit(
+                self.clipboard_limit_amount_var.get(), self.clipboard_limit_unit_var.get()
+            )
+        except ValueError as error:
+            self.clipboard_limit_error_var.set(str(error))
+            return  # Incomplete edits must not overwrite the last saved limit.
+        self.clipboard_limit_error_var.set("")
+        self._save_preference("max_clipboard_size_local_limit_bytes", value)
 
     def _save_preference_entry(self, field, value):
         value = value.strip()
@@ -768,6 +883,8 @@ class LoginForm(tk.Tk):
         self.config.data["cipher_enabled"] = self.cipher_var.get()
         self.config.data["notification"] = self.notification_var.get()
         self.config.data["update_notifications"] = self.update_notifications_var.get()
+        self.config.data["download_notifications"] = self.download_notifications_var.get()
+        self.config.data["clipboard_notifications"] = self.clipboard_notifications_var.get()
 
         # extra fields
 
@@ -784,21 +901,16 @@ class LoginForm(tk.Tk):
         self.config.data["salt"] = self.salt_entry.get()
         self.config.data["save_password"] = self.save_password_var.get()
 
-        # Validate max_clipboard_size_local_limit_bytes
-        max_clipboard_size_local_limit_bytes_input = self.local_clipboard_size_entry.get().strip()
-        if max_clipboard_size_local_limit_bytes_input == "":
-            self.config.data["max_clipboard_size_local_limit_bytes"] = None
-        else:
-            if not LoginForm.is_positive_integer(max_clipboard_size_local_limit_bytes_input):
-                CustomDialog(
-                    "Invalid Input\nLocal clipboard size limit must be a positive integer.",
-                    msg_type="error",
-                ).mainloop()
-                return  # retry login
-            self.config.data["max_clipboard_size_local_limit_bytes"] = int(
-                max_clipboard_size_local_limit_bytes_input
+        try:
+            self.config.data["max_clipboard_size_local_limit_bytes"] = parse_clipboard_limit(
+                self.clipboard_limit_amount_var.get(), self.clipboard_limit_unit_var.get()
             )
+        except ValueError as error:
+            CustomDialog(f"Invalid Input\n{error}", msg_type="error").mainloop()
+            return
 
+        self.config.data["send_clipboard"] = self.send_clipboard_var.get()
+        self.config.data["receive_clipboard"] = self.receive_clipboard_var.get()
         self.config.data["enable_image_sharing"] = self.enable_image_sharing_var.get()
         self.config.data["enable_file_sharing"] = self.enable_file_sharing_var.get()
 

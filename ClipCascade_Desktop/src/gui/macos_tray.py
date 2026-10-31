@@ -23,6 +23,65 @@ class QuitEventHandler(NSObject):
 
 
 class MacOSTrayIcon(Icon):
+    @on_main_thread
+    def _update_menu(self):
+        # Replacing the status item's NSMenu leaves an already open popup
+        # showing the old objects. Keep its menu and update those objects.
+        callbacks = []
+        updated_menu = self._create_menu(self.menu, callbacks)
+        if getattr(self, '_menu_handle', None) and updated_menu:
+            native_menu, previous_callbacks = self._menu_handle
+            self._sync_menu(native_menu, updated_menu)
+            previous_callbacks[:] = callbacks
+        else:
+            self._status_item.setMenu_(updated_menu)
+            self._menu_handle = (updated_menu, callbacks) if updated_menu else None
+
+    @classmethod
+    def _sync_menu(cls, native_menu, updated_menu):
+        # Reuse matching rows so ordinary stats updates preserve the hovered
+        # row and any open submenu. Add/remove rows when actions change.
+        for position in range(updated_menu.numberOfItems()):
+            updated = updated_menu.itemAtIndex_(position)
+            if position >= native_menu.numberOfItems():
+                native_menu.addItem_(updated.copy())
+                continue
+            current = native_menu.itemAtIndex_(position)
+            if current.title() != updated.title():
+                # Align existing actions before updating their properties. A
+                # file-to-text refresh must remove Download File, not relabel
+                # its attributed row and remove the original Stop sync row.
+                matching_position = next((
+                    index for index in range(position + 1, native_menu.numberOfItems())
+                    if native_menu.itemAtIndex_(index).title() == updated.title()
+                ), None)
+                if matching_position is not None:
+                    for _ in range(matching_position - position):
+                        native_menu.removeItemAtIndex_(position)
+                    current = native_menu.itemAtIndex_(position)
+                elif any(
+                    updated_menu.itemAtIndex_(index).title() == current.title()
+                    for index in range(position + 1, updated_menu.numberOfItems())
+                ):
+                    native_menu.insertItem_atIndex_(updated.copy(), position)
+                    continue
+            if (current.isSeparatorItem() != updated.isSeparatorItem()
+                    or bool(current.submenu()) != bool(updated.submenu())):
+                native_menu.removeItemAtIndex_(position)
+                native_menu.insertItem_atIndex_(updated.copy(), position)
+                continue
+            if current.isSeparatorItem():
+                continue
+            current.setTitle_(updated.title())
+            current.setAttributedTitle_(updated.attributedTitle())
+            current.setEnabled_(updated.isEnabled())
+            current.setState_(updated.state())
+            current.setTag_(updated.tag())
+            if current.submenu():
+                cls._sync_menu(current.submenu(), updated.submenu())
+        while native_menu.numberOfItems() > updated_menu.numberOfItems():
+            native_menu.removeItemAtIndex_(native_menu.numberOfItems() - 1)
+
     def run_with_shutdown(self, on_quit):
         # Tk installs a quit Apple-event handler that queues work in Tcl.
         # With AppKit driving the loop, handle that event directly instead.

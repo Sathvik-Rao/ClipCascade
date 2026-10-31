@@ -87,6 +87,7 @@
 - **👥 Multi-User Support** – Isolates clipboard data per user while enabling seamless syncing between personal devices.  
 - **🌐 Web-Based Dashboard** – Track clipboard activity and manage settings through an intuitive interface.  
 - **⚙️ Customizable Preferences** – Fine-tune sync settings for performance, security, and usability.  
+- **↔️ Per-Device Sync Direction** – Choose whether each device sends, receives, or syncs clipboard content both ways.
 - **🔔 Smart Update Notifications** – Stay informed about new features, security patches, and enhancements.  
 
    
@@ -147,7 +148,7 @@ To deploy the ClipCascade server on any operating system that supports Java 21 o
     | Variable                     | Description                                                                                          | Default Value     | Example                           |
     |------------------------------|------------------------------------------------------------------------------------------------------|-------------------|-----------------------------------|
     | `CC_MAX_MESSAGE_SIZE_IN_MiB` | Defines the maximum allowed message size in MiB. Ignored if `CC_P2P_ENABLED` is set to `true`.       | `1`               | `3`                               |
-    | `CC_ALLOWED_ORIGINS`         | Specifies the allowed CORS origins for secure cross-origin access.                                   | `*`               | `https://clipcascade.example.com` |
+    | `CC_ALLOWED_ORIGINS`         | Specifies the allowed WebSocket origin (not general HTTP CORS).                                     | `*`               | `https://clipcascade.example.com` |
     | `CC_P2P_ENABLED`             | Enables or disables peer-to-peer mode. When enabled, `CC_MAX_MESSAGE_SIZE_IN_MiB` is ignored.        | `false`           | `true`                            |
     | `CC_SIGNUP_ENABLED`          | Allows or restricts user self-registration.                                                          | `false`           | `false`                           |
     | `CC_PORT`                    | Specifies the port on which the server listens for incoming connections.                             | `8080`            | `1234`                            |
@@ -208,10 +209,12 @@ To host ClipCascade on your server using Docker, follow these steps:
         environment:
           - CC_MAX_MESSAGE_SIZE_IN_MiB=1   # Maximum message size in MiB (ignored if P2P mode is enabled)
           - CC_P2P_ENABLED=false  # Enables or disables peer-to-peer(P2P) mode
-          # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com  # Defines allowed CORS origins for security
+          # - CC_ALLOWED_ORIGINS=https://clipcascade.example.com  # Restricts the WebSocket origin
           # - CC_SIGNUP_ENABLED=false  # Enables or disables user self-registration
    ```
     
+   For HTTPS with Nginx, Traefik, Caddy, or Nginx Proxy Manager, use the [reverse-proxy setups](ClipCascade_Server/reverse-proxy/README.md).
+
    For additional `.yml` configuration files, visit [ClipCascade Server Docker Configuration](https://github.com/Sathvik-Rao/ClipCascade/tree/main/ClipCascade_Server/docker-compose).
   
 2. Deploy the Docker Container
@@ -373,6 +376,8 @@ To install the ClipCascade mobile application on your Android device, follow the
 
 ClipCascade supports automatic clipboard monitoring for both rooted and non-rooted devices. To activate this feature, execute the following ADB commands.
 
+> These permissions can also be granted using [Shizuku](https://shizuku.rikka.app/guide/setup/) through **Grant permissions using Shizuku** in the app's Android setup guide.
+
 ##### Install ADB
 
 Before proceeding, make sure ADB is installed on your system. Follow the instructions [here](https://www.xda-developers.com/install-adb-windows-macos-linux/) to install ADB on Windows, macOS, or Linux.
@@ -471,17 +476,17 @@ If you encounter the `error: externally-managed-environment`, install the requir
 
 ##### Debian/Ubuntu:
 ```
-sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pystray python3-pyfiglet python3-bs4 python3-plyer python3-aiortc
+sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pystray python3-pyfiglet python3-bs4 python3-plyer python3-aiortc python3-prompt-toolkit
 ```
 
 ##### Fedora:
 ```
-sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodomex python3-tkinter python3-pystray python3-pyfiglet python3-beautifulsoup4 python3-plyer python3-aiortc
+sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodomex python3-tkinter python3-pystray python3-pyfiglet python3-beautifulsoup4 python3-plyer python3-aiortc python3-prompt-toolkit
 ```
 
 ##### Arch:
 ```
-sudo pacman -S --noconfirm python-xxhash python-pyperclip python-requests python-websocket-client python-pycryptodome tk python-pystray python-pyfiglet python-beautifulsoup4 python-plyer python-aiortc
+sudo pacman -S --noconfirm python-xxhash python-pyperclip python-requests python-websocket-client python-pycryptodome tk python-pystray python-pyfiglet python-beautifulsoup4 python-plyer python-aiortc python-prompt_toolkit
 ```
   - If you encounter the `error: target not found: python-plyer`, install via `yay -S --noconfirm python-plyer`
   - If you encounter the `error: target not found: python-aiortc`, install via `yay -S --noconfirm python-aiortc`
@@ -621,6 +626,7 @@ cd /path/to/clipcascade/src/ && sudo nohup python3 main.py &> /dev/null &
 ```
 
 ##### CLI
+
 ```
 cd /path/to/clipcascade/src/ && python3 main.py
 ```
@@ -656,7 +662,8 @@ cd /path/to/clipcascade/src/ && sudo python3 main.py
   
 #### Web Dashboard and Administration
 
-- Web pages follow your system's light/dark theme on each page load; use the theme toggle to switch the current page's appearance.
+- Web pages follow your system's light/dark theme until you use the theme toggle. Your manual choice is saved in browser local storage and restored across page loads when storage is available.
+- Use your browser's install or **Add to Home Screen** option, where supported, to open the web dashboard as an app.
 - The Admin Panel user list and the Advanced page's User Details, Online Users, and BFA tracker tables support searching, sorting, and pagination. Advanced tables also have resizable columns. Online Users shows active WebSocket connections in both P2S and P2P modes.
 - Administrators can revoke sessions for an individual user or use **Revoke All Sessions**. Editing or deleting an account, or changing its password, also revokes its sessions and disconnects its active WebSocket connections on this server without a restart. Deleted or renamed usernames remain reserved until the server restarts.
 
@@ -734,11 +741,11 @@ You can use a public STUN server or host your own.
 <tr>
 <td>CC_ALLOWED_ORIGINS</td>
 <td>
-Specifies which domain is permitted to access the WebSocket server (CORS policy).
+Specifies the exact origin permitted to access the WebSocket server. This is a WebSocket origin check, not general HTTP CORS configuration.
 <br><br>
 <strong>Security Note:</strong><br>
 - Leaving this unset allows all origins (not recommended for security-sensitive deployments).<br>
-- To restrict access, specify your domain (e.g., <code>https://clipcascade.example.com</code>).
+- To restrict access, specify the public origin (e.g., <code>https://clipcascade.example.com</code>); include a nonstandard port, such as <code>:8743</code>.
 </td>
 <td>*</td>
 </tr>
@@ -1084,7 +1091,7 @@ Defines the STOMP broker password for external message handling.
 <tr>
   <td>CC_CAPTCHA_DIFFICULTY_PERCENT</td>
   <td>
-    Sets CAPTCHA difficulty from <code>0</code> (easiest) to <code>100</code> (hardest). Lower values reduce visual noise and distortion while retaining a basic challenge. Values outside this range are clamped to it.
+    Sets CAPTCHA difficulty from <code>0</code> (easiest) to <code>100</code> (hardest). Values are clamped to this range.
   </td>
   <td>100</td>
 </tr>
@@ -1119,14 +1126,14 @@ Use **Log in** to connect. Select **Show advanced settings** to expand additiona
 
 Connection status notifications appear on the main login screen, outside advanced settings, on both desktop and Android. Desktop enables them by default; Android disables them by default. Encryption is also on the main login screen and is enabled by default on both platforms.
 
-Device preferences save as you change them, without requiring a successful login: notification settings, local clipboard size limit, image/file sharing, password-storage preference, the desktop download folder, and Android startup/periodic checks. Server address, credentials, encryption settings, and custom CA configuration are saved after successful login.
+Device preferences save as you change them, without requiring a successful login: notification settings, local clipboard size limit, send/receive clipboard, image/file sharing, password-storage preference, the default download folder on desktop and Android, and Android startup/periodic checks. Server address, credentials, encryption settings, and custom CA configuration are saved after successful login.
 
-- **Notify when an update is available**: Enabled by default on desktop and Android. Disable it to stop update alerts; update checks and the visible update status remain available.
-- **Local clipboard size limit (bytes)**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. You can set a local size limit by specifying a value in bytes (e.g., 512 KiB = 524288 bytes) to test different thresholds suitable for your device. This local limit works alongside the server-specified limit to ensure smoother operation without crashes. For example, on Android (particularly on the Pixel 6a as of 2024), the platform limit(for text) is typically less than 1 MiB. Since the server limit cannot go below 1 MiB, setting the local limit to around 900,000 bytes on the Pixel 6a can help prevent crashes.
+- **Local clipboard size limit**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. Set a local limit to test a suitable threshold for your device; it applies to incoming and outgoing clipboard content alongside server and platform limits. On the desktop login window and Android, choose **Bytes**, **KiB**, **MiB**, or **GiB**. Decimal values such as `1.5 MiB` are supported and rounded to the nearest byte; 1 KiB = 1024 bytes. Leave the value blank or select **No local limit** to remove the local limit. The Linux CLI accepts an integer byte count, or a blank value for no local limit. The server's `CC_MAX_MESSAGE_SIZE_IN_BYTES` setting can also set a limit below 1 MiB.
 - **Store Password Locally (not recommended)**: Enable this option if you frequently encounter session logouts. While the app stores session cookies for an extended period, a server restart may prompt a re-login unless the server enables session persistence. If re-entering the password becomes tedious, you can use this option to store your password locally for convenience. Disabling this option immediately clears the saved password.
    > Note: This option will only work if encryption is disabled, as encryption requires the raw password to generate a password hash.
-- **Enable Image Sharing and Enable File Sharing**: Enabling these options allows the app to send images or files. However, the app will continue to receive images and files even if these options are disabled.
-- **Show connection status notifications** (Desktop): Turn on this option to receive notifications about WebSocket disconnections and reconnections.
+- **Send Clipboard**: Share clipboard changes from this device. Enabled by default. Disable it to stop sending while still receiving updates if **Receive Clipboard** is enabled.
+- **Receive Clipboard**: Apply clipboard updates from other devices. Enabled by default. Disable it to stop receiving while still sharing local changes if **Send Clipboard** is enabled. Both options are available on desktop and Android; enable both for two-way sync or disable both to pause clipboard syncing on this device.
+- **Enable Image Sharing and Enable File Sharing**: Enabling these options allows the app to send images or files when **Send Clipboard** is enabled. These options do not block incoming images or files; incoming content is controlled by **Receive Clipboard**.
 - **Enable encryption (recommended)**: Enabling this option activates end-to-end encryption for clipboard data. This ensures that all clipboard content is encrypted before leaving your device. Refer to the section below on E2E encryption for detailed instructions on how it works and how to configure the encryption salt and key derivation iterations.
 
 - **Custom CA certificate bundle**: Use a PEM/CRT certificate bundle when your server uses a private/internal CA (for example, corporate PKI). Leave it empty to use default public CA/OS trust. The bundle affects HTTPS/WSS verification only; HTTP/WS connections are still allowed, and TLS certificate and hostname verification remain enabled.
@@ -1135,20 +1142,27 @@ Device preferences save as you change them, without requiring a successful login
 
   **Android:** Tap **Import** to select a certificate bundle (up to 1 MiB). The app saves a copy after successful login and restores it for background connections. Imported certificates are trusted alongside system CAs only for the configured server hostname; other hostnames use system trust. Tap **Replace** to import another bundle, or **Remove** and log in to return to system trust only.
 
-  #### Desktop (Specific):
-  - **Default download folder**: Type an existing folder path or use **Browse…** to select one. When this path is set, the app will save files directly to the specified location without prompting the user each time the "Download Files" button is clicked. Cancelling the picker keeps the current path unchanged. Use the **trash button** to choose a folder for each download.
+- **Notify when an update is available**: Enabled by default on desktop and Android. Disable it to stop update alerts; update checks and the visible update status remain available.
+- **Notify when downloads finish**: Enabled by default on desktop and Android, under advanced notification settings. Disable it to hide successful-download notifications. Saving progress, visible download results, and failure feedback remain available. Desktop does not show a separate download-start notification. Changes save immediately.
+- **Show connection status notifications**: Receive alerts when the WebSocket connection is lost or restored. Available on desktop and Android; enabled by default on desktop and disabled by default on Android. This setting is on the main login screen, outside advanced settings.
 
-  The **Browse…** buttons use Tkinter dialogs on Windows, macOS, and Linux desktop sessions. Manual path entry remains available. The Linux CLI continues to use typed paths and does not require a graphical picker.
-  
-  #### Android (Specific):
-  - **Start on device restart (disable if the READ_LOGS permission is granted via ADB)**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
-  - **Show connection status notifications**: Receive alerts when the WebSocket connection is lost or restored, ensuring you're informed about any connection disruptions.
-    
-    <img src="https://github.com/user-attachments/assets/6a8b903c-ee52-444c-a14e-bed70e31dcee" alt="periodic_check_notification" width="250" />
+  <img src="https://github.com/user-attachments/assets/6a8b903c-ee52-444c-a14e-bed70e31dcee" alt="connection_status_notification" width="250" />
 
-  - **Enable Periodic Checks**: Enabling this option performs periodic checks to ensure clipboard monitoring and the foreground service are running. It verifies the service status when monitoring starts and then checks every 15 minutes in the background. If the service is not running, a notification is displayed. Clicking the notification will restart the service.
-    
-    <img src="https://github.com/user-attachments/assets/7341b960-5e60-4af6-b627-2183088de262" alt="periodic_check_notification" width="250" />
+- **Default download folder**: Select a folder to save downloads without prompting each time. Changes save immediately and persist across restarts. Cancelling the picker keeps the current setting. Clear the default to choose a destination for each download instead; this does not delete downloaded files.
+
+  **Android:** If the saved folder is no longer writable or accessible, the app asks you to select a replacement and saves it as the new default.
+
+#### Desktop (Specific):
+
+- **Notify when clipboard content is received**: Disabled by default. Enable it in advanced settings to show notifications for content received from another device, including a text preview, image dimensions, or file names with a file icon. Previews may be visible on your lock screen. This setting is independent of connection status and update notifications.
+
+#### Android (Specific):
+
+- **Start on device restart (disable if the READ_LOGS permission is granted via ADB)**: Enable this option to allow the app to automatically start on system reboot. By default, this option is disabled. If you are using the [ADB](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) workaround, keep this option disabled to avoid issues with the READ_LOGS permission [popup](https://github.com/Sathvik-Rao/ClipCascade?tab=readme-ov-file#adb-commands) being dismissed, which prevents clipboard monitoring in the background.
+
+- **Enable Periodic Checks**: Enabling this option performs periodic checks to ensure clipboard monitoring and the foreground service are running. It verifies the service status when monitoring starts and then checks every 15 minutes in the background. If the service is not running, a notification is displayed. Clicking the notification will restart the service.
+
+  <img src="https://github.com/user-attachments/assets/7341b960-5e60-4af6-b627-2183088de262" alt="periodic_check_notification" width="250" />
 
 * * * * * * *
 
@@ -1173,7 +1187,11 @@ You can adjust these settings in the **advanced settings** section on the login 
 * * * * * * *
 
 ### 📋 Clipboard Functioning
+
 - **Text and Images**: These are directly copied to the clipboard, enabling seamless sharing across devices.  
+
+  **Android:** Content can exceed Android's system clipboard transaction limit even when ClipCascade's local limit is disabled. If copying fails with a system-limit message, use a smaller image or text selection, or transfer large text as a file. Increasing ClipCascade's limit cannot bypass Android's restriction.
+
 - **Files**: When files are received, a notification icon appears in the system tray (on desktop platforms). Since the clipboard does not store files, only their file paths are retained.  
   
    <table>
@@ -1190,7 +1208,6 @@ You can adjust these settings in the **advanced settings** section on the login 
         <td><img src="https://github.com/user-attachments/assets/c06e8584-fbed-4ae1-b3b3-d12664115178" alt="android_home_screen" width="150" /></td>
     </tr>
    </table>
-
 
 - **Clipboard Monitoring**:
 
@@ -1274,48 +1291,47 @@ reconnection, and working examples with an interoperability checklist.
 
 ## ⇄ Reverse Proxy Setup
 
-Below is a screenshot demonstrating how to configure a reverse proxy using **Cloudflare Tunnels**. Similar configurations can be applied with other providers as well.
+See the [reverse-proxy configuration examples](ClipCascade_Server/reverse-proxy/README.md)
+for **Nginx, Traefik, Caddy, and Nginx Proxy Manager**. The examples stay in the
+repository and include Compose files, certificate setup, custom HTTPS ports, and
+a login/WebSocket connection checker. They have been checked locally, but need
+validation with your own network, certificates, and client devices before deployment.
+
+Clients need both HTTPS for login/API calls and WSS for live synchronization.
+Loading the website does not prove the authenticated WebSocket works. Enter the
+final public server URL in every client, including a custom port when used
+(e.g. `https://clipboard.example.com:8743`), without `/login` or a path prefix.
+
+When TLS ends at the proxy, configure the **ClipCascade server** with
+`SERVER_FORWARD_HEADERS_STRATEGY=framework`. Configure the **proxy** to forward the
+original scheme, hostname, and public port, and support both `/clipsocket` (P2S)
+and `/p2psignaling` (P2P). The bundled setups do this together. Keep a backend that
+trusts forwarded headers accessible only through trusted proxies.
+
+See the guide's [troubleshooting table](ClipCascade_Server/reverse-proxy/README.md#troubleshooting-reports)
+for cookies, redirects, TLS, origin checks, session loss after restart, and
+WebSocket disconnects. P2P data travels directly between clients; a working HTTPS
+proxy does not guarantee direct WebRTC connectivity.
+
+The screenshots below show a **Cloudflare Tunnel** configuration and the desktop
+login form. See the guide above for the corresponding server forwarding settings.
 
 <img src="https://github.com/user-attachments/assets/0f45879f-307a-4f5f-9f26-ca5d3de7b1cf" alt="Reverse Proxy web" width="600" />
 
 <img src="https://github.com/user-attachments/assets/5cdca092-8d6b-4b3e-ac2b-fb10390a4ca2" alt="login form desktop" width="400" />
 
-### Note:
-For other providers, you may need to configure HTTP to HTTPS redirection manually by adding a permanent redirection rule.
-
-Example: Caddy Configuration
-```
-http://clipcascade.sample.com {
-	redir https://clipcascade.sample.com{uri} permanent
-}
-```
-
-### Note:
-Additionally, it might be helpful to mention that the server uses WebSockets (ws/wss) for live clipboard broadcasting. In most cases, no extra configuration is needed for WebSockets since they typically rely on an HTTP switching protocol. Most providers will support WebSocket connections out of the box, without requiring additional setup. Example: `ws://localhost:8080/clipsocket`, `ws://localhost:8080/p2psignaling`.
-
-
 ## 🔓 SSO Proxy Bypass Rules
 
-When fronting ClipCascade with an SSO proxy (Auth0, Keycloak, etc.), you’ll need to exempt both the unauthenticated HTTP URLs _and_ the raw-WebSocket handshake endpoints. Add these rules to your proxy’s “bypass” or “whitelist” list:
+Native clients use ClipCascade's own username/password and session cookies. They
+cannot complete an external browser-only SSO/MFA or bot-challenge page. Exempting
+only `/login` and the WebSocket endpoints is insufficient because clients also
+call authenticated API routes and follow the login redirect to `/`.
 
-#### HTTP(S) endpoints
-```
-/login
-/logout
-/signup
-/captcha
-/help
-/donate
-/health
-/ping
-/assets/**
-```
-
-#### WebSocket handshake endpoints
-```
-/p2psignaling   # P2P mode
-/clipsocket     # P2S mode
-```
+Use a dedicated client hostname that bypasses the external authentication layer
+for the whole ClipCascade application, while retaining ClipCascade's own login
+and network access controls. Keep an SSO-protected browser hostname separate.
+See [SSO and Cloudflare guidance](ClipCascade_Server/reverse-proxy/README.md#browser-sso-cloudflare-and-network-boundaries)
+and the [API guide](ClipCascade_Server/API.md) before applying route-specific rules.
 
 ## 🔧 Usage
 

@@ -10,7 +10,6 @@ import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.BufferedReader
@@ -30,10 +29,14 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
     private val debounceTime: Long = 0 // milliseconds (increase to debounce clipboard listener)
     private val activityDebounceTime: Long = 1000 // milliseconds (increase to debounce log cat monitoring)
 
-    // logcat‐reader control
-    private var stopLogcat = false
-    private var logcatThread: Thread? = null
-    private var logcatProcess: Process? = null
+    // Each reader owns its cancellation and process. A previous thread must
+    // never destroy the process created by a later monitoring session.
+    private class LogcatReader {
+        @Volatile var stopped = false
+        @Volatile var process: Process? = null
+        var thread: Thread? = null
+    }
+    private var logcatReader: LogcatReader? = null
     
 
     override fun getName(): String {
@@ -48,37 +51,16 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
 
         // 1) Clipboard listener
         listener = ClipboardManager.OnPrimaryClipChangedListener {
-            val clip = clipboardManager.primaryClip
-            if (clip != null && clip.itemCount > 0) {
-
-                val description = clip.description
-                if (description != null) { 
-
-                    val mimeType = description.getMimeType(0)
-                    if (mimeType != null) {
-                        
-                        val item = clip.getItemAt(0)
-                        val params: WritableMap = Arguments.createMap()
-                        
-                        if (mimeType.startsWith("text/") && item.text != null) {
-                            // Text
-                            params.putString("content", item.text.toString())
-                            params.putString("type", "text")
+            try {
+                clipboardManager.primaryClip?.let { clip ->
+                    ClipboardContent.fromClipboard(clip, reactApplicationContext.contentResolver)
+                        ?.let {
+                            PendingShares.clear()
+                            sendEventToJS(it.toMap())
                         }
-                        else if (mimeType.startsWith("image/") && item.uri != null) {
-                            // Image
-                            params.putString("content", item.uri.toString())
-                            params.putString("type", "image")
-                        }
-                        else if (item.uri != null) {
-                            // Files
-                            params.putString("content", item.uri.toString())
-                            params.putString("type", "files")
-                        }
-
-                        sendEventToJS(params)
-                    }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("ClipCascade", "Failed to read clipboard", e)
             }
         }
         clipboardManager.addPrimaryClipChangedListener(listener)
@@ -88,21 +70,22 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
         if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P &&
             ContextCompat.checkSelfPermission(reactApplicationContext, Manifest.permission.READ_LOGS) == PackageManager.PERMISSION_GRANTED
         ) {
-            // If already stopping, reset flag
-            stopLogcat = false
-
-            // Start a single dedicated thread
-            logcatThread = Thread {
+            val session = LogcatReader()
+            logcatReader = session
+            session.thread = Thread {
                 try {
                     val timeStamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
                         .format(Date())
-                    logcatProcess = Runtime.getRuntime().exec(
+                    val process = Runtime.getRuntime().exec(
                         arrayOf("logcat", "-T", timeStamp, "ClipboardService:E", "*:S")
                     )
-                    val reader = BufferedReader(InputStreamReader(logcatProcess!!.inputStream))
+                    session.process = process
+                    if (session.stopped) return@Thread
+                    val reader = BufferedReader(InputStreamReader(process.inputStream))
                     var line: String? = null
                     reader.use { br ->
-                        while (!stopLogcat && br.readLine().also { line = it } != null) {
+                        while (!session.stopped && br.readLine().also { line = it } != null) {
+                            if (session.stopped) break
                             if (line!!.contains(BuildConfig.APPLICATION_ID)) {
                                 val currentTime = System.currentTimeMillis()
                                 if (currentTime - lastActivityStartTime > activityDebounceTime) {
@@ -119,9 +102,8 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
                     e.printStackTrace()
                 } finally {
                     try {
-                        logcatProcess?.destroy()
+                        session.process?.destroy()
                     } catch (_: Exception) {}
-                    stopLogcat = false
                 }
             }.apply {
                 isDaemon = true
@@ -140,15 +122,15 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
         }
 
         // 2) Tear down logcat‐reader thread & process
-        stopLogcat = true
+        val session = logcatReader
+        logcatReader = null
+        session?.stopped = true
         try {
-            logcatThread?.interrupt()
+            session?.thread?.interrupt()
         } catch (_: Exception) {}
         try {
-            logcatProcess?.destroy()
+            session?.process?.destroy()
         } catch (_: Exception) {}
-        logcatThread = null
-        logcatProcess = null
     }
 
 

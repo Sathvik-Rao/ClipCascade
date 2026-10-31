@@ -35,29 +35,28 @@ def _get_clipboard_content(enable_image_monitoring=False, enable_file_monitoring
     clipboard_type = None
     clipboard_content = None
 
-    if enable_image_monitoring and win32clipboard.IsClipboardFormatAvailable(
-        win32con.CF_BITMAP
+    if (
+        enable_image_monitoring
+        and win32clipboard.IsClipboardFormatAvailable(win32con.CF_BITMAP)
+        and not (enable_file_monitoring and win32clipboard.IsClipboardFormatAvailable(win32con.CF_HDROP))
     ):
         clipboard_type = "image"
         clipboard_content = ImageGrab.grabclipboard()
     else:
         win32clipboard.OpenClipboard()
         try:
-            if win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
-                text = win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
-                clipboard_type = "text"
-                clipboard_content = text
-            elif win32clipboard.IsClipboardFormatAvailable(win32con.CF_TEXT):
-                text_bytes = win32clipboard.GetClipboardData(win32con.CF_TEXT)
-                text = text_bytes.decode()
-                clipboard_type = "text"
-                clipboard_content = text
-            elif enable_file_monitoring and win32clipboard.IsClipboardFormatAvailable(
+            if enable_file_monitoring and win32clipboard.IsClipboardFormatAvailable(
                 win32con.CF_HDROP
             ):
-                files = win32clipboard.GetClipboardData(win32con.CF_HDROP)
                 clipboard_type = "files"
-                clipboard_content = files
+                clipboard_content = win32clipboard.GetClipboardData(win32con.CF_HDROP)
+            elif win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
+                clipboard_type = "text"
+                clipboard_content = win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT)
+            elif win32clipboard.IsClipboardFormatAvailable(win32con.CF_TEXT):
+                clipboard_type = "text"
+                # CF_TEXT uses the active Windows ANSI code page, not UTF-8.
+                clipboard_content = win32clipboard.GetClipboardData(win32con.CF_TEXT).decode("mbcs")
         finally:
             win32clipboard.CloseClipboard()
 

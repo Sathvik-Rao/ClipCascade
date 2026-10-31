@@ -7,6 +7,7 @@ Requests==2.32.3
 websocket_client==1.8.0
 xxhash>=3.5.0,<5
 pyfiglet==1.0.2
+prompt_toolkit>=3.0.43,<4
 beautifulsoup4==4.12.3
 aiortc==1.10.0; python_version < "3.14"
 aiortc==1.14.0; python_version >= "3.14"

@@ -1,0 +1,28 @@
+http:
+  routers:
+    clipcascade:
+      rule: 'Host(`{{ env "DOMAIN" }}`)'
+      entryPoints:
+        - websecure
+      middlewares:
+        - clipcascade-https
+      service: clipcascade
+      tls:
+        certResolver: letsencrypt
+  middlewares:
+    clipcascade-https:
+      headers:
+        customRequestHeaders:
+          # Traefik uses wss for upgrades. Spring's form-login redirect expects
+          # https, including when a stale session tries to open a WebSocket.
+          X-Forwarded-Proto: https
+          Forwarded: ""
+          X-Forwarded-Prefix: ""
+  services:
+    clipcascade:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: http://clipcascade:8080
+# Traefik forwards WebSocket upgrades, the public host/port, and client IP.
+# Do not attach browser-only SSO/ForwardAuth middleware to this native-client host.

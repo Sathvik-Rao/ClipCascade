@@ -5,12 +5,10 @@ import android.content.Intent
 import android.content.Context
 import android.os.Bundle
 import com.facebook.react.ReactActivity
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.ReactActivityDelegate
-import com.facebook.react.bridge.ReactContext
 import com.facebook.react.ReactInstanceManager
 import com.facebook.react.devsupport.interfaces.DevSupportManager
-import com.facebook.react.bridge.Arguments
-import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.defaults.DefaultReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import androidx.work.WorkManager
@@ -18,7 +16,6 @@ import androidx.work.PeriodicWorkRequestBuilder
 import java.util.concurrent.TimeUnit
 import androidx.work.ExistingPeriodicWorkPolicy
 import android.util.Log
-import android.net.Uri
 
 
 class MainActivity : ReactActivity() {
@@ -51,7 +48,9 @@ class MainActivity : ReactActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        intent?.let { handleIntent(it) }
+        intent?.let {
+            if (savedInstanceState == null) handleIntent(it) else clearShareIntent(it)
+        }
 
         try{
             val bridgeData = AsyncStorageBridge(applicationContext)
@@ -85,44 +84,23 @@ class MainActivity : ReactActivity() {
     }
 
     private fun handleIntent(intent: Intent) {
-        // Handle single shared text
-        if (Intent.ACTION_SEND == intent.action && "text/plain" == intent.type) {
-            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
-            sharedText?.let {
-                sendToReactNative("SHARED_TEXT", "text", it)
-            }
+        // Android may restore the task's original share intent from Recents,
+        // even after the activity's own intent has been consumed.
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) {
+            clearShareIntent(intent)
         }
-
-        // Handle text via text-selection popup (PROCESS_TEXT)
-        else if (Intent.ACTION_PROCESS_TEXT == intent.action && "text/plain" == intent.type) {
-            val sharedText = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)
-            sharedText?.let {
-                sendToReactNative("SHARED_TEXT", "text", it.toString())
-            }
-        }
-
-        // Handle single image
-        else if (Intent.ACTION_SEND == intent.action && intent.type?.startsWith("image/") == true) {
-            val imageUri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-            imageUri?.let {
-                sendToReactNative("SHARED_IMAGE", "image", it.toString())
-            }
-        }
-        
-        // Handle single file (any type)
-        else if (Intent.ACTION_SEND == intent.action && intent.type != null) {
-            val fileUri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
-            fileUri?.let {
-                sendToReactNative("SHARED_FILES", "files", it.toString())
-            }
-        }
-
-        // Handle multiple files (any type)
-        else if (Intent.ACTION_SEND_MULTIPLE == intent.action && intent.type != null) {
-            val fileUris = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
-            fileUris?.let {
-                val uriList = it.map(Uri::toString).joinToString(",")
-                sendToReactNative("SHARED_FILES", "files", uriList)
+        ClipboardContent.fromIntent(intent, contentResolver)?.let { content ->
+            PendingShares.add(content)
+            // Buffer first, then consume before notifying JavaScript. Keep URI
+            // grant flags so the buffered attachments remain readable.
+            clearShareIntent(intent)
+            try {
+                reactInstanceManager.currentReactContext
+                    ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    ?.emit("SHARE_AVAILABLE", null)
+            } catch (e: Exception) {
+                // The startup slot remains available if React is not ready yet.
+                Log.d(TAG, "Share buffered until JavaScript initializes", e)
             }
         }
 
@@ -140,14 +118,19 @@ class MainActivity : ReactActivity() {
         }
     }
 
-    // Send data to React Native
-    private fun sendToReactNative(eventName: String, key: String, value: String) {
-        val reactContext = reactInstanceManager.currentReactContext
-        reactContext?.let {
-            val params = Arguments.createMap().apply { putString(key, value) }
-            it
-                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                .emit(eventName, params)
-        }
+    private fun clearShareIntent(intent: Intent) {
+        if (intent.action != Intent.ACTION_SEND &&
+            intent.action != Intent.ACTION_SEND_MULTIPLE &&
+            intent.action != Intent.ACTION_PROCESS_TEXT) return
+
+        intent.action = Intent.ACTION_MAIN
+        intent.removeExtra(Intent.EXTRA_STREAM)
+        intent.removeExtra(Intent.EXTRA_TEXT)
+        intent.removeExtra(Intent.EXTRA_HTML_TEXT)
+        intent.removeExtra(Intent.EXTRA_PROCESS_TEXT)
+        intent.clipData = null
+        intent.type = null
+        setIntent(intent)
     }
+
 }
