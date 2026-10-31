@@ -52,6 +52,39 @@ module.exports = async (inputData = null) => {
   // forground service
   notifee.registerForegroundService(async notification => {
     const { ClipboardListener } = NativeModules;
+    const serviceController = new AbortController();
+    let heartbeatStopped = false;
+    let heartbeatPending = false;
+    // Discovery, transfers, and retry delays must not block liveness checks.
+    const heartbeatTimer = setInterval(async () => {
+      if (heartbeatStopped || heartbeatPending) return;
+      heartbeatPending = true;
+      try {
+        const flags = JSON.parse(NativeModules.NativeBridgeModule.getFlagsSync([
+          'wsIsRunning', 'echo',
+        ]));
+        if (flags.wsIsRunning !== 'true') {
+          serviceController.abort();
+        } else if (flags.echo === 'ping') {
+          await setDataInAsyncStorage('echo', 'pong');
+        }
+      } catch (error) {
+        console.warn('Could not check foreground service flags', error);
+      } finally {
+        heartbeatPending = false;
+      }
+    }, 1000);
+    const waitForRetry = () => new Promise(resolve => {
+      const signal = serviceController.signal;
+      const finish = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, RECONNECT_WS_TIMER);
+      signal.addEventListener('abort', finish);
+      if (signal.aborted) finish();
+    });
     let clipboardStarted = false;
     const stopClipboard = async () => {
       if (clipboardStarted) {
@@ -107,15 +140,16 @@ module.exports = async (inputData = null) => {
         ];
         let settings = await getMultipleDataFromAsyncStorage(keys);
         const refreshSettings = async () => {
-          while (!transportStopped && (await getDataFromAsyncStorage('wsIsRunning')) === 'true') {
+          while (!serviceController.signal.aborted && !transportStopped && (await getDataFromAsyncStorage('wsIsRunning')) === 'true') {
             try {
-              const next = await discoverServer(settings);
-              if (transportStopped || (await getDataFromAsyncStorage('wsIsRunning')) !== 'true') return null;
+              const next = await discoverServer(settings, fetch, serviceController.signal);
+              if (serviceController.signal.aborted || transportStopped || (await getDataFromAsyncStorage('wsIsRunning')) !== 'true') return null;
               await saveTransportSettings(next);
               return next;
             } catch (error) {
+              if (serviceController.signal.aborted || transportStopped) return null;
               await setDataInAsyncStorage('wsStatusMessage', '❌ ' + error.message + '; retrying…');
-              await new Promise(resolve => setTimeout(resolve, RECONNECT_WS_TIMER));
+              await waitForRetry();
             }
           }
           return null;
@@ -1674,7 +1708,6 @@ module.exports = async (inputData = null) => {
         async function pollFlagsLoop() {
           const POLL_KEYS = [
             'wsIsRunning',
-            'echo',
             'downloadFiles',
             'filesAvailableToDownload',
           ];
@@ -1711,11 +1744,6 @@ module.exports = async (inputData = null) => {
                 'p2pStatusMessage',
                 await getP2PStatusMessage(),
               );
-            }
-
-            // check if ping initiated
-            if (latest.echo === 'ping') {
-              await setDataInAsyncStorage('echo', 'pong');
             }
 
             // check if user wants to download files
@@ -1801,8 +1829,14 @@ module.exports = async (inputData = null) => {
         return false;
       }
     };
-    while (await runTransport()) {
-      // Keep the foreground notification alive while replacing the transport.
+    try {
+      while (await runTransport()) {
+        // Keep the foreground notification alive while replacing the transport.
+      }
+    } finally {
+      heartbeatStopped = true;
+      clearInterval(heartbeatTimer);
+      serviceController.abort();
     }
   });
 

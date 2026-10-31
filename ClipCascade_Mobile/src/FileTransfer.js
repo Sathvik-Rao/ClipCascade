@@ -40,7 +40,7 @@ export async function deliverPendingShare(bridge, ready, send, onError) {
       throw new Error('Share expired during startup. Share it again.');
     }
     if (!ready()) {
-      throw new Error('No connection available or another send is in progress. Share it again when ready.');
+      throw new Error('Share not sent: no connection is ready or another send is in progress. Wait until connected, then share it again.');
     }
     if ((await send(share.content, share.type)) === false) {
       throw new Error('Share was interrupted. Share it again.');

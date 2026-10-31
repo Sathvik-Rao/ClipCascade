@@ -1,9 +1,12 @@
 // Authentication and transport configuration have separate lifetimes.
-export async function discoverServer(saved, fetchRequest = fetch) {
+export async function discoverServer(saved, fetchRequest = fetch, signal) {
   const base = saved.server_url.trim().replace(/\/+$/, '');
   if (!/^https?:\/\//.test(base)) throw new Error('Unsupported server URL protocol');
   const request = async path => {
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort);
+    if (signal?.aborted) controller.abort();
     const timer = setTimeout(() => controller.abort(), 10000);
     try {
       const response = await fetchRequest(base + path, {
@@ -18,6 +21,7 @@ export async function discoverServer(saved, fetchRequest = fetch) {
       return await response.json();
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
     }
   };
   let mode;
