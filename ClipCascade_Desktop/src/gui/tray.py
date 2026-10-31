@@ -13,6 +13,7 @@ from utils.notification_manager import NotificationManager
 from core.config import Config
 from gui.info import CustomDialog
 from gui.tk_owner import get_gui_root
+from clipboard.file_utils import save_download_file
 from core.constants import *
 
 if PLATFORM == MACOS:
@@ -633,9 +634,9 @@ class TaskbarPanel:
                 failed = False
                 try:
                     for filename, file_obj in pending_files:
-                        file_path = os.path.join(target_directory, filename)
-                        with open(file_path, "wb") as f:
-                            f.write(file_obj.getvalue())
+                        save_download_file(
+                            target_directory, filename, file_obj.getvalue(), files.keys()
+                        )
                         saved += 1
                         self._set_download_status(f"Saving {saved} of {total} {'file' if total == 1 else 'files'}…")
                     message = f"Downloaded {saved} {'file' if saved == 1 else 'files'} to: {target_directory}"

@@ -15,6 +15,7 @@ from cli.echo import Echo
 from cli.info import CustomDialog
 from core.config import Config
 from core.constants import *
+from clipboard.file_utils import save_download_file
 
 
 if PLATFORM != WINDOWS:
@@ -397,12 +398,12 @@ class TaskbarPanel:
             ).mainloop()
             # Save each file to the chosen directory
             for filename, file_obj in files.items():
-                file_path = os.path.join(target_directory, filename)
-                with open(file_path, "wb") as f:
-                    f.write(file_obj.getvalue())
+                file_path = save_download_file(
+                    target_directory, filename, file_obj.getvalue(), files.keys()
+                )
                 saved += 1
                 logging.debug(f"Saved: {file_path}")
-                CustomDialog(f"Saved {saved} of {len(files)} {'file' if len(files) == 1 else 'files'}: {filename}", msg_type="info").mainloop()
+                CustomDialog(f"Saved {saved} of {len(files)} {'file' if len(files) == 1 else 'files'}: {os.path.basename(file_path)}", msg_type="info").mainloop()
             CustomDialog(f"Downloaded {len(files)} {'file' if len(files) == 1 else 'files'} to: {target_directory}", msg_type="success").mainloop()
 
         except Exception as e:

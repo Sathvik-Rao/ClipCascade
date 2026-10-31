@@ -5,6 +5,31 @@ import os
 from urllib.parse import unquote, urlsplit
 
 
+def save_download_file(directory, filename, content, reserved_names=()):
+    """Save a new copy without replacing an existing file, even between sessions."""
+    if not filename or filename in (".", "..") or any(c in filename for c in ("/", "\\", "\0")):
+        raise ValueError(f"Invalid download filename: {filename!r}")
+    reserved = {name.casefold() for name in reserved_names}
+    stem, extension = os.path.splitext(filename)
+    candidate = filename
+    number = 1
+    while True:
+        path = os.path.join(directory, candidate)
+        try:
+            # Exclusive creation also protects against concurrent downloads.
+            stream = open(path, "xb")
+        except FileExistsError:
+            while True:
+                candidate = f"{stem} ({number}){extension}"
+                number += 1
+                if candidate.casefold() not in reserved:
+                    break
+        else:
+            with stream:
+                stream.write(content)
+            return path
+
+
 def local_file_paths(paths):
     """Decode local file URLs; never turn remote hosts into local paths."""
     result = []

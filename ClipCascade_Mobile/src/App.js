@@ -1674,7 +1674,7 @@ export default function App() {
               disabled={isChangingSync}
               onPress={logout}
             >
-              <Text style={actionText}>Log out</Text>
+              <Text style={{color: isDark ? '#ff7b86' : '#dc3545'}}>Log out</Text>
             </TouchableOpacity>
           </View>
           <View>
@@ -1714,7 +1714,11 @@ export default function App() {
               <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityState={{disabled: isChangingSync, busy: isChangingSync}}
-                style={[styles.primaryAction, isChangingSync && styles.disabledAction]}
+                style={[
+                  styles.primaryAction,
+                  wsIsRunning === 'true' ? styles.stopSyncAction : styles.startSyncAction,
+                  isChangingSync && styles.disabledAction,
+                ]}
                 disabled={isChangingSync}
                 onPress={foregroundService}
               >
@@ -1989,6 +1993,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 16,
   },
+  startSyncAction: {backgroundColor: '#00875a'},
+  stopSyncAction: {backgroundColor: '#dc3545'},
   updateCard: {
     borderWidth: 1,
     borderRadius: 16,
