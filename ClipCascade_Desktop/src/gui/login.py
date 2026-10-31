@@ -79,7 +79,10 @@ class LoginForm(GuiWindow):
                         args=("ClipCascade update available", message + " Use the tray menu to open the download page."),
                         kwargs={"preference": "update_notifications"}, daemon=True,
                     ).start()
-            self._update_poll_id = self.after(1000, poll)
+            # A native alert runs a nested event loop; the user may have
+            # closed the login form while it was open.
+            if self.winfo_exists():
+                self._update_poll_id = self.after(1000, poll)
         self._update_poll_id = self.after(1000, poll)
 
     def __init__(
@@ -791,15 +794,15 @@ class LoginForm(GuiWindow):
         self.toggle_label.config(fg=self.toggle_normal_color)
 
     def _bind_mousewheel(self):
-        """Bind mouse wheel events to the canvas for scrolling."""
+        """Scroll login settings without installing application-wide handlers."""
         if PLATFORM == WINDOWS:
-            self.extra_canvas.bind_all("<MouseWheel>", self._on_mousewheel_windows)
+            self.bind("<MouseWheel>", self._on_mousewheel_windows)
         elif PLATFORM == MACOS:
-            self.extra_canvas.bind_all("<MouseWheel>", self._on_mousewheel_mac)
+            self.bind("<MouseWheel>", self._on_mousewheel_mac)
         elif PLATFORM.startswith(LINUX):
             # Linux uses Button-4 and Button-5 for scroll up/down
-            self.extra_canvas.bind_all("<Button-4>", self._on_mousewheel_linux)
-            self.extra_canvas.bind_all("<Button-5>", self._on_mousewheel_linux)
+            self.bind("<Button-4>", self._on_mousewheel_linux)
+            self.bind("<Button-5>", self._on_mousewheel_linux)
 
     def _on_clipboard_unit_mousewheel(self, event):
         """Route wheel input to the settings instead of changing the unit."""

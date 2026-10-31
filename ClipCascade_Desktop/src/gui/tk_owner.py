@@ -22,6 +22,30 @@ class GuiWindow(tk.Toplevel):
         # dialogs can contain Python cycles which a network/save worker
         # later collects; they must not own the last interpreter reference.
         super().__init__(master=get_gui_root())
+        self._pending_after_ids = set()
+
+    def after(self, ms, func=None, *args):
+        if func is None:
+            return super().after(ms)
+
+        def run():
+            self._pending_after_ids.discard(callback_id)
+            return func(*args)
+
+        callback_id = super().after(ms, run)
+        self._pending_after_ids.add(callback_id)
+        return callback_id
+
+    def after_cancel(self, callback_id):
+        super().after_cancel(callback_id)
+        self._pending_after_ids.discard(callback_id)
+
+    def destroy(self):
+        # The shared interpreter survives this window. Remove timers before
+        # Tk deletes their Python commands, including delayed focus callbacks.
+        for callback_id in tuple(self._pending_after_ids):
+            self.after_cancel(callback_id)
+        super().destroy()
 
     def mainloop(self, n=0):
         # The hidden owner remains alive when this window is destroyed.
