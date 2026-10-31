@@ -138,12 +138,13 @@ class P2PManager(ReconnectMixin, WSInterface):
 
     def get_stats(self) -> str:
         self._sync_live_connections_count()
-        if not self.is_connected:
-            return "Disconnected" if self.disconnected else "Reconnecting…"
-        stats = "📊"
         with self._live_connections_lock:
             n = self.live_connections
-        stats += f" Peers: {n}"
+        if not self.is_connected and (self.disconnected or n == 0):
+            return "Disconnected" if self.disconnected else "Reconnecting…"
+        stats = f"📊 Peers: {n}"
+        if not self.is_connected:
+            stats += " | Signaling: Reconnecting…"
         if self.sending_fragment_stats is not None:
             stats += f" | Sending: {self.sending_fragment_stats}"
         if self.receiving_fragment_stats is not None:
