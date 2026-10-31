@@ -33,8 +33,8 @@ class CustomDialog(GuiWindow):
             font=("Arial", 11),
         )
 
-        self._configure_window()
         self._show_dialog()
+        self._configure_window()
 
         if self.timeout:
             self.after_id = self.after(self.timeout, self.close)
@@ -47,10 +47,15 @@ class CustomDialog(GuiWindow):
     def _configure_window(self):
         """Configure the dialog window properties."""
         self.title("ClipCascade")
+        # Measure after creating the widgets so fonts, display scaling, and
+        # the optional checkbox cannot squeeze the OK button out of view.
+        self.update_idletasks()
+        height = max(300, self.winfo_reqheight())
         self.geometry(
-            "600x300+{}+{}".format(
+            "600x{}+{}+{}".format(
+                height,
                 (self.winfo_screenwidth() - 600) // 2,
-                (self.winfo_screenheight() - 300) // 2,
+                (self.winfo_screenheight() - height) // 2,
             )
         )
         self.update_idletasks()
@@ -75,10 +80,12 @@ class CustomDialog(GuiWindow):
         # Create a main frame
         main_frame = ttk.Frame(self, padding="20 20 20 20", style="Dialog.TFrame")
         main_frame.pack(fill="both", expand=True)
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(1, weight=1)
 
         # Title frame with symbol and title
         title_frame = ttk.Frame(main_frame, style="Dialog.TFrame")
-        title_frame.pack(pady=(0, 10), fill="x")
+        title_frame.grid(row=0, column=0, pady=(0, 10), sticky="ew")
 
         symbol_label = ttk.Label(
             title_frame, text=symbol, font=("Arial", 18, "bold"), foreground=color,
@@ -91,7 +98,7 @@ class CustomDialog(GuiWindow):
 
         # Message frame for scrolled text
         message_frame = ttk.Frame(main_frame, style="Dialog.TFrame")
-        message_frame.pack(fill="both", expand=True, pady=10)
+        message_frame.grid(row=1, column=0, sticky="nsew", pady=10)
 
         # ScrolledText widget for the message
         self.text_widget = scrolledtext.ScrolledText(
@@ -110,11 +117,11 @@ class CustomDialog(GuiWindow):
                 variable=self.dont_show_again,
                 command=self._cancel_timeout,
                 style="Dialog.TCheckbutton",
-            ).pack(anchor="w")
+            ).grid(row=2, column=0, sticky="w")
 
         # Button frame
         button_frame = ttk.Frame(main_frame, style="Dialog.TFrame")
-        button_frame.pack(pady=(10, 0))
+        button_frame.grid(row=3, column=0, pady=(10, 0))
 
         ok_button = ttk.Button(
             button_frame, text="OK", command=self.close, width=10, style="Dialog.TButton"
