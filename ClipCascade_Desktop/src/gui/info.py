@@ -21,16 +21,15 @@ class CustomDialog(GuiWindow):
 
         self.style = ttk.Style(self)
         # All windows share one Tcl interpreter, so default ttk styles are
-        # global. Keep dialog colors out of the login form's native theme.
-        self.style.configure("Dialog.TFrame", background="#f2f2f2")
+        # global. Scope dialog fonts and inherit native light/dark theme colors.
+        self.style.configure("Dialog.TFrame")
         self.style.configure(
-            "Dialog.TLabel", background="#f2f2f2", foreground="#333333", font=("Arial", 11)
+            "Dialog.TLabel", font=("Arial", 11)
         )
         self.style.configure("Header.Dialog.TLabel", font=("Arial", 14, "bold"))
         self.style.configure("Dialog.TButton", font=("Arial", 11))
         self.style.configure(
-            "Dialog.TCheckbutton", background="#f2f2f2", foreground="#333333",
-            font=("Arial", 11),
+            "Dialog.TCheckbutton", font=("Arial", 11),
         )
 
         self._show_dialog()
