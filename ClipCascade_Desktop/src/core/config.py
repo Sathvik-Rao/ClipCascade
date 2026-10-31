@@ -12,6 +12,7 @@ class Config:
         "max_clipboard_size_local_limit_bytes",
         "enable_image_sharing", "enable_file_sharing", "default_file_download_location",
         "send_clipboard", "receive_clipboard",
+        "hide_login_success_dialog",
     })
 
     def __init__(self, file_name=DATA_FILE_NAME):
@@ -31,6 +32,7 @@ class Config:
             "update_notifications": True,
             "download_notifications": True,
             "clipboard_notifications": False,
+            "hide_login_success_dialog": False,
             "save_password": False,
             "password": "",
             "max_clipboard_size_local_limit_bytes": None,

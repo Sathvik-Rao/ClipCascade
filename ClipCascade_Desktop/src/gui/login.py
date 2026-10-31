@@ -92,6 +92,7 @@ class LoginForm(GuiWindow):
         self.config = config
         self.on_login_callback = on_login_callback
         self.on_quit_callback = on_quit_callback
+        self.cancelled = False
 
         if PLATFORM == MACOS or PLATFORM.startswith(LINUX):
             # Set an initial size to avoid 0 size issue
@@ -646,6 +647,7 @@ class LoginForm(GuiWindow):
 
         # on press enter key
         self.bind("<Return>", lambda event: self.on_login())
+        self.bind("<Escape>", lambda event: self.on_quit())
 
         self._sync_login_tab_order()
 
@@ -944,9 +946,10 @@ class LoginForm(GuiWindow):
         self.close()
 
     def on_quit(self):
+        self.cancelled = True
+        self.close()
         if self.on_quit_callback:
             self.on_quit_callback()
-        self.close()
 
     def close(self):
         if getattr(self, "_update_poll_id", None):

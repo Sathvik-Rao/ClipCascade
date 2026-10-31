@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-from tkinter import scrolledtext
+from tkinter import scrolledtext, messagebox
 import gc
 import time
 
@@ -10,20 +10,28 @@ from core.constants import *
 
 
 class CustomDialog(GuiWindow):
-    def __init__(self, message, msg_type="info", timeout=None):
+    def __init__(self, message, msg_type="info", timeout=None, on_dont_show_again=None):
         super().__init__()
         self.message = message
         self.msg_type = msg_type.lower()
         self.timeout = timeout
         self.after_id = None
+        self.on_dont_show_again = on_dont_show_again
+        self.dont_show_again = tk.BooleanVar(master=self, value=False)
 
         self.style = ttk.Style(self)
-        self.style.configure("TFrame", background="#f2f2f2")
+        # All windows share one Tcl interpreter, so default ttk styles are
+        # global. Keep dialog colors out of the login form's native theme.
+        self.style.configure("Dialog.TFrame", background="#f2f2f2")
         self.style.configure(
-            "TLabel", background="#f2f2f2", foreground="#333333", font=("Arial", 11)
+            "Dialog.TLabel", background="#f2f2f2", foreground="#333333", font=("Arial", 11)
         )
-        self.style.configure("Header.TLabel", font=("Arial", 14, "bold"))
-        self.style.configure("TButton", font=("Arial", 11))
+        self.style.configure("Header.Dialog.TLabel", font=("Arial", 14, "bold"))
+        self.style.configure("Dialog.TButton", font=("Arial", 11))
+        self.style.configure(
+            "Dialog.TCheckbutton", background="#f2f2f2", foreground="#333333",
+            font=("Arial", 11),
+        )
 
         self._configure_window()
         self._show_dialog()
@@ -34,6 +42,7 @@ class CustomDialog(GuiWindow):
         # Allow closing with keyboard shortcuts
         self.bind("<Return>", lambda e: self.close())
         self.bind("<Escape>", lambda e: self.close())
+        self.protocol("WM_DELETE_WINDOW", self.close)
 
     def _configure_window(self):
         """Configure the dialog window properties."""
@@ -64,23 +73,24 @@ class CustomDialog(GuiWindow):
         title, color, symbol = type_config.get(self.msg_type, ("Message", "black", "•"))
 
         # Create a main frame
-        main_frame = ttk.Frame(self, padding="20 20 20 20")
+        main_frame = ttk.Frame(self, padding="20 20 20 20", style="Dialog.TFrame")
         main_frame.pack(fill="both", expand=True)
 
         # Title frame with symbol and title
-        title_frame = ttk.Frame(main_frame)
+        title_frame = ttk.Frame(main_frame, style="Dialog.TFrame")
         title_frame.pack(pady=(0, 10), fill="x")
 
         symbol_label = ttk.Label(
-            title_frame, text=symbol, font=("Arial", 18, "bold"), foreground=color
+            title_frame, text=symbol, font=("Arial", 18, "bold"), foreground=color,
+            style="Dialog.TLabel",
         )
         symbol_label.pack(side="left", padx=(0, 10))
 
-        title_label = ttk.Label(title_frame, text=title, style="Header.TLabel", foreground=color)
+        title_label = ttk.Label(title_frame, text=title, style="Header.Dialog.TLabel", foreground=color)
         title_label.pack(side="left")
 
         # Message frame for scrolled text
-        message_frame = ttk.Frame(main_frame)
+        message_frame = ttk.Frame(main_frame, style="Dialog.TFrame")
         message_frame.pack(fill="both", expand=True, pady=10)
 
         # ScrolledText widget for the message
@@ -93,11 +103,22 @@ class CustomDialog(GuiWindow):
         self.text_widget.insert("1.0", self.message)
         self.text_widget.config(state="disabled")
 
+        if self.on_dont_show_again is not None:
+            ttk.Checkbutton(
+                main_frame,
+                text="Don't show this again",
+                variable=self.dont_show_again,
+                command=self._cancel_timeout,
+                style="Dialog.TCheckbutton",
+            ).pack(anchor="w")
+
         # Button frame
-        button_frame = ttk.Frame(main_frame)
+        button_frame = ttk.Frame(main_frame, style="Dialog.TFrame")
         button_frame.pack(pady=(10, 0))
 
-        ok_button = ttk.Button(button_frame, text="OK", command=self.close, width=10)
+        ok_button = ttk.Button(
+            button_frame, text="OK", command=self.close, width=10, style="Dialog.TButton"
+        )
         ok_button.pack()
         ok_button.focus_set()
 
@@ -112,10 +133,20 @@ class CustomDialog(GuiWindow):
         self.lift()
         self.focus_force()
 
-    def close(self):
+    def _cancel_timeout(self):
         if self.after_id:
             self.after_cancel(self.after_id)  # Cancel the after event if it exists
             self.after_id = None
+
+    def close(self):
+        self._cancel_timeout()
+        if self.on_dont_show_again is not None and self.dont_show_again.get():
+            if not self.on_dont_show_again():
+                messagebox.showerror(
+                    "ClipCascade", "Unable to save device preferences. Please try again.",
+                    parent=self,
+                )
+                return
         self.destroy()
         gc.collect()
         time.sleep(0.5)

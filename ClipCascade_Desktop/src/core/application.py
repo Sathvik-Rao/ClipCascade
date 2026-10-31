@@ -192,17 +192,14 @@ class Application:
             else:
                 display_login_success_dialog = True
                 self.config.data["password"] = ""  # Clear the password
-                login_form = LoginForm(
-                    self.config,
-                    on_quit_callback=(
-                        None
-                        if (PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI)
-                        else lambda: sys.exit(0)
-                    ),
-                )
+                login_form = LoginForm(self.config)
                 if not (PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI):
                     login_form.watch_updates(self.update_checker)
                 login_form.mainloop()  # wait until login form is closed
+                if not (PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI) and login_form.cancelled:
+                    # Exit outside Tk's callback: SystemExit inside a callback
+                    # can be intercepted by Tcl while wait_window is running.
+                    sys.exit(0)
                 raw_password = self.config.data[
                     "password"
                 ]  # Store the raw password temporarily for hashing
@@ -224,11 +221,17 @@ class Application:
                         )
                     if self.config.data["cipher_enabled"] or not self.config.data["save_password"]:
                         self.config.data["password"] = ""
-                    if display_login_success_dialog:
+                    if display_login_success_dialog and not self.config.data.get("hide_login_success_dialog", False):
+                        dialog_options = {}
+                        if not (PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI):
+                            dialog_options["on_dont_show_again"] = lambda: self.config.save_preferences(
+                                {"hide_login_success_dialog": True}
+                            )
                         CustomDialog(
                             "Success! ClipCascade will now run in the task bar/menu bar.",
                             msg_type="success",
                             timeout=5000,
+                            **dialog_options,
                         ).mainloop()
                     break
                 else:
