@@ -46,6 +46,7 @@ import {
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
+import {stopServiceRun} from './ServiceLifecycle';
 import {LIMIT_UNITS, NO_LOCAL_LIMIT, formatClipboardLimit, parseClipboardLimit} from './ClipboardLimit';
 import {authenticateSession} from './LoginSession';
 import {APP_VERSION} from './AppVersion';
@@ -89,6 +90,7 @@ const isCancel = error =>
  * (file) android\app\src\main\aidl\com\clipcascade\IPermissionGrantService.aidl
  * (file) android\app\src\main\java\com\clipcascade\PendingShares.kt
  * (file) android\app\src\main\java\com\clipcascade\ScheduleService.kt
+ * (file) android\app\src\main\java\com\clipcascade\ServiceRunRegistry.kt
  * (file) android/app/src/main/java/com/clipcascade/ServerTls.kt
  * (file) android/app/src/main/java/com/clipcascade/ServerTlsModule.kt
  * (file) android\app\src\main\AndroidManifest.xml
@@ -102,6 +104,7 @@ const isCancel = error =>
  * (file) StartForegroundService.js
  * (file) LoginSession.js
  * (file) ServerDiscovery.js
+ * (file) ServiceLifecycle.js
  * (file) WebSocketStatus.js
  * (file) DevicePreferences.js
  * (file) DownloadDirectory.js
@@ -467,12 +470,6 @@ export default function App() {
   // notification
   const onDisplayNotification = async () => {
     try {
-      // remove work manager notification if exists
-      await notifee.cancelAllNotifications();
-
-      // stop foreground service(if any)
-      await notifee.stopForegroundService();
-
       // start foreground service
       const result = await StartForegroundService();
       if (result[0] === false) {
@@ -551,15 +548,16 @@ export default function App() {
             iterate--;
           }
           if (!foregroundServiceIsActive) {
-            wsIsRunning_s = 'false';
-            // A killed process cannot clear its saved status during shutdown.
-            // Stop polling the stale messages before clearing storage and UI.
-            await setDataInAsyncStorage('wsIsRunning', 'false');
-            await setDataInAsyncStorage('wsStatusMessage', '');
-            await setDataInAsyncStorage('p2pStatusMessage', '');
-            setWsPageMessage('');
-            setWsPageP2PMessage('');
-            await clearFiles();
+            // Missing a heartbeat is not proof the old run has stopped.
+            // Wait for its native ownership release before enabling a restart.
+            await stopServiceRun(NativeBridgeModule);
+            // Do not overwrite a headless run that claimed ownership meanwhile.
+            wsIsRunning_s = NativeBridgeModule.resetIdleServiceStateSync() ? 'false' : 'true';
+            if (wsIsRunning_s === 'false') {
+              setWsPageMessage('');
+              setWsPageP2PMessage('');
+              await clearFiles();
+            }
           }
         }
         setWsIsRunning(wsIsRunning_s);
@@ -577,7 +575,6 @@ export default function App() {
           if (validResult[0]) {
             //enable websocket page
             setEnableWSPage(true);
-            setDataInAsyncStorage('wsIsRunning', 'false');
             // start foreground service (work manager notification click handler)
             if (
               foregroundServiceStoppedRunning &&
@@ -589,7 +586,6 @@ export default function App() {
             //enable login page
             await setDataInAsyncStorage('wsStatusMessage', '');
             setEnableLoginPage(true);
-            setDataInAsyncStorage('wsIsRunning', 'false');
             if (data_s.save_password === 'true') {
               const pass = await getDataFromAsyncStorage('password');
               if (
@@ -772,7 +768,7 @@ export default function App() {
       setWsPageMessage('⌛ Please wait...');
       await setDataInAsyncStorage('password', '');
       if (wsIsRunning === 'true') {
-        await setDataInAsyncStorage('wsIsRunning', 'false');
+        await stopServiceRun(NativeBridgeModule);
         setWsIsRunning('false');
       }
 
@@ -870,8 +866,6 @@ export default function App() {
         setWsPageP2PMessage('');
         await clearFiles();
         const wsIsRunning_s = wsIsRunning === 'true' ? 'false' : 'true'; // toggle
-        await setDataInAsyncStorage('wsForegroundServiceTerminated', 'false');
-        await setDataInAsyncStorage('wsIsRunning', wsIsRunning_s);
         if (wsIsRunning_s === 'true') {
           //start foreground service
           await setDataInAsyncStorage('wsStatusMessage', '');
@@ -879,15 +873,8 @@ export default function App() {
           setWsPageMessage('🚀 Starting foreground service...');
           await onDisplayNotification();
         } else {
-          // wait for 1 sec so that foreground service can be terminated
           setWsPageMessage('⌛ Stopping foreground service...');
-          while (
-            (await getDataFromAsyncStorage('wsForegroundServiceTerminated')) ===
-            'false'
-          ) {
-            await new Promise(resolve => setTimeout(resolve, 100)); //100 ms
-          }
-          await notifee.cancelAllNotifications();
+          await stopServiceRun(NativeBridgeModule);
           setWsPageMessage('');
           setWsPageP2PMessage('');
         }
@@ -896,6 +883,7 @@ export default function App() {
         setWsIsRunning(wsIsRunning_s);
       }
     } catch (error) {
+      setWsIsRunning((await getDataFromAsyncStorage('wsIsRunning')) || 'false');
       setWsPageMessage('❌ Error: ' + error);
     } finally {
       try {

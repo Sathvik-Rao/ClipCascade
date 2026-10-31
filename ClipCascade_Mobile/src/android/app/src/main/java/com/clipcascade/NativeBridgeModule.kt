@@ -45,6 +45,47 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         return "NativeBridgeModule"
     }
 
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun getServiceRunIdSync(): String? = ServiceRunRegistry.currentId()
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun resetIdleServiceStateSync(): Boolean = ServiceRunRegistry.withIdle {
+        asyncBridge.setValue("wsIsRunning", "false")
+        asyncBridge.setValue("wsStatusMessage", "")
+        asyncBridge.setValue("p2pStatusMessage", "")
+    } ?: false
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun claimServiceRunSync(): String? = ServiceRunRegistry.withIdle {
+        val id = ServiceRunRegistry.claim()!!
+        if (!asyncBridge.setValue("wsIsRunning", "true") ||
+            !asyncBridge.setValue("wsForegroundServiceTerminated", "false")) {
+            ServiceRunRegistry.release(id)
+            null
+        } else {
+            id
+        }
+    }
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun activateServiceRunSync(id: String): Boolean = ServiceRunRegistry.activate(id)
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun isServiceRunCurrentSync(id: String): Boolean = ServiceRunRegistry.isCurrent(id)
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun requestServiceRunStopSync(id: String): Boolean = ServiceRunRegistry.withOwner(id) {
+        ServiceRunRegistry.stop(id)
+        asyncBridge.setValue("wsIsRunning", "false")
+    } ?: false
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun setServiceRunValueSync(id: String, key: String, value: String): Boolean =
+        ServiceRunRegistry.withOwner(id) { asyncBridge.setValue(key, value) } ?: false
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun releaseServiceRunSync(id: String): Boolean = ServiceRunRegistry.release(id)
+
     // Keep secure input semantics, but never reveal the most recently typed character.
     @ReactMethod
     fun setPasswordVisibility(viewTag: Double, visible: Boolean, promise: Promise) {

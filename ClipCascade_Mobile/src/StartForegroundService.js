@@ -21,13 +21,11 @@ import {downloadDirectoryLabel} from './DownloadDirectory';
 import {webSocketErrorMessage, webSocketCloseMessage} from './WebSocketStatus';
 import {isClipboardSyncEnabled} from './DevicePreferences';
 import {fileUris, encodeFiles, deliverPendingShare} from './FileTransfer';
+import {acquireServiceRun, serviceRun} from './ServiceLifecycle';
 
 import {
-  setDataInAsyncStorage,
   getDataFromAsyncStorage,
   getMultipleDataFromAsyncStorage,
-  clearAsyncStorage,
-  saveTransportSettings,
 } from './AsyncStorageManagement';
 
 function cleanupClipboardListeners() {
@@ -39,6 +37,16 @@ function cleanupClipboardListeners() {
 }
 
 module.exports = async (inputData = null) => {
+  const bridge = NativeModules.NativeBridgeModule;
+  let runId;
+  try {
+    runId = await acquireServiceRun(bridge);
+  } catch (error) {
+    return [false, error];
+  }
+  const run = serviceRun(bridge, runId);
+  const setDataInAsyncStorage = run.setData;
+  let runnerStarted = false;
   // Constants
   const SUBSCRIPTION_DESTINATION = '/user/queue/cliptext';
   const SEND_DESTINATION = '/app/cliptext';
@@ -46,11 +54,14 @@ module.exports = async (inputData = null) => {
   const HEARTBEAT_INTERVAL = 20000; // 20 seconds
   const FRAGMENT_SIZE = 15360; // 15 KiB
   const FRAGMENT_TTL_MS = 60000; // drop partial fragment buffers idle for 60s
-  const STOMP_DEACTIVATE_TIMEOUT_MS = 5000; // bound the STOMP deactivate() wait
   const P2P_CONNECTION_TIMEOUT_MS = 90000;
 
   // forground service
   notifee.registerForegroundService(async notification => {
+    // Notifee may deliver another start event for an existing notification.
+    if (!bridge.activateServiceRunSync(runId)) return;
+    runnerStarted = true;
+    let transportCleanupFailed = false;
     const { ClipboardListener } = NativeModules;
     const serviceController = new AbortController();
     let heartbeatStopped = false;
@@ -63,7 +74,7 @@ module.exports = async (inputData = null) => {
         const flags = JSON.parse(NativeModules.NativeBridgeModule.getFlagsSync([
           'wsIsRunning', 'echo',
         ]));
-        if (flags.wsIsRunning !== 'true') {
+        if (!run.isCurrent() || flags.wsIsRunning !== 'true') {
           serviceController.abort();
         } else if (flags.echo === 'ping') {
           await setDataInAsyncStorage('echo', 'pong');
@@ -74,34 +85,38 @@ module.exports = async (inputData = null) => {
         heartbeatPending = false;
       }
     }, 1000);
-    const waitForRetry = () => new Promise(resolve => {
+    const waitForRetry = (delay = RECONNECT_WS_TIMER) => new Promise(resolve => {
       const signal = serviceController.signal;
       const finish = () => {
         clearTimeout(timer);
         signal.removeEventListener('abort', finish);
         resolve();
       };
-      const timer = setTimeout(finish, RECONNECT_WS_TIMER);
+      const timer = setTimeout(finish, delay);
       signal.addEventListener('abort', finish);
       if (signal.aborted) finish();
     });
     let clipboardStarted = false;
     const stopClipboard = async () => {
       if (clipboardStarted) {
-        clipboardStarted = false;
         await ClipboardListener.stopListening();
+        clipboardStarted = false;
       }
     };
     const runTransport = async () => {
+      let cleanupTransport = async () => {};
       try {
+        if (!run.isCurrent()) return false;
         let restarting = false;
         let transportStopped = false;
+        const track = callback => run.track((...args) => !transportStopped && callback(...args));
         const { NativeBridgeModule } = NativeModules;
         // Restore trust before either WebSocket mode starts, including headless boot.
         await NativeModules.ServerTlsModule.configure(
           await getDataFromAsyncStorage('server_url'),
           (await getDataFromAsyncStorage('ssl_ca_bundle')) || '',
         );
+        if (!run.isCurrent()) return false;
         if (!clipboardStarted) {
           // Request native log access while monitoring is being started, before
           // network discovery can delay it. Transport changes reuse this reader.
@@ -140,14 +155,16 @@ module.exports = async (inputData = null) => {
         ];
         let settings = await getMultipleDataFromAsyncStorage(keys);
         const refreshSettings = async () => {
-          while (!serviceController.signal.aborted && !transportStopped && (await getDataFromAsyncStorage('wsIsRunning')) === 'true') {
+          while (run.isCurrent() && !serviceController.signal.aborted && !transportStopped && (await getDataFromAsyncStorage('wsIsRunning')) === 'true') {
             try {
               const next = await discoverServer(settings, fetch, serviceController.signal);
-              if (serviceController.signal.aborted || transportStopped || (await getDataFromAsyncStorage('wsIsRunning')) !== 'true') return null;
-              await saveTransportSettings(next);
+              if (!run.isCurrent() || serviceController.signal.aborted || transportStopped || (await getDataFromAsyncStorage('wsIsRunning')) !== 'true') return null;
+              for (const key of ['server_mode', 'websocket_url', 'stun_url', 'maxsize']) {
+                await setDataInAsyncStorage(key, next[key]);
+              }
               return next;
             } catch (error) {
-              if (serviceController.signal.aborted || transportStopped) return null;
+              if (!run.isCurrent() || serviceController.signal.aborted || transportStopped) return null;
               await setDataInAsyncStorage('wsStatusMessage', '❌ ' + error.message + '; retrying…');
               await waitForRetry();
             }
@@ -155,10 +172,7 @@ module.exports = async (inputData = null) => {
           return null;
         };
         settings = await refreshSettings();
-        if (!settings) {
-          await stopClipboard();
-          await setDataInAsyncStorage('wsForegroundServiceTerminated', 'true');
-          await notifee.stopForegroundService();
+        if (!settings || !run.isCurrent()) {
           return false;
         }
         const {
@@ -169,7 +183,7 @@ module.exports = async (inputData = null) => {
         } = settings;
         const prepareReconnect = async () => {
           const next = await refreshSettings();
-          if (!next || transportStopped) return false;
+          if (!next || !run.isCurrent() || transportStopped) return false;
           // Rebuild the service's transport state when any server setting changes.
           restarting = ['server_mode', 'websocket_url', 'stun_url', 'maxsize']
             .some(key => next[key] !== settings[key]);
@@ -357,7 +371,7 @@ module.exports = async (inputData = null) => {
         // clipboard listener callback
         const clipboardOnChange = clipboardListener.addListener(
           'onClipboardChange',
-          async params => {
+          track(async params => {
             try {
               if (params && params.content && params.type) {
                 await sendClipBoard(params.content, params.type);
@@ -368,7 +382,7 @@ module.exports = async (inputData = null) => {
                 '❌ Outbound Error: ' + e,
               );
             }
-          },
+          }),
         );
 
         const clearFiles = async (expensiveCall = false) => {
@@ -431,7 +445,7 @@ module.exports = async (inputData = null) => {
           stompClient = new Client({
             brokerURL: websocket_url,
             beforeConnect: async () => {
-              if (!(await prepareReconnect()) && stompClient) {
+              if (!(await track(prepareReconnect)()) && stompClient) {
                 // Do not await deactivate inside beforeConnect: it can wait on
                 // this very connection attempt. The poll loop completes cleanup.
                 void stompClient.deactivate();
@@ -443,12 +457,12 @@ module.exports = async (inputData = null) => {
             heartbeatOutgoing: 0,
             forceBinaryWSFrames: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#forceBinaryWSFrames
             // appendMissingNULLonIncoming: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#appendMissingNULLonIncoming
-            onConnect: async () => {
+            onConnect: track(async () => {
               await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
 
               toggle = false;
               // Subscribe to a topic
-              stompClient.subscribe(SUBSCRIPTION_DESTINATION, async message => {
+              stompClient.subscribe(SUBSCRIPTION_DESTINATION, track(async message => {
                 try {
                   // Echoes still release the outbound throttle in send-only mode.
                   toggle = false;
@@ -514,7 +528,7 @@ module.exports = async (inputData = null) => {
                     '❌ Inbound Error: ' + e,
                   );
                 }
-              });
+              }));
 
               if (enable_websocket_status_notification === 'true') {
                 if (websocket_status_notification_toggle == true) {
@@ -528,26 +542,26 @@ module.exports = async (inputData = null) => {
                   );
                 }
               }
-            },
-            onDisconnect: async () => {
+            }),
+            onDisconnect: track(async () => {
               block_image_once = false;
               await setDataInAsyncStorage('wsStatusMessage', 'Disconnected');
-            },
-            onStompError: async frame => {
+            }),
+            onStompError: track(async frame => {
               block_image_once = false;
               await setDataInAsyncStorage(
                 'wsStatusMessage',
                 '❌ STOMP Error: ' + JSON.stringify(frame, null, 2),
               );
-            },
-            onWebSocketError: async event => {
+            }),
+            onWebSocketError: track(async event => {
               block_image_once = false;
               await setDataInAsyncStorage(
                 'wsStatusMessage',
                 webSocketErrorMessage(event),
               );
-            },
-            onWebSocketClose: async event => {
+            }),
+            onWebSocketClose: track(async event => {
               block_image_once = false;
               await setDataInAsyncStorage(
                 'wsStatusMessage',
@@ -564,10 +578,10 @@ module.exports = async (inputData = null) => {
                   -1,
                 );
               }
-            },
+            }),
           });
 
-          isShareTransportReady = () => !!stompClient?.connected && !toggle;
+          isShareTransportReady = () => run.isCurrent() && !!stompClient?.connected && !toggle;
 
           // start websocket stomp connection
           stompClient.activate();
@@ -619,6 +633,7 @@ module.exports = async (inputData = null) => {
                         toggle = false;
                         return true;
                       }
+                      if (!run.isCurrent() || transportStopped) return false;
                       // send
                       stompClient.publish({
                         destination: SEND_DESTINATION,
@@ -662,33 +677,28 @@ module.exports = async (inputData = null) => {
               stompClient.onWebSocketError = null;
               stompClient.onWebSocketClose = () => {};
 
-              // Deactivate the stomp connection, but don't hang here forever:
-              // some socket states cause deactivate() to never resolve, which
-              // would prevent the foreground service from stopping.
+              // A replacement must wait for the socket to finish closing.
+              // The UI's bounded wait reports a timeout without releasing ownership.
               try {
-                await Promise.race([
-                  stompClient.deactivate(),
-                  new Promise(resolve =>
-                    setTimeout(resolve, STOMP_DEACTIVATE_TIMEOUT_MS),
-                  ),
-                ]);
-              } catch (e) {
-                // no-op
+                await stompClient.deactivate();
+              } catch (error) {
+                transportCleanupFailed = true;
+                throw error;
               }
             }
             stompClient = null;
 
             await setDataInAsyncStorage('wsStatusMessage', '✅ Disconnected');
             cleanupClipboardListeners();
-            if (!restarting) await notifee.stopForegroundService();
           };
+          cleanupTransport = stopServicesP2S;
         } else if (server_mode === 'P2P') {
           // p2p variables
           let myPeerId = null; // Your assigned peer ID from server
           let peers = new Set(); // Current set of known peer IDs in the "room"
           let peerConnections = {}; // Map: peerId -> RTCPeerConnection
           let dataChannels = {}; // Map: peerId -> RTCDataChannel
-          isShareTransportReady = () => Object.values(dataChannels).some(channel => channel.readyState === 'open');
+          isShareTransportReady = () => run.isCurrent() && Object.values(dataChannels).some(channel => channel.readyState === 'open');
           let liveConnectionsCount = 0; // Track open DataChannels
           let pendingPeerList = null;
           let p2pShuttingDown = false;
@@ -780,7 +790,7 @@ module.exports = async (inputData = null) => {
             }
             dataChannelHeartbeatTimers[remotePeerId] = setInterval(() => {
               try {
-                if (channel.readyState === 'open') {
+                if (run.isCurrent() && channel.readyState === 'open') {
                   channel.send(P2P_DC_KEEPALIVE_JSON);
                 }
               } catch (e) {
@@ -845,15 +855,15 @@ module.exports = async (inputData = null) => {
             }
           }
 
-          const initializeWebSocketSignalingClient = async () => {
+          const initializeWebSocketSignalingClient = track(async () => {
             if (!signalingStopped && wsSignalingClient == null) {
-              if (!(await prepareReconnect()) || signalingStopped) return;
+              if (!(await prepareReconnect()) || !run.isCurrent() || signalingStopped) return;
               const socket = new WebSocket(websocket_url);
               wsSignalingClient = socket;
               const current = () =>
-                !signalingStopped && wsSignalingClient === socket;
+                run.isCurrent() && !signalingStopped && wsSignalingClient === socket;
 
-              socket.onopen = async () => {
+              socket.onopen = track(async () => {
                 if (!current()) return;
                 await cleanupPeerConnections();
                 if (!current()) return;
@@ -872,9 +882,9 @@ module.exports = async (inputData = null) => {
                     );
                   }
                 }
-              };
+              });
 
-              socket.onmessage = async event => {
+              socket.onmessage = track(async event => {
                 if (!current()) return;
                 try {
                   const data = JSON.parse(event.data);
@@ -920,18 +930,18 @@ module.exports = async (inputData = null) => {
                     '❌ Inbound Error: ' + e,
                   );
                 }
-              };
+              });
 
-              socket.onerror = async event => {
+              socket.onerror = track(async event => {
                 if (!current()) return;
                 block_image_once = false;
                 await setDataInAsyncStorage(
                   'wsStatusMessage',
                   webSocketErrorMessage(event),
                 );
-              };
+              });
 
-              socket.onclose = async event => {
+              socket.onclose = track(async event => {
                 if (!current()) return;
                 block_image_once = false;
                 await setDataInAsyncStorage(
@@ -967,9 +977,9 @@ module.exports = async (inputData = null) => {
                     initializeWebSocketSignalingClient();
                   }
                 }, RECONNECT_WS_TIMER);
-              };
+              });
             }
-          };
+          });
 
           // start websocket signaling connection
           initializeWebSocketSignalingClient();
@@ -1053,7 +1063,7 @@ module.exports = async (inputData = null) => {
                       // A peer joining midway cannot receive a partial batch.
                       let sent = false;
                       for (const channel of recipients) {
-                        if (channel.readyState === 'open') {
+                        if (run.isCurrent() && !transportStopped && channel.readyState === 'open') {
                           await channel.send(messageJson);
                           sent = true;
                         }
@@ -1126,13 +1136,14 @@ module.exports = async (inputData = null) => {
             await setDataInAsyncStorage('wsStatusMessage', '✅ Disconnected');
             await setDataInAsyncStorage('p2pStatusMessage', '');
             cleanupClipboardListeners();
-            if (!restarting) await notifee.stopForegroundService();
           };
+          cleanupTransport = stopServicesP2P;
 
           // send message to websocket signaling server
           const signalingSend = async obj => {
             try {
               if (
+                run.isCurrent() &&
                 wsSignalingClient &&
                 wsSignalingClient.readyState === WebSocket.OPEN
               ) {
@@ -1287,7 +1298,7 @@ module.exports = async (inputData = null) => {
             await removeStalePeers(updatedPeers);
 
             await Promise.all([...peers].map(pid => runSerializedPeerOp(pid, async () => {
-              if (p2pShuttingDown || !myPeerId || !peers.has(pid) || pid === myPeerId) return;
+              if (!run.isCurrent() || p2pShuttingDown || !myPeerId || !peers.has(pid) || pid === myPeerId) return;
               if (!peerConnections[pid]) {
                 // Create new PeerConnection
                 const pc = await createPeerConnection(pid);
@@ -1389,7 +1400,7 @@ module.exports = async (inputData = null) => {
           const peerConnectionTimedOut = (peerId, pc) => {
             if (peerConnections[peerId] !== pc) return;
             delete peerConnectionDeadlines[peerId];
-            if (p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(peerId)) return;
+            if (!run.isCurrent() || p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(peerId)) return;
             if (dataChannels[peerId]?.readyState === 'open') return;
             console.warn('P2P: data channel did not open within 90s; scheduling recovery',
               peerId, pc.connectionState, pc.iceConnectionState, pc.signalingState);
@@ -1400,6 +1411,7 @@ module.exports = async (inputData = null) => {
            * Create and return a RTCPeerConnection, set up listeners for ICE + DataChannel.
            */
           const createPeerConnection = async remotePeerId => {
+            if (!run.isCurrent()) throw new Error('Sync run is stopping');
             const pc = new RTCPeerConnection({
               iceServers: [
                 {
@@ -1408,7 +1420,7 @@ module.exports = async (inputData = null) => {
               ],
             });
 
-            pc.onicecandidate = async event => {
+            pc.onicecandidate = track(async event => {
               if (event.candidate) {
                 await signalingSend({
                   type: 'ICE_CANDIDATE',
@@ -1417,9 +1429,9 @@ module.exports = async (inputData = null) => {
                   candidate: event.candidate,
                 });
               }
-            };
+            });
 
-            pc.ondatachannel = async event => {
+            pc.ondatachannel = track(async event => {
               const channel = event.channel;
               if (peerConnections[remotePeerId] !== pc) {
                 channel.close();
@@ -1427,7 +1439,7 @@ module.exports = async (inputData = null) => {
               }
               dataChannels[remotePeerId] = channel;
               await setupDataChannel(remotePeerId, channel);
-            };
+            });
 
             pc.onconnectionstatechange = () => {
               const st = pc.connectionState;
@@ -1459,8 +1471,8 @@ module.exports = async (inputData = null) => {
             });
           };
 
-          const recoverPeerTransport = async (remotePeerId, deadPc) => {
-            if (p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(remotePeerId)) {
+          const recoverPeerTransport = track(async (remotePeerId, deadPc) => {
+            if (!run.isCurrent() || p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(remotePeerId)) {
               return;
             }
             deadPc = deadPc || peerConnections[remotePeerId];
@@ -1468,11 +1480,9 @@ module.exports = async (inputData = null) => {
               return;
             }
             const attempt = peerRetryAttempts[remotePeerId] || 0;
-            await new Promise(resolve =>
-              setTimeout(resolve, Math.min(2 ** Math.min(attempt, 5), 30) * 1000),
-            );
+            await waitForRetry(Math.min(2 ** Math.min(attempt, 5), 30) * 1000);
             await runSerializedPeerOp(remotePeerId, async () => {
-              if (p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(remotePeerId)) {
+              if (!run.isCurrent() || p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(remotePeerId)) {
                 return;
               }
               if (deadPc != null && peerConnections[remotePeerId] !== deadPc) {
@@ -1484,7 +1494,7 @@ module.exports = async (inputData = null) => {
               }
               peerRetryAttempts[remotePeerId] = Math.min(attempt + 1, 5);
               await disposePeerConnection(remotePeerId);
-              if (p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(remotePeerId)) {
+              if (!run.isCurrent() || p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(remotePeerId)) {
                 return;
               }
               const newPc = await createPeerConnection(remotePeerId);
@@ -1496,13 +1506,13 @@ module.exports = async (inputData = null) => {
                 await createOffer(remotePeerId);
               }
             });
-          };
+          });
 
           /**
            * Handle incoming OFFER from remote, then respond with ANSWER.
            */
           const handleOffer = async (fromPeerId, offer) => {
-            if (p2pShuttingDown) {
+            if (!run.isCurrent() || p2pShuttingDown) {
               return;
             }
             // Ignore delayed/stale OFFERs for peers removed from the latest PEER_LIST.
@@ -1511,7 +1521,7 @@ module.exports = async (inputData = null) => {
               return;
             }
             await runSerializedPeerOp(fromPeerId, async () => {
-              if (p2pShuttingDown) {
+              if (!run.isCurrent() || p2pShuttingDown) {
                 return;
               }
               // TOCTOU guard: PEER_LIST can change after the outer fast-path check.
@@ -1606,19 +1616,19 @@ module.exports = async (inputData = null) => {
            * Set up DataChannel for remotePeerId.
            */
           const setupDataChannel = async (remotePeerId, channel) => {
-            channel.onopen = async () => {
+            channel.onopen = track(async () => {
               if (dataChannels[remotePeerId] !== channel) return;
               cancelPeerConnectionDeadline(remotePeerId);
               delete peerRetryAttempts[remotePeerId];
               startDataChannelHeartbeat(remotePeerId, channel);
               await syncLiveConnectionsCount();
-            };
+            });
 
-            channel.onmessage = async e => {
+            channel.onmessage = track(async e => {
               await onDataChannelMessage(e.data);
-            };
+            });
 
-            channel.onclose = async () => {
+            channel.onclose = track(async () => {
               if (dataChannels[remotePeerId] !== channel) return;
               const pc = peerConnections[remotePeerId];
               if (dataChannelHeartbeatTimers[remotePeerId]) {
@@ -1627,12 +1637,12 @@ module.exports = async (inputData = null) => {
               }
               await syncLiveConnectionsCount();
               await recoverPeerTransport(remotePeerId, pc);
-            };
+            });
 
-            channel.onerror = async err => {
+            channel.onerror = track(async err => {
               p2pMsg = '❌ DataChannel error with ' + remotePeerId + ': ' + err;
               await p2pStatusMessageChanged();
-            };
+            });
 
             if (channel.readyState === 'open') {
               await channel.onopen();
@@ -1642,6 +1652,7 @@ module.exports = async (inputData = null) => {
 
         // send clipboard content
         const sendClipBoard = async (clipContent, type_ = 'text') => {
+          if (!run.isCurrent() || transportStopped) return false;
           if (type_ !== 'image') block_image_once = false;
           if (!(await isClipboardSyncEnabled('send_clipboard'))) {
             block_image_once = false;
@@ -1658,7 +1669,7 @@ module.exports = async (inputData = null) => {
 
         let deliveringShare = false;
         async function processPendingShares() {
-          if (deliveringShare) return;
+          if (!run.isCurrent() || deliveringShare) return;
           deliveringShare = true;
           try {
             while (await deliverPendingShare(
@@ -1667,7 +1678,7 @@ module.exports = async (inputData = null) => {
               async (content, type) => {
                 block_image_once = false;
                 const result = await sendClipBoard(content, type);
-                if (type === 'text') {
+                if (run.isCurrent() && type === 'text') {
                   try {
                     await NativeBridgeModule.copyTextToClipboard(content);
                   } catch (error) {
@@ -1699,6 +1710,7 @@ module.exports = async (inputData = null) => {
           }
 
           cleanupClipboardListeners();
+          await run.drain();
         };
 
         function sleep(ms) {
@@ -1716,19 +1728,15 @@ module.exports = async (inputData = null) => {
             const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
             const latest = JSON.parse(json);
 
-            if (restarting && latest.wsIsRunning === 'true') {
+            if (run.isCurrent() && restarting && latest.wsIsRunning === 'true') {
               await stopServices();
               return true;
             }
 
             // check if wsIsRunning is true or else terminate the service
-            if (latest.wsIsRunning !== 'true') {
+            if (!run.isCurrent() || latest.wsIsRunning !== 'true') {
               restarting = false;
               await stopServices();
-              await setDataInAsyncStorage(
-                'wsForegroundServiceTerminated',
-                'true',
-              );
               break;
             }
 
@@ -1821,11 +1829,8 @@ module.exports = async (inputData = null) => {
         return await pollFlagsLoop();
       } catch (error) {
         await setDataInAsyncStorage('wsStatusMessage', '❌ Error:' + error);
-        await stopClipboard();
+        await cleanupTransport();
         cleanupClipboardListeners();
-        await setDataInAsyncStorage('wsIsRunning', 'false');
-        await setDataInAsyncStorage('wsForegroundServiceTerminated', 'true');
-        await notifee.stopForegroundService();
         return false;
       }
     };
@@ -1834,9 +1839,22 @@ module.exports = async (inputData = null) => {
         // Keep the foreground notification alive while replacing the transport.
       }
     } finally {
+      bridge.requestServiceRunStopSync(runId);
       heartbeatStopped = true;
       clearInterval(heartbeatTimer);
       serviceController.abort();
+      // Keep ownership until every old callback and native cleanup completes.
+      // If cleanup fails/hangs, a new start times out instead of overlapping.
+      await stopClipboard();
+      cleanupClipboardListeners();
+      await run.drain();
+      if (transportCleanupFailed) throw new Error('Sync transport cleanup failed; restart ClipCascade before starting sync again.');
+      if (run.isOwner()) {
+        await notifee.stopForegroundService();
+        await setDataInAsyncStorage('wsIsRunning', 'false');
+        await setDataInAsyncStorage('wsForegroundServiceTerminated', 'true');
+        bridge.releaseServiceRunSync(runId);
+      }
     }
   });
 
@@ -1880,6 +1898,12 @@ module.exports = async (inputData = null) => {
 
     return [true, 'Foreground service is running'];
   } catch (error) {
+    if (!runnerStarted && run.isOwner()) {
+      bridge.requestServiceRunStopSync(runId);
+      await notifee.stopForegroundService();
+      await setDataInAsyncStorage('wsForegroundServiceTerminated', 'true');
+      bridge.releaseServiceRunSync(runId);
+    }
     return [false, error];
   }
 };

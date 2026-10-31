@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.BufferedReader
@@ -113,7 +114,16 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
     }
 
     @ReactMethod
-    fun stopListening() {
+    fun stopListening(promise: Promise) {
+        try {
+            stopClipboardListener()
+            promise.resolve(null)
+        } catch (error: Exception) {
+            promise.reject("CLIPBOARD_STOP_FAILED", "Clipboard monitoring could not finish stopping", error)
+        }
+    }
+
+    private fun stopClipboardListener() {
         // 1) Remove clipboard listener
         listener?.let {
             clipboardManager.removePrimaryClipChangedListener(it)
@@ -123,7 +133,6 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
 
         // 2) Tear down logcat‐reader thread & process
         val session = logcatReader
-        logcatReader = null
         session?.stopped = true
         try {
             session?.thread?.interrupt()
@@ -131,6 +140,9 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
         try {
             session?.process?.destroy()
         } catch (_: Exception) {}
+        session?.thread?.join(1000)
+        check(session?.thread?.isAlive != true) { "Clipboard log reader is still stopping" }
+        if (logcatReader === session) logcatReader = null
     }
 
 
