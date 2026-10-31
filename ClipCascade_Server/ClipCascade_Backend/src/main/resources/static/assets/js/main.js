@@ -90,6 +90,14 @@ let peerConnections = {}; // key = peerId, value = RTCPeerConnection
 let dataChannels = {}; // key = peerId, value = RTCDataChannel
 let heartbeatIntervalId = null; // for 20s keep-alive on P2P
 let stunConfig = { iceServers: [] }; // will be loaded from /stun-url
+const P2P_CONNECTION_TIMEOUT_MS = 90000;
+let roomPeers = new Set();
+let pendingPeerList = null;
+const peerConnectionDeadlines = new Map();
+const peerRetryTimers = new Map();
+const peerRetryAttempts = new Map();
+const peerOperations = new Map();
+const pendingPeerIce = new WeakMap();
 
 // Common
 let monitoringRequested = false;
@@ -717,7 +725,11 @@ async function connectP2P(generation) {
 }
 
 function closePeerConnections() {
-  for (const peerId in peerConnections) peerConnections[peerId].close();
+  roomPeers.clear();
+  pendingPeerList = null;
+  for (const peerId in peerConnections) disposePeerConnection(peerId);
+  peerOperations.clear();
+  peerRetryAttempts.clear();
   peerConnections = {};
   dataChannels = {};
   myPeerId = null;
@@ -736,8 +748,10 @@ function handleSignalingMessage(msg) {
   const type = msg.type || "";
   switch (type) {
     case "ASSIGNED_ID":
+      if (myPeerId && myPeerId !== msg.peerId) closePeerConnections();
       myPeerId = msg.peerId;
       console.log("Assigned myPeerId:", myPeerId);
+      if (pendingPeerList !== null) handlePeerListUpdate(pendingPeerList);
       break;
     case "PEER_LIST":
       handlePeerListUpdate(msg.peers || []);
@@ -759,6 +773,12 @@ function handleSignalingMessage(msg) {
 
 // Tie-break logic: Only create an offer if myPeerId < peerId
 function handlePeerListUpdate(peers) {
+  roomPeers = new Set(peers);
+  if (!myPeerId) {
+    pendingPeerList = peers;
+    return;
+  }
+  pendingPeerList = null;
   peers.forEach((peerId) => {
     if (peerId === myPeerId) return; // Ignore self
     if (!peerConnections[peerId]) {
@@ -770,11 +790,64 @@ function handlePeerListUpdate(peers) {
   // If any leftover peers are gone from the list, close them
   for (const pid in peerConnections) {
     if (!peers.includes(pid)) {
-      peerConnections[pid].close();
-      delete peerConnections[pid];
-      delete dataChannels[pid];
+      disposePeerConnection(pid);
+      peerRetryAttempts.delete(pid);
+      peerOperations.delete(pid);
     }
   }
+}
+
+function cancelPeerConnectionDeadline(peerId) {
+  clearTimeout(peerConnectionDeadlines.get(peerId));
+  peerConnectionDeadlines.delete(peerId);
+}
+
+function disposePeerConnection(peerId) {
+  cancelPeerConnectionDeadline(peerId);
+  clearTimeout(peerRetryTimers.get(peerId));
+  peerRetryTimers.delete(peerId);
+  const pc = peerConnections[peerId];
+  const channel = dataChannels[peerId];
+  delete peerConnections[peerId];
+  delete dataChannels[peerId];
+  if (channel) {
+    channel.onopen = channel.onclose = channel.onmessage = null;
+    channel.close();
+  }
+  if (pc) {
+    pc.onicecandidate = pc.ondatachannel = pc.onconnectionstatechange = null;
+    pc.close();
+  }
+}
+
+function recoverPeerTransport(peerId, pc) {
+  const current = () => monitoringRequested && myPeerId && roomPeers.has(peerId) &&
+    peerConnections[peerId] === pc;
+  if (!current() || dataChannels[peerId]?.readyState === "open" || peerRetryTimers.has(peerId)) return;
+  const attempt = peerRetryAttempts.get(peerId) || 0;
+  const delay = Math.min(2 ** Math.min(attempt, 5), 30) * 1000;
+  console.warn("P2P: scheduling peer recovery", peerId, pc.connectionState, delay);
+  peerRetryTimers.set(peerId, setTimeout(() => {
+    if (!current()) return;
+    peerRetryTimers.delete(peerId);
+    if (dataChannels[peerId]?.readyState === "open") return;
+    peerRetryAttempts.set(peerId, Math.min(attempt + 1, 5));
+    disposePeerConnection(peerId);
+    createPeerConnection(peerId, myPeerId < peerId);
+  }, delay));
+}
+
+function runPeerOperation(peerId, operation) {
+  const next = (peerOperations.get(peerId) || Promise.resolve())
+    .then(operation).catch(error => console.error("P2P operation failed", peerId, error));
+  peerOperations.set(peerId, next);
+  return next;
+}
+
+async function flushPendingPeerIce(pc) {
+  const candidates = pendingPeerIce.get(pc) || [];
+  pendingPeerIce.delete(pc);
+  for (const candidate of candidates) await pc.addIceCandidate(candidate);
 }
 
 function createPeerConnection(peerId, initiator) {
@@ -785,7 +858,7 @@ function createPeerConnection(peerId, initiator) {
   peerConnections[peerId] = pc;
 
   pc.onicecandidate = (event) => {
-    if (event.candidate) {
+    if (peerConnections[peerId] === pc && event.candidate) {
       sendSignalingMessage({
         type: "ICE_CANDIDATE",
         fromPeerId: myPeerId,
@@ -797,8 +870,27 @@ function createPeerConnection(peerId, initiator) {
 
   pc.ondatachannel = (event) => {
     const channel = event.channel;
+    if (peerConnections[peerId] !== pc) {
+      channel.close();
+      return;
+    }
     setupDataChannel(peerId, channel);
   };
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+      recoverPeerTransport(peerId, pc);
+    }
+  };
+  cancelPeerConnectionDeadline(peerId);
+  peerConnectionDeadlines.set(peerId, setTimeout(() => {
+    if (peerConnections[peerId] !== pc) return;
+    peerConnectionDeadlines.delete(peerId);
+    if (dataChannels[peerId]?.readyState === "open") return;
+    console.warn("P2P: data channel did not open within 90s", peerId,
+      pc.connectionState, pc.iceConnectionState, pc.signalingState);
+    recoverPeerTransport(peerId, pc);
+  }, P2P_CONNECTION_TIMEOUT_MS));
 
   // If we are the initiator, create data channel + send offer
   if (initiator) {
@@ -806,8 +898,11 @@ function createPeerConnection(peerId, initiator) {
     setupDataChannel(peerId, channel);
 
     pc.createOffer()
-      .then((offer) => pc.setLocalDescription(offer))
+      .then((offer) => {
+        if (peerConnections[peerId] === pc) return pc.setLocalDescription(offer);
+      })
       .then(() => {
+        if (peerConnections[peerId] !== pc) return;
         sendSignalingMessage({
           type: "OFFER",
           fromPeerId: myPeerId,
@@ -824,10 +919,17 @@ function createPeerConnection(peerId, initiator) {
 function setupDataChannel(peerId, channel) {
   dataChannels[peerId] = channel;
   channel.onopen = () => {
+    if (dataChannels[peerId] !== channel) return;
+    cancelPeerConnectionDeadline(peerId);
+    clearTimeout(peerRetryTimers.get(peerId));
+    peerRetryTimers.delete(peerId);
+    peerRetryAttempts.delete(peerId);
     console.log("Data channel open with peer:", peerId);
   };
   channel.onclose = () => {
+    if (dataChannels[peerId] !== channel) return;
     console.log("Data channel closed with peer:", peerId);
+    recoverPeerTransport(peerId, peerConnections[peerId]);
   };
   channel.onmessage = (event) => {
     let msgObj;
@@ -839,56 +941,73 @@ function setupDataChannel(peerId, channel) {
     }
     displayIncomingMessage(msgObj);
   };
+  if (channel.readyState === "open") channel.onopen();
 }
 
 function handleOffer(msg) {
   const fromPeerId = msg.fromPeerId;
-  if (!peerConnections[fromPeerId]) {
-    createPeerConnection(fromPeerId, false);
-  }
-  const pc = peerConnections[fromPeerId];
-  pc.setRemoteDescription(new RTCSessionDescription(msg.offer))
-    .then(() => pc.createAnswer())
-    .then((answer) => pc.setLocalDescription(answer))
-    .then(() => {
+  return runPeerOperation(fromPeerId, async () => {
+    if (!monitoringRequested || !roomPeers.has(fromPeerId)) return;
+    let pc = peerConnections[fromPeerId];
+    // A recovery offer describes a fresh transport, not renegotiation of the old one.
+    if (pc && !(pc.signalingState === "stable" &&
+        !pc.remoteDescription && pc.connectionState === "new")) {
+      disposePeerConnection(fromPeerId);
+      pc = null;
+    }
+    if (!pc) {
+      createPeerConnection(fromPeerId, false);
+      pc = peerConnections[fromPeerId];
+    }
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+    if (peerConnections[fromPeerId] !== pc) return;
+    await flushPendingPeerIce(pc);
+    if (peerConnections[fromPeerId] !== pc) return;
+    const answer = await pc.createAnswer();
+    if (peerConnections[fromPeerId] !== pc) return;
+    await pc.setLocalDescription(answer);
+    if (peerConnections[fromPeerId] === pc) {
       sendSignalingMessage({
         type: "ANSWER",
         fromPeerId: myPeerId,
         toPeerId: fromPeerId,
         answer: pc.localDescription,
       });
-    })
-    .catch((err) => {
-      console.error("Failed to handleOffer:", err);
-    });
+    }
+  });
 }
 
 function handleAnswer(msg) {
   const fromPeerId = msg.fromPeerId;
-  const pc = peerConnections[fromPeerId];
-  if (!pc) return;
+  return runPeerOperation(fromPeerId, async () => {
+    const pc = peerConnections[fromPeerId];
+    if (!pc || pc.connectionState === "closed" || pc.connectionState === "failed") return;
 
-  // If for some reason we get an ANSWER at an unexpected time:
-  if (pc.signalingState !== "have-local-offer") {
-    console.warn(
-      `Ignoring unexpected ANSWER in signalingState= ${pc.signalingState}`
-    );
-    return;
-  }
-  pc.setRemoteDescription(new RTCSessionDescription(msg.answer)).catch(
-    (err) => {
-      console.error("Failed to setRemoteDescription(Answer):", err);
+    // Ignore delayed answers from an earlier negotiation.
+    if (pc.signalingState !== "have-local-offer") {
+      console.warn(
+        `Ignoring unexpected ANSWER in signalingState= ${pc.signalingState}`
+      );
+      return;
     }
-  );
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+    if (peerConnections[fromPeerId] === pc) await flushPendingPeerIce(pc);
+  });
 }
 
 function handleIceCandidateMsg(msg) {
   const fromPeerId = msg.fromPeerId;
-  const pc = peerConnections[fromPeerId];
-  if (!pc) return;
-
-  pc.addIceCandidate(new RTCIceCandidate(msg.candidate)).catch((err) => {
-    console.error("Error adding ICE candidate:", err);
+  return runPeerOperation(fromPeerId, async () => {
+    const pc = peerConnections[fromPeerId];
+    if (!pc || pc.connectionState === "closed" || pc.connectionState === "failed") return;
+    const candidate = new RTCIceCandidate(msg.candidate);
+    if (!pc.remoteDescription) {
+      const candidates = pendingPeerIce.get(pc) || [];
+      if (candidates.length < 256) candidates.push(candidate);
+      pendingPeerIce.set(pc, candidates);
+    } else {
+      await pc.addIceCandidate(candidate);
+    }
   });
 }
 

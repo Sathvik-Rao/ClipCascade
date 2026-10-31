@@ -188,6 +188,8 @@ P2P_DC_HEARTBEAT_INTERVAL_SEC = 20
 # After sleep, aiortc RTCPeerConnection.close() can block; cap wait so the asyncio
 # thread does not stall (which would also block processing ASSIGNED_ID / PEER_LIST).
 P2P_PC_CLOSE_TIMEOUT_SEC = 5.0
+# Bound negotiation even when ICE never transitions to failed/closed.
+P2P_CONNECTION_TIMEOUT_SEC = 90
 
 # Drop partially-received fragment buffers idle for this many seconds. Prevents
 # memory leak when a sender drops the final fragment mid-transfer.

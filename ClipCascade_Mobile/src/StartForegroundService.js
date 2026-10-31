@@ -47,6 +47,7 @@ module.exports = async (inputData = null) => {
   const FRAGMENT_SIZE = 15360; // 15 KiB
   const FRAGMENT_TTL_MS = 60000; // drop partial fragment buffers idle for 60s
   const STOMP_DEACTIVATE_TIMEOUT_MS = 5000; // bound the STOMP deactivate() wait
+  const P2P_CONNECTION_TIMEOUT_MS = 90000;
 
   // forground service
   notifee.registerForegroundService(async notification => {
@@ -661,6 +662,7 @@ module.exports = async (inputData = null) => {
           let signalingReconnectTimer = null;
           const peerOpChains = {};
           const peerRetryAttempts = {};
+          const peerConnectionDeadlines = {};
           const pendingIce = new WeakMap();
           const dataChannelHeartbeatTimers = {};
           const P2P_DC_KEEPALIVE_JSON = JSON.stringify({ _cc_keepalive: true });
@@ -755,6 +757,9 @@ module.exports = async (inputData = null) => {
 
           async function cleanupPeerConnections() {
             p2pShuttingDown = true;
+            for (const id of Object.keys(peerConnectionDeadlines)) {
+              cancelPeerConnectionDeadline(id);
+            }
             try {
               for (const id of Object.keys(dataChannelHeartbeatTimers)) {
                 clearInterval(dataChannelHeartbeatTimers[id]);
@@ -1275,6 +1280,7 @@ module.exports = async (inputData = null) => {
             );
             // 2) For each stale peer, close data channel and peer connection
             for (const oldPid of stalePeerIds) {
+              cancelPeerConnectionDeadline(oldPid);
               delete peerOpChains[oldPid];
               delete peerRetryAttempts[oldPid];
               if (dataChannelHeartbeatTimers[oldPid]) {
@@ -1306,6 +1312,7 @@ module.exports = async (inputData = null) => {
           };
 
           const disposePeerConnection = async peerId => {
+            cancelPeerConnectionDeadline(peerId);
             if (dataChannelHeartbeatTimers[peerId]) {
               clearInterval(dataChannelHeartbeatTimers[peerId]);
               delete dataChannelHeartbeatTimers[peerId];
@@ -1336,6 +1343,23 @@ module.exports = async (inputData = null) => {
               delete peerConnections[peerId];
             }
             await syncLiveConnectionsCount();
+          };
+
+          const cancelPeerConnectionDeadline = peerId => {
+            if (peerConnectionDeadlines[peerId] != null) {
+              clearTimeout(peerConnectionDeadlines[peerId]);
+              delete peerConnectionDeadlines[peerId];
+            }
+          };
+
+          const peerConnectionTimedOut = (peerId, pc) => {
+            if (peerConnections[peerId] !== pc) return;
+            delete peerConnectionDeadlines[peerId];
+            if (p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(peerId)) return;
+            if (dataChannels[peerId]?.readyState === 'open') return;
+            console.warn('P2P: data channel did not open within 90s; scheduling recovery',
+              peerId, pc.connectionState, pc.iceConnectionState, pc.signalingState);
+            recoverPeerTransport(peerId, pc);
           };
 
           /**
@@ -1378,6 +1402,10 @@ module.exports = async (inputData = null) => {
               }
             };
 
+            cancelPeerConnectionDeadline(remotePeerId);
+            peerConnectionDeadlines[remotePeerId] = setTimeout(
+              () => peerConnectionTimedOut(remotePeerId, pc), P2P_CONNECTION_TIMEOUT_MS,
+            );
             return pc;
           };
 
@@ -1398,7 +1426,7 @@ module.exports = async (inputData = null) => {
           };
 
           const recoverPeerTransport = async (remotePeerId, deadPc) => {
-            if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
+            if (p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(remotePeerId)) {
               return;
             }
             deadPc = deadPc || peerConnections[remotePeerId];
@@ -1410,7 +1438,7 @@ module.exports = async (inputData = null) => {
               setTimeout(resolve, Math.min(2 ** Math.min(attempt, 5), 30) * 1000),
             );
             await runSerializedPeerOp(remotePeerId, async () => {
-              if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
+              if (p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(remotePeerId)) {
                 return;
               }
               if (deadPc != null && peerConnections[remotePeerId] !== deadPc) {
@@ -1422,7 +1450,7 @@ module.exports = async (inputData = null) => {
               }
               peerRetryAttempts[remotePeerId] = Math.min(attempt + 1, 5);
               await disposePeerConnection(remotePeerId);
-              if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
+              if (p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(remotePeerId)) {
                 return;
               }
               const newPc = await createPeerConnection(remotePeerId);
@@ -1546,6 +1574,7 @@ module.exports = async (inputData = null) => {
           const setupDataChannel = async (remotePeerId, channel) => {
             channel.onopen = async () => {
               if (dataChannels[remotePeerId] !== channel) return;
+              cancelPeerConnectionDeadline(remotePeerId);
               delete peerRetryAttempts[remotePeerId];
               startDataChannelHeartbeat(remotePeerId, channel);
               await syncLiveConnectionsCount();

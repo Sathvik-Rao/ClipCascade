@@ -75,6 +75,7 @@ class P2PManager(ReconnectMixin, WSInterface):
         # Serialize recover + offer handling per peer (same asyncio loop as signaling handlers).
         self._peer_recovery_locks: Dict[str, asyncio.Lock] = {}
         self._peer_retry_attempts: dict[str, int] = {}
+        self._peer_connection_deadlines: dict[str, asyncio.TimerHandle] = {}
         self._pending_ice: dict[str, list] = {}
         self._dc_heartbeat_handle: Optional[asyncio.TimerHandle] = None
 
@@ -388,6 +389,8 @@ class P2PManager(ReconnectMixin, WSInterface):
 
     async def _cleanup_peer_connections(self, clear_bootstrap_state: bool = True):
         self._p2p_shutting_down = True
+        for peer_id in list(self._peer_connection_deadlines):
+            self._cancel_peer_connection_deadline(peer_id)
         self._cancel_dc_heartbeat()
         self.reset_receiving_fragments()
         try:
@@ -463,6 +466,7 @@ class P2PManager(ReconnectMixin, WSInterface):
         # Find which peers are no longer present
         stale_ids = set(self.peer_connections.keys()) - updated_peers
         for old_pid in stale_ids:
+            self._cancel_peer_connection_deadline(old_pid)
             logging.debug(f"Removing stale peer: {old_pid}")
             self._peer_recovery_locks.pop(old_pid, None)
             self._peer_retry_attempts.pop(old_pid, None)
@@ -513,6 +517,7 @@ class P2PManager(ReconnectMixin, WSInterface):
 
     async def _dispose_peer_connection(self, peer_id: str) -> None:
         """Close and drop one peer's DC/PC without changing self.peers (used by recovery and offer handling)."""
+        self._cancel_peer_connection_deadline(peer_id)
         self._pending_ice.pop(peer_id, None)
         # Invalidate both objects before close callbacks can request recovery.
         pc = self.peer_connections.pop(peer_id, None)
@@ -583,6 +588,29 @@ class P2PManager(ReconnectMixin, WSInterface):
                 self._setup_data_channel(remote_peer_id, channel)
                 await self._create_offer(remote_peer_id)
 
+    def _cancel_peer_connection_deadline(self, peer_id: str) -> None:
+        handle = self._peer_connection_deadlines.pop(peer_id, None)
+        if handle is not None:
+            handle.cancel()
+
+    def _peer_connection_timed_out(self, peer_id: str, pc: RTCPeerConnection) -> None:
+        # A replaced connection's timer must never touch its successor.
+        if self.peer_connections.get(peer_id) is not pc:
+            return
+        self._peer_connection_deadlines.pop(peer_id, None)
+        if self._p2p_shutting_down or self.disconnected or peer_id not in self.peers:
+            return
+        channel = self.data_channels.get(peer_id)
+        if channel is not None and channel.readyState == "open":
+            return
+        logging.warning(
+            "P2P: peer %s data channel did not open within %ss "
+            "(connection=%s, ice=%s, signaling=%s); scheduling recovery",
+            peer_id, P2P_CONNECTION_TIMEOUT_SEC,
+            pc.connectionState, pc.iceConnectionState, pc.signalingState,
+        )
+        self.schedule_task(self._recover_peer_transport(peer_id, pc))
+
     def _create_peer_connection(self, remote_peer_id: str) -> RTCPeerConnection:
         """
         Create and return a new RTCPeerConnection, wired up with ICE-candidate and data-channel handling.
@@ -642,6 +670,10 @@ class P2PManager(ReconnectMixin, WSInterface):
             self.data_channels[remote_peer_id] = channel
             self._setup_data_channel(remote_peer_id, channel)
 
+        self._cancel_peer_connection_deadline(remote_peer_id)
+        self._peer_connection_deadlines[remote_peer_id] = self.loop.call_later(
+            P2P_CONNECTION_TIMEOUT_SEC, self._peer_connection_timed_out, remote_peer_id, pc
+        )
         return pc
 
     async def _create_offer(self, remote_peer_id: str):
@@ -790,6 +822,7 @@ class P2PManager(ReconnectMixin, WSInterface):
         def on_open():
             if self.data_channels.get(remote_peer_id) is not channel:
                 return
+            self._cancel_peer_connection_deadline(remote_peer_id)
             self._peer_retry_attempts.pop(remote_peer_id, None)
             self._sync_live_connections_count()
 
