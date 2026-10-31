@@ -77,10 +77,7 @@ class TaskbarPanel:
         self.previous_stats: str = ""
         self.previous_stats_items = None
 
-        self.root = (
-            get_gui_root() if PLATFORM == MACOS or PLATFORM.startswith(LINUX)
-            else tk.Tk()
-        )
+        self.root = get_gui_root()
         self.root.withdraw()  # Hide the root window
 
         # Hide dock icon on macOS after creating tkinter window
@@ -546,32 +543,35 @@ class TaskbarPanel:
             if panel.runModal() == NSModalResponseOK:
                 return str(panel.URL().path())
             return ""
-        options = {
-            "parent": self.root,
-            "title": f"Select location to save {'file' if len(files) == 1 else 'files'}",
-            "initialdir": get_downloads_folder(),
-        }
-        if PLATFORM != WINDOWS:
-            return filedialog.askdirectory(**options)
+        title = f"Select location to save {'file' if len(files) == 1 else 'files'}"
+        if PLATFORM == WINDOWS:
+            # Downloads run on a worker. A temporary Tk root can outlive that
+            # worker through Python cycles and crash Tcl when another thread
+            # collects it. Use the native shell picker without creating Tcl.
+            from pythoncom import CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED
+            from win32com.shell import shell, shellcon
+            import win32gui
 
-        # Windows downloads run on a dedicated thread. Create and destroy its
-        # Tk owner on that same thread; never use the tray thread's Tk objects.
-        from pythoncom import CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED
+            def initialize_picker(hwnd, message, unused, initial_directory):
+                if message == shellcon.BFFM_INITIALIZED:
+                    win32gui.SendMessage(
+                        hwnd, shellcon.BFFM_SETSELECTIONW, 1, initial_directory
+                    )
 
-        CoInitializeEx(COINIT_APARTMENTTHREADED)
-        picker_root = None
-        try:
-            picker_root = tk.Tk()
-            picker_root.withdraw()
-            picker_root.attributes("-topmost", True)
-            options["parent"] = picker_root
-            return filedialog.askdirectory(**options)
-        finally:
+            CoInitializeEx(COINIT_APARTMENTTHREADED)
             try:
-                if picker_root is not None:
-                    picker_root.destroy()
+                pidl, _, _ = shell.SHBrowseForFolder(
+                    0, None, title,
+                    # BIF_NEWDIALOGSTYLE (0x40) is absent from pywin32's shellcon.
+                    shellcon.BIF_RETURNONLYFSDIRS | shellcon.BIF_EDITBOX | 0x40,
+                    initialize_picker, get_downloads_folder(),
+                )
+                return shell.SHGetPathFromIDListW(pidl) if pidl is not None else ""
             finally:
                 CoUninitialize()
+        return filedialog.askdirectory(
+            parent=self.root, title=title, initialdir=get_downloads_folder()
+        )
 
     def _on_download(self, icon, item, files):
         if self._stopped.is_set() or self._download_in_progress:

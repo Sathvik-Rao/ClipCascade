@@ -660,6 +660,8 @@ module.exports = async (inputData = null) => {
           let signalingStopped = false;
           let signalingReconnectTimer = null;
           const peerOpChains = {};
+          const peerRetryAttempts = {};
+          const pendingIce = new WeakMap();
           const dataChannelHeartbeatTimers = {};
           const P2P_DC_KEEPALIVE_JSON = JSON.stringify({ _cc_keepalive: true });
 
@@ -729,7 +731,9 @@ module.exports = async (inputData = null) => {
 
           const runSerializedPeerOp = (peerId, op) => {
             const prev = peerOpChains[peerId] || Promise.resolve();
-            const next = prev.then(() => op()).catch(() => {});
+            const next = prev.then(() => op()).catch(error => {
+              console.warn('P2P operation failed for peer', peerId, error);
+            });
             peerOpChains[peerId] = next;
             return next;
           };
@@ -785,6 +789,9 @@ module.exports = async (inputData = null) => {
               }
               peerConnections = {};
 
+              for (const id of Object.keys(peerRetryAttempts)) {
+                delete peerRetryAttempts[id];
+              }
               myPeerId = null;
               pendingPeerList = null;
               peers.clear();
@@ -1240,8 +1247,8 @@ module.exports = async (inputData = null) => {
             peers = updatedPeers;
             await removeStalePeers(updatedPeers);
 
-            peers.forEach(async pid => {
-              if (pid === myPeerId) return; // skip self
+            await Promise.all([...peers].map(pid => runSerializedPeerOp(pid, async () => {
+              if (p2pShuttingDown || !myPeerId || !peers.has(pid) || pid === myPeerId) return;
               if (!peerConnections[pid]) {
                 // Create new PeerConnection
                 const pc = await createPeerConnection(pid);
@@ -1255,7 +1262,7 @@ module.exports = async (inputData = null) => {
                   await createOffer(pid);
                 }
               }
-            });
+            })));
           };
 
           /**
@@ -1269,6 +1276,7 @@ module.exports = async (inputData = null) => {
             // 2) For each stale peer, close data channel and peer connection
             for (const oldPid of stalePeerIds) {
               delete peerOpChains[oldPid];
+              delete peerRetryAttempts[oldPid];
               if (dataChannelHeartbeatTimers[oldPid]) {
                 clearInterval(dataChannelHeartbeatTimers[oldPid]);
                 delete dataChannelHeartbeatTimers[oldPid];
@@ -1355,6 +1363,10 @@ module.exports = async (inputData = null) => {
 
             pc.ondatachannel = async event => {
               const channel = event.channel;
+              if (peerConnections[remotePeerId] !== pc) {
+                channel.close();
+                return;
+              }
               dataChannels[remotePeerId] = channel;
               await setupDataChannel(remotePeerId, channel);
             };
@@ -1389,9 +1401,14 @@ module.exports = async (inputData = null) => {
             if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
               return;
             }
-            if (deadPc != null && peerConnections[remotePeerId] !== deadPc) {
+            deadPc = deadPc || peerConnections[remotePeerId];
+            if (!deadPc || peerConnections[remotePeerId] !== deadPc) {
               return;
             }
+            const attempt = peerRetryAttempts[remotePeerId] || 0;
+            await new Promise(resolve =>
+              setTimeout(resolve, Math.min(2 ** Math.min(attempt, 5), 30) * 1000),
+            );
             await runSerializedPeerOp(remotePeerId, async () => {
               if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
                 return;
@@ -1399,12 +1416,11 @@ module.exports = async (inputData = null) => {
               if (deadPc != null && peerConnections[remotePeerId] !== deadPc) {
                 return;
               }
-              if (deadPc == null) {
-                const ch = dataChannels[remotePeerId];
-                if (ch && ch.readyState === 'open') {
-                  return;
-                }
+              const ch = dataChannels[remotePeerId];
+              if (ch && ch.readyState === 'open') {
+                return;
               }
+              peerRetryAttempts[remotePeerId] = Math.min(attempt + 1, 5);
               await disposePeerConnection(remotePeerId);
               if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
                 return;
@@ -1442,13 +1458,19 @@ module.exports = async (inputData = null) => {
               }
               // Full new offer (e.g. after peer recovery): must not apply on an
               // existing connected PC or datachannel counts diverge across devices.
-              if (peerConnections[fromPeerId]) {
+              let pc = peerConnections[fromPeerId];
+              if (pc && !(pc.signalingState === 'stable' &&
+                  !pc.remoteDescription && pc.connectionState === 'new')) {
                 await disposePeerConnection(fromPeerId);
+                pc = null;
               }
-              const pc = await createPeerConnection(fromPeerId);
-              peerConnections[fromPeerId] = pc;
+              if (!pc) {
+                pc = await createPeerConnection(fromPeerId);
+                peerConnections[fromPeerId] = pc;
+              }
 
               await pc.setRemoteDescription(new RTCSessionDescription(offer));
+              await flushPendingIce(pc);
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
 
@@ -1464,37 +1486,58 @@ module.exports = async (inputData = null) => {
           /**
            * Handle incoming ANSWER from remote to our previously sent OFFER.
            */
-          const handleAnswer = async (fromPeerId, answer) => {
-            const pc = peerConnections[fromPeerId];
-            if (!pc) {
-              return;
+          const flushPendingIce = async pc => {
+            const candidates = pendingIce.get(pc) || [];
+            pendingIce.delete(pc);
+            for (const candidate of candidates) {
+              await pc.addIceCandidate(candidate);
             }
-            if (
-              pc.connectionState === 'failed' ||
-              pc.connectionState === 'closed'
-            ) {
-              return;
-            }
+          };
 
-            await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          const handleAnswer = async (fromPeerId, answer) => {
+            await runSerializedPeerOp(fromPeerId, async () => {
+              const pc = peerConnections[fromPeerId];
+              if (!pc) {
+                return;
+              }
+              if (
+                pc.connectionState === 'failed' ||
+                pc.connectionState === 'closed'
+              ) {
+                return;
+              }
+
+              if (pc.signalingState !== 'have-local-offer') return;
+              await pc.setRemoteDescription(new RTCSessionDescription(answer));
+              await flushPendingIce(pc);
+            });
           };
 
           /**
            * Handle incoming ICE candidate from remote peer.
            */
           const handleIceCandidate = async (fromPeerId, candidateData) => {
-            const pc = peerConnections[fromPeerId];
-            if (!pc) {
-              return;
-            }
-            if (
-              pc.connectionState === 'failed' ||
-              pc.connectionState === 'closed'
-            ) {
-              return;
-            }
+            await runSerializedPeerOp(fromPeerId, async () => {
+              const pc = peerConnections[fromPeerId];
+              if (!pc) {
+                return;
+              }
+              if (
+                pc.connectionState === 'failed' ||
+                pc.connectionState === 'closed'
+              ) {
+                return;
+              }
 
-            await pc.addIceCandidate(new RTCIceCandidate(candidateData));
+              const candidate = new RTCIceCandidate(candidateData);
+              if (!pc.remoteDescription) {
+                const candidates = pendingIce.get(pc) || [];
+                if (candidates.length < 256) candidates.push(candidate);
+                pendingIce.set(pc, candidates);
+                return;
+              }
+              await pc.addIceCandidate(candidate);
+            });
           };
 
           /**
@@ -1502,6 +1545,8 @@ module.exports = async (inputData = null) => {
            */
           const setupDataChannel = async (remotePeerId, channel) => {
             channel.onopen = async () => {
+              if (dataChannels[remotePeerId] !== channel) return;
+              delete peerRetryAttempts[remotePeerId];
               startDataChannelHeartbeat(remotePeerId, channel);
               await syncLiveConnectionsCount();
             };
@@ -1511,12 +1556,14 @@ module.exports = async (inputData = null) => {
             };
 
             channel.onclose = async () => {
+              if (dataChannels[remotePeerId] !== channel) return;
+              const pc = peerConnections[remotePeerId];
               if (dataChannelHeartbeatTimers[remotePeerId]) {
                 clearInterval(dataChannelHeartbeatTimers[remotePeerId]);
                 delete dataChannelHeartbeatTimers[remotePeerId];
               }
               await syncLiveConnectionsCount();
-              await recoverPeerTransport(remotePeerId, null);
+              await recoverPeerTransport(remotePeerId, pc);
             };
 
             channel.onerror = async err => {
@@ -1525,8 +1572,7 @@ module.exports = async (inputData = null) => {
             };
 
             if (channel.readyState === 'open') {
-              startDataChannelHeartbeat(remotePeerId, channel);
-              await syncLiveConnectionsCount();
+              await channel.onopen();
             }
           };
         }

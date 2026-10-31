@@ -72,6 +72,8 @@ class P2PManager(ReconnectMixin, WSInterface):
         self._p2p_shutting_down: bool = False
         # Serialize recover + offer handling per peer (same asyncio loop as signaling handlers).
         self._peer_recovery_locks: Dict[str, asyncio.Lock] = {}
+        self._peer_retry_attempts: dict[str, int] = {}
+        self._pending_ice: dict[str, list] = {}
         self._dc_heartbeat_handle: Optional[asyncio.TimerHandle] = None
 
         # Event loop for asyncio
@@ -264,8 +266,8 @@ class P2PManager(ReconnectMixin, WSInterface):
             elif msg_type == "ICE_CANDIDATE":
                 await self._handle_ice_candidate(data["fromPeerId"], data["candidate"])
 
-        except Exception as e:
-            logging.error(f"Failed to handle websocket message: {e}")
+        except Exception:
+            logging.exception("Failed to handle websocket message")
 
     async def _prepare_reconnect_bootstrap(self):
         """
@@ -396,7 +398,7 @@ class P2PManager(ReconnectMixin, WSInterface):
 
                 for pc in list(self.peer_connections.values()):
                     try:
-                        await asyncio.wait_for(pc.close(), timeout=P2P_PC_CLOSE_TIMEOUT_SEC)
+                        await asyncio.wait_for(self._close_peer_connection(pc), timeout=P2P_PC_CLOSE_TIMEOUT_SEC)
                     except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                         pass
             finally:
@@ -408,6 +410,8 @@ class P2PManager(ReconnectMixin, WSInterface):
                 if clear_bootstrap_state:
                     self._pending_peer_list = None
                 self._peer_recovery_locks.clear()
+                self._peer_retry_attempts.clear()
+                self._pending_ice.clear()
                 with self._live_connections_lock:
                     self.live_connections = 0
         finally:
@@ -429,23 +433,26 @@ class P2PManager(ReconnectMixin, WSInterface):
             return
 
         # 3) For each peer, if we have no RTCPeerConnection, create one
-        for pid in self.peers:
+        for pid in list(self.peers):
             if pid == self.my_peer_id:
                 continue  # Ignore self
 
-            if pid not in self.peer_connections:
-                pc = self._create_peer_connection(pid)
-                self.peer_connections[pid] = pc
+            async with self._get_peer_lock(pid):
+                if self._p2p_shutting_down or pid not in self.peers or self.my_peer_id is None:
+                    continue
+                if pid not in self.peer_connections:
+                    pc = self._create_peer_connection(pid)
+                    self.peer_connections[pid] = pc
 
-                # TIE-BREAKER logic:
-                # We only createOffer if we are the "lesser" peer ID (i.e. myPeerId < pid).
-                # This helps avoid collisions where both sides create an offer simultaneously.
-                if self.my_peer_id < pid:
-                    # We are the "offerer"
-                    channel = pc.createDataChannel("cliptext")
-                    self.data_channels[pid] = channel
-                    self._setup_data_channel(pid, channel)
-                    await self._create_offer(pid)
+                    # TIE-BREAKER logic:
+                    # We only createOffer if we are the "lesser" peer ID (i.e. myPeerId < pid).
+                    # This helps avoid collisions where both sides create an offer simultaneously.
+                    if self.my_peer_id < pid:
+                        # We are the "offerer"
+                        channel = pc.createDataChannel("cliptext")
+                        self.data_channels[pid] = channel
+                        self._setup_data_channel(pid, channel)
+                        await self._create_offer(pid)
 
     async def _remove_stale_peers(self, updated_peers):
         """
@@ -456,6 +463,8 @@ class P2PManager(ReconnectMixin, WSInterface):
         for old_pid in stale_ids:
             logging.debug(f"Removing stale peer: {old_pid}")
             self._peer_recovery_locks.pop(old_pid, None)
+            self._peer_retry_attempts.pop(old_pid, None)
+            self._pending_ice.pop(old_pid, None)
             # Close data channel
             dc = self.data_channels.pop(old_pid, None)
             if dc is not None:
@@ -468,7 +477,7 @@ class P2PManager(ReconnectMixin, WSInterface):
             pc = self.peer_connections.pop(old_pid, None)
             if pc is not None:
                 try:
-                    await asyncio.wait_for(pc.close(), timeout=P2P_PC_CLOSE_TIMEOUT_SEC)
+                    await asyncio.wait_for(self._close_peer_connection(pc), timeout=P2P_PC_CLOSE_TIMEOUT_SEC)
                 except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                     pass
 
@@ -481,18 +490,39 @@ class P2PManager(ReconnectMixin, WSInterface):
             self._peer_recovery_locks[peer_id] = lock
         return lock
 
+    async def _close_peer_connection(self, pc) -> None:
+        # aioice 0.9 (used by aiortc 1.10) cancels ICE checks without
+        # awaiting them. Drain them before closing UDP sockets so their STUN
+        # retry timers cannot run against a disposed transport. This private
+        # compatibility access is optional for other aiortc versions.
+        sctp = getattr(pc, "sctp", None)
+        dtls = getattr(sctp, "transport", None)
+        ice = getattr(dtls, "transport", None)
+        connection = getattr(ice, "_connection", None)
+        tasks = [
+            check.task for check in getattr(connection, "_check_list", [])
+            if check.task is not None and not check.task.done()
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        await pc.close()
+
     async def _dispose_peer_connection(self, peer_id: str) -> None:
         """Close and drop one peer's DC/PC without changing self.peers (used by recovery and offer handling)."""
+        self._pending_ice.pop(peer_id, None)
+        # Invalidate both objects before close callbacks can request recovery.
+        pc = self.peer_connections.pop(peer_id, None)
         dc = self.data_channels.pop(peer_id, None)
         if dc is not None:
             try:
                 dc.close()
             except Exception:
                 pass
-        pc = self.peer_connections.pop(peer_id, None)
         if pc is not None:
             try:
-                await asyncio.wait_for(pc.close(), timeout=P2P_PC_CLOSE_TIMEOUT_SEC)
+                await asyncio.wait_for(self._close_peer_connection(pc), timeout=P2P_PC_CLOSE_TIMEOUT_SEC)
             except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
                 pass
         self._sync_live_connections_count()
@@ -508,8 +538,15 @@ class P2PManager(ReconnectMixin, WSInterface):
             return
         if self.my_peer_id is None or remote_peer_id not in self.peers:
             return
-        if dead_pc is not None and self.peer_connections.get(remote_peer_id) is not dead_pc:
+        if dead_pc is None:
+            dead_pc = self.peer_connections.get(remote_peer_id)
+        if dead_pc is None or self.peer_connections.get(remote_peer_id) is not dead_pc:
             return
+
+        # Keep failed networks from producing a tight reconnect loop. Sleeping
+        # outside the peer lock lets a remote offer repair the connection first.
+        attempt = self._peer_retry_attempts.get(remote_peer_id, 0)
+        await asyncio.sleep(min(2 ** min(attempt, 5), 30))
 
         lock = self._get_peer_lock(remote_peer_id)
         async with lock:
@@ -519,11 +556,11 @@ class P2PManager(ReconnectMixin, WSInterface):
                 return
             if dead_pc is not None and self.peer_connections.get(remote_peer_id) is not dead_pc:
                 return
-            if dead_pc is None:
-                ch = self.data_channels.get(remote_peer_id)
-                if ch is not None and getattr(ch, "readyState", "") == "open":
-                    return
+            ch = self.data_channels.get(remote_peer_id)
+            if ch is not None and getattr(ch, "readyState", "") == "open":
+                return
 
+            self._peer_retry_attempts[remote_peer_id] = min(attempt + 1, 5)
             logging.info("P2P: recovering WebRTC transport to peer %s", remote_peer_id)
 
             await self._dispose_peer_connection(remote_peer_id)
@@ -596,6 +633,9 @@ class P2PManager(ReconnectMixin, WSInterface):
 
         @pc.on("datachannel")
         def on_datachannel(channel):
+            if self.peer_connections.get(remote_peer_id) is not pc:
+                channel.close()
+                return
             # This fires when the remote side creates a datachannel
             self.data_channels[remote_peer_id] = channel
             self._setup_data_channel(remote_peer_id, channel)
@@ -625,8 +665,8 @@ class P2PManager(ReconnectMixin, WSInterface):
     async def _handle_offer(self, from_peer_id: str, offer: dict):
         """
         Respond to an incoming OFFER from a remote peer.
-        Always replaces any existing RTCPeerConnection for this peer before applying
-        the SDP: recovery sends a full new offer; applying it on an already-connected
+        Replaces any negotiated RTCPeerConnection before applying the SDP:
+        recovery sends a full new offer; applying it on an already-connected
         PC leaves ICE/datachannel mismatched (remote shows Peers: 1, local 0).
         """
         if self._p2p_shutting_down:
@@ -642,13 +682,22 @@ class P2PManager(ReconnectMixin, WSInterface):
             if self.my_peer_id is not None and self.peers and from_peer_id not in self.peers:
                 logging.debug("Ignoring stale OFFER for removed peer (in-lock): %s", from_peer_id)
                 return
-            if from_peer_id in self.peer_connections:
+            pc = self.peer_connections.get(from_peer_id)
+            # Keep the untouched room-list placeholder and its early candidates.
+            if pc is not None and not (
+                pc.signalingState == "stable"
+                and pc.remoteDescription is None
+                and pc.connectionState == "new"
+            ):
                 await self._dispose_peer_connection(from_peer_id)
-            pc = self._create_peer_connection(from_peer_id)
-            self.peer_connections[from_peer_id] = pc
+                pc = None
+            if pc is None:
+                pc = self._create_peer_connection(from_peer_id)
+                self.peer_connections[from_peer_id] = pc
 
             desc = RTCSessionDescription(sdp=offer["sdp"], type=offer["type"])
             await pc.setRemoteDescription(desc)
+            await self._flush_pending_ice(from_peer_id, pc)
 
             answer = await pc.createAnswer()
             await pc.setLocalDescription(answer)
@@ -666,6 +715,10 @@ class P2PManager(ReconnectMixin, WSInterface):
             )
 
     async def _handle_answer(self, from_peer_id: str, answer: dict):
+        async with self._get_peer_lock(from_peer_id):
+            await self._apply_answer(from_peer_id, answer)
+
+    async def _apply_answer(self, from_peer_id: str, answer: dict):
         """
         Handle an incoming ANSWER to our previously sent OFFER.
         """
@@ -676,10 +729,21 @@ class P2PManager(ReconnectMixin, WSInterface):
         if getattr(pc, "connectionState", "") in ("failed", "closed"):
             logging.debug("Ignoring ANSWER for dead peer connection: %s", from_peer_id)
             return
+        if pc.signalingState != "have-local-offer":
+            return
         desc = RTCSessionDescription(sdp=answer["sdp"], type=answer["type"])
         await pc.setRemoteDescription(desc)
+        await self._flush_pending_ice(from_peer_id, pc)
 
     async def _handle_ice_candidate(self, from_peer_id: str, candidate_data: dict):
+        async with self._get_peer_lock(from_peer_id):
+            await self._apply_ice_candidate(from_peer_id, candidate_data)
+
+    async def _flush_pending_ice(self, peer_id, pc):
+        for candidate in self._pending_ice.pop(peer_id, []):
+            await pc.addIceCandidate(candidate)
+
+    async def _apply_ice_candidate(self, from_peer_id: str, candidate_data: dict):
         """
         Handle an incoming ICE candidate from the remote peer.
         """
@@ -708,6 +772,11 @@ class P2PManager(ReconnectMixin, WSInterface):
             sdpMLineIndex=candidate_data.get("sdpMLineIndex"),
             tcpType=parsed_candidate.get("tcptype"),
         )
+        if pc.remoteDescription is None:
+            pending = self._pending_ice.setdefault(from_peer_id, [])
+            if len(pending) < 256:
+                pending.append(ice_candidate)
+            return
         await pc.addIceCandidate(ice_candidate)
 
     def _setup_data_channel(self, remote_peer_id: str, channel: RTCDataChannel):
@@ -717,10 +786,13 @@ class P2PManager(ReconnectMixin, WSInterface):
 
         @channel.on("open")
         def on_open():
+            if self.data_channels.get(remote_peer_id) is not channel:
+                return
+            self._peer_retry_attempts.pop(remote_peer_id, None)
             self._sync_live_connections_count()
 
         if channel.readyState == "open":
-            self._sync_live_connections_count()
+            on_open()
 
         @channel.on("message")
         def on_message(message):
@@ -728,8 +800,11 @@ class P2PManager(ReconnectMixin, WSInterface):
 
         @channel.on("close")
         def on_close():
+            if self.data_channels.get(remote_peer_id) is not channel:
+                return
+            pc = self.peer_connections.get(remote_peer_id)
             self._sync_live_connections_count()
-            self.schedule_task(self._recover_peer_transport(remote_peer_id, None))
+            self.schedule_task(self._recover_peer_transport(remote_peer_id, pc))
 
         @channel.on("error")
         def on_error(e):
