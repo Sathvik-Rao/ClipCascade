@@ -15,6 +15,7 @@ from clipboard.clipboard_manager import ClipboardManager
 from utils.notification_manager import NotificationManager
 from utils.request_manager import RequestManager
 from utils.ssl_helper import websocket_sslopt_for_config
+from utils.aioice_compat import install_stun_retry_guard
 from core.constants import *
 from aiortc import (
     RTCPeerConnection,
@@ -32,6 +33,7 @@ else:
 
 class P2PManager(ReconnectMixin, WSInterface):
     def __init__(self, config: Config, is_login_phase=True):
+        install_stun_retry_guard()
         self.config = config
         self.clipboard_manager = ClipboardManager(self.config)
         self.cipher_manager = CipherManager(self.config)
