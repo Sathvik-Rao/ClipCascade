@@ -71,7 +71,10 @@ class LoginForm(GuiWindow):
             if status:
                 message = f"ClipCascade {status[1]} is available (installed: {status[2]})."
                 if self.focus_displayof() is not None:
-                    if messagebox.askyesno("Update available", message + "\nOpen the download page?", parent=self):
+                    if messagebox.askyesnocancel(
+                        "Update available", message + "\nOpen the download page?",
+                        parent=self, default=messagebox.CANCEL,
+                    ) is True:
                         webbrowser.open(status[3])
                 else:
                     threading.Thread(

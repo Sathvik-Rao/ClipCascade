@@ -6,12 +6,31 @@ import tkinter as tk
 _gui_root = None
 
 
+class _GuiRoot(tk.Tk):
+    _callback_interrupt = None
+
+    def report_callback_exception(self, exc, value, traceback):
+        if not issubclass(exc, KeyboardInterrupt):
+            return super().report_callback_exception(exc, value, traceback)
+        # Tk catches callback exceptions, including Ctrl+C in native dialogs.
+        # Unwind all window waits and re-raise outside Tcl so run() can clean up.
+        self._callback_interrupt = value
+        for child in list(self.winfo_children()):
+            child.destroy()
+
+    def raise_callback_interrupt(self):
+        interrupt = self._callback_interrupt
+        if interrupt is not None:
+            self._callback_interrupt = None
+            raise interrupt
+
+
 def get_gui_root():
     global _gui_root
     if threading.current_thread() is not threading.main_thread():
         raise RuntimeError("Tk windows must be used on the main thread")
     if _gui_root is None:
-        _gui_root = tk.Tk()
+        _gui_root = _GuiRoot()
         _gui_root.withdraw()
     return _gui_root
 
@@ -50,4 +69,7 @@ class GuiWindow(tk.Toplevel):
     def mainloop(self, n=0):
         # The hidden owner remains alive when this window is destroyed.
         # Wait for this window only, rather than the owner's whole loop.
-        self.wait_window()
+        try:
+            self.wait_window()
+        finally:
+            get_gui_root().raise_callback_interrupt()
