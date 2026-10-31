@@ -50,6 +50,7 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
     @ReactMethod(isBlockingSynchronousMethod = true)
     fun resetIdleServiceStateSync(): Boolean = ServiceRunRegistry.withIdle {
+        asyncBridge.setValue("sync_requested", asyncBridge.isSyncRequested().toString())
         asyncBridge.setValue("wsIsRunning", "false")
         asyncBridge.setValue("wsStatusMessage", "")
         asyncBridge.setValue("p2pStatusMessage", "")
@@ -58,7 +59,8 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     @ReactMethod(isBlockingSynchronousMethod = true)
     fun claimServiceRunSync(): String? = ServiceRunRegistry.withIdle {
         val id = ServiceRunRegistry.claim()!!
-        if (!asyncBridge.setValue("wsIsRunning", "true") ||
+        if (!asyncBridge.setValue("sync_requested", "true") ||
+            !asyncBridge.setValue("wsIsRunning", "true") ||
             !asyncBridge.setValue("wsForegroundServiceTerminated", "false")) {
             ServiceRunRegistry.release(id)
             null
@@ -74,10 +76,21 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     fun isServiceRunCurrentSync(id: String): Boolean = ServiceRunRegistry.isCurrent(id)
 
     @ReactMethod(isBlockingSynchronousMethod = true)
-    fun requestServiceRunStopSync(id: String): Boolean = ServiceRunRegistry.withOwner(id) {
-        ServiceRunRegistry.stop(id)
-        asyncBridge.setValue("wsIsRunning", "false")
-    } ?: false
+    fun requestServiceRunStopSync(id: String?, disableSync: Boolean): Boolean {
+        val stopState = {
+            val requested = !disableSync && asyncBridge.isSyncRequested()
+            asyncBridge.setValue("sync_requested", requested.toString()) &&
+                asyncBridge.setValue("wsIsRunning", "false")
+        }
+        return if (id == null) {
+            ServiceRunRegistry.withIdle(stopState) ?: false
+        } else {
+            ServiceRunRegistry.withOwner(id) {
+                ServiceRunRegistry.stop(id)
+                stopState()
+            } ?: false
+        }
+    }
 
     @ReactMethod(isBlockingSynchronousMethod = true)
     fun setServiceRunValueSync(id: String, key: String, value: String): Boolean =

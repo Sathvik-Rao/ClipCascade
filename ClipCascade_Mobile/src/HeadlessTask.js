@@ -1,16 +1,14 @@
 import {
   setDataInAsyncStorage,
   getDataFromAsyncStorage,
-  clearAsyncStorage,
 } from './AsyncStorageManagement'; // persistent storage
 import StartForegroundService from './StartForegroundService'; // foreground service
 
 module.exports = async data => {
   try {
     const enableForegroundService = async () => {
-      // Get websocket(foreground service) status (enabled/disabled)
-      let wsIsRunning_s = await getDataFromAsyncStorage('wsIsRunning');
-      return wsIsRunning_s === null ? 'false' : wsIsRunning_s;
+      const requested = await getDataFromAsyncStorage('sync_requested');
+      return requested ?? ((await getDataFromAsyncStorage('wsIsRunning')) || 'false');
     };
 
     if (data && data['event'] === 'BOOT_COMPLETED') {

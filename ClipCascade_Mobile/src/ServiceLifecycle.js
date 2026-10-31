@@ -2,10 +2,10 @@ const SHUTDOWN_TIMEOUT_MS = 15000;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // A timeout leaves the native owner in place. It never permits another run.
-export async function stopServiceRun(bridge, timeoutMs = SHUTDOWN_TIMEOUT_MS) {
+export async function stopServiceRun(bridge, timeoutMs = SHUTDOWN_TIMEOUT_MS, disableSync = true) {
   const id = bridge.getServiceRunIdSync();
+  bridge.requestServiceRunStopSync(id, disableSync);
   if (!id) return;
-  bridge.requestServiceRunStopSync(id);
   const deadline = Date.now() + timeoutMs;
   while (bridge.getServiceRunIdSync() === id) {
     if (Date.now() >= deadline) {
@@ -16,7 +16,8 @@ export async function stopServiceRun(bridge, timeoutMs = SHUTDOWN_TIMEOUT_MS) {
 }
 
 export async function acquireServiceRun(bridge) {
-  await stopServiceRun(bridge);
+  // Replacing a run preserves the user's request to keep sync enabled.
+  await stopServiceRun(bridge, undefined, false);
   const id = bridge.claimServiceRunSync();
   if (!id) throw new Error('Another sync run is starting. Wait and try again.');
   return id;

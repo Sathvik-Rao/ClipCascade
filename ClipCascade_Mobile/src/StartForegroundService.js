@@ -1839,7 +1839,7 @@ module.exports = async (inputData = null) => {
         // Keep the foreground notification alive while replacing the transport.
       }
     } finally {
-      bridge.requestServiceRunStopSync(runId);
+      bridge.requestServiceRunStopSync(runId, false);
       heartbeatStopped = true;
       clearInterval(heartbeatTimer);
       serviceController.abort();
@@ -1899,7 +1899,7 @@ module.exports = async (inputData = null) => {
     return [true, 'Foreground service is running'];
   } catch (error) {
     if (!runnerStarted && run.isOwner()) {
-      bridge.requestServiceRunStopSync(runId);
+      bridge.requestServiceRunStopSync(runId, false);
       await notifee.stopForegroundService();
       await setDataInAsyncStorage('wsForegroundServiceTerminated', 'true');
       bridge.releaseServiceRunSync(runId);

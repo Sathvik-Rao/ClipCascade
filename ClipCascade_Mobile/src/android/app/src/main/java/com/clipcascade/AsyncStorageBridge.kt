@@ -94,6 +94,10 @@ class AsyncStorageBridge(private val context: Context) {
         }
     }
 
+    // Older installations used the running flag for both intent and liveness.
+    fun isSyncRequested(): Boolean = getValue("sync_requested")?.toBoolean()
+        ?: (getValue("wsIsRunning")?.toBoolean() ?: false)
+
     // Method to get values for multiple keys as a JSON object
     fun getValuesForKeys(keys: List<String>): String {
         ensureConnection()

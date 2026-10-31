@@ -430,6 +430,7 @@ export default function App() {
    * Virtual/Helper Async Storage Fields:
    *
    * downloadFiles, filesAvailableToDownload, dirPath, wsStatusMessage, p2pStatusMessage, echo, wsIsRunning,
+   * sync_requested (user intent, preserved across unexpected service failures),
    * enableWSButton, foreground_service_stopped_running, password, wsForegroundServiceTerminated
    */
 
@@ -550,7 +551,7 @@ export default function App() {
           if (!foregroundServiceIsActive) {
             // Missing a heartbeat is not proof the old run has stopped.
             // Wait for its native ownership release before enabling a restart.
-            await stopServiceRun(NativeBridgeModule);
+            await stopServiceRun(NativeBridgeModule, undefined, false);
             // Do not overwrite a headless run that claimed ownership meanwhile.
             wsIsRunning_s = NativeBridgeModule.resetIdleServiceStateSync() ? 'false' : 'true';
             if (wsIsRunning_s === 'false') {
@@ -766,9 +767,9 @@ export default function App() {
   const logout = async () => {
     try {
       setWsPageMessage('⌛ Please wait...');
+      await stopServiceRun(NativeBridgeModule);
       await setDataInAsyncStorage('password', '');
       if (wsIsRunning === 'true') {
-        await stopServiceRun(NativeBridgeModule);
         setWsIsRunning('false');
       }
 

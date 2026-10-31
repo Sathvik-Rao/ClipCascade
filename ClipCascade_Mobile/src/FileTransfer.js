@@ -33,13 +33,15 @@ export async function encodeFiles(content, bridge) {
 
 // Consume before attempting delivery: failures are reported, never replayed.
 export async function deliverPendingShare(bridge, ready, send, onError) {
+  // A connection opening during the native read must not revive a rejected share.
+  const wasReady = ready();
   const share = await bridge.takePendingShare();
   if (!share) return false;
   try {
     if (share.expired) {
       throw new Error('Share expired during startup. Share it again.');
     }
-    if (!ready()) {
+    if (!wasReady || !ready()) {
       throw new Error('Share not sent: no connection is ready or another send is in progress. Wait until connected, then share it again.');
     }
     if ((await send(share.content, share.type)) === false) {
