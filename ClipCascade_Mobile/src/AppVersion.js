@@ -1,2 +1,2 @@
 // Shared by the app screen and headless clipboard service; patched by release CI.
-export const APP_VERSION = '3.4.0';
+export const APP_VERSION = '3.4.1';
