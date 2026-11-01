@@ -1,5 +1,6 @@
 import logging
 import re
+import shutil
 from core.constants import *
 
 
@@ -15,7 +16,7 @@ def center_window(win, max_height=None):
     primary_x, primary_y = 0, 0
     primary_w, primary_h = win.winfo_screenwidth(), win.winfo_screenheight()
     try:
-        if PLATFORM.startswith(LINUX):
+        if PLATFORM.startswith(LINUX) and shutil.which("xrandr"):
             logging.debug("Detecting monitors on Linux platform")
             import subprocess
 

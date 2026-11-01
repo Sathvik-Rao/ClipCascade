@@ -169,7 +169,10 @@ class Application:
 
     def authenticate_and_connect(self):
         # Attempt to connect with existing cookie
-        if self.config.data.get("cookie"):
+        if self.config.data.get("cookie") and (
+            not self.config.data["cipher_enabled"]
+            or self.config.data.get("hashed_password") is not None
+        ):
             ws_conn_successful, msg = self._get_ws_manager().connect()
             if ws_conn_successful:
                 self._get_ws_manager().is_login_phase = False
@@ -212,13 +215,15 @@ class Application:
             )
             if login_successful:
                 self.config.data["csrf_token"] = self.request_manager.get_csrf_token()
+                # Connecting installs clipboard listeners immediately. Prepare the
+                # key before either transport can send or receive clipboard data.
+                if self.config.data["cipher_enabled"]:
+                    self.config.data["hashed_password"] = (
+                        self.cipher_manager.hash_password(raw_password)
+                    )
                 ws_conn_successful, msg = self._get_ws_manager().connect()
                 if ws_conn_successful:
                     self._get_ws_manager().is_login_phase = False
-                    if self.config.data["cipher_enabled"]:
-                        self.config.data["hashed_password"] = (
-                            self.cipher_manager.hash_password(raw_password)
-                        )
                     if self.config.data["cipher_enabled"] or not self.config.data["save_password"]:
                         self.config.data["password"] = ""
                     if display_login_success_dialog and not self.config.data.get("hide_login_success_dialog", False):

@@ -1,4 +1,6 @@
 """Refresh transport settings without changing the authentication session."""
+import json
+
 from core.config import Config
 from core.constants import WEBSOCKET_ENDPOINT, WEBSOCKET_ENDPOINT_P2P
 
@@ -13,7 +15,16 @@ def discover_server(config, request_manager):
                      "Cache-Control": "no-cache"},
             verify=request_manager._verify(), timeout=10,
         )
-        return response.json()
+        try:
+            result = response.json()
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"Server discovery endpoint {path} returned invalid JSON "
+                f"(HTTP {response.status_code}). Check the server URL and login session."
+            ) from error
+        if not isinstance(result, dict):
+            raise ValueError(f"Server discovery endpoint {path} must return a JSON object")
+        return result
 
     try:
         mode = fetch("/server-mode").get("mode")
