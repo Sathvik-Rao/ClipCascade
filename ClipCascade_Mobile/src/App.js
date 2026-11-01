@@ -47,6 +47,7 @@ import {
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
 import {stopServiceRun} from './ServiceLifecycle';
+import {serviceStatus} from './ServiceStatus';
 import {LIMIT_UNITS, NO_LOCAL_LIMIT, formatClipboardLimit, parseClipboardLimit} from './ClipboardLimit';
 import {authenticateSession} from './LoginSession';
 import {APP_VERSION} from './AppVersion';
@@ -105,6 +106,8 @@ const isCancel = error =>
  * (file) LoginSession.js
  * (file) ServerDiscovery.js
  * (file) ServiceLifecycle.js
+ * (file) ServiceStatus.js
+ * (file) StompShutdown.js
  * (file) WebSocketStatus.js
  * (file) DevicePreferences.js
  * (file) DownloadDirectory.js
@@ -811,6 +814,7 @@ export default function App() {
   }
 
   async function pollUIFlags() {
+    let previousServiceStatus = null;
     const POLL_KEYS = [
       'wsIsRunning',
       'wsStatusMessage',
@@ -830,26 +834,22 @@ export default function App() {
       setFileDownloadStatus(latest.fileDownloadStatus || '');
       setIsDownloadingFiles(latest.fileDownloadInProgress === 'true' || latest.downloadFiles === 'true');
 
-      if (latest.wsIsRunning === 'true') {
-        // Websocket status message
-        const msg1 = latest.wsStatusMessage;
-        if (msg1 !== null && msg1 !== '') {
-          setWsPageMessage(msg1);
+      // Let the action handler display progress while starting/stopping. Apply
+      // the next snapshot afterwards, including unexpected service exits.
+      if (!foregroundServiceInProgressRef.current) {
+        const status = serviceStatus(latest);
+        setWsIsRunning(status.running);
+        if (!previousServiceStatus ||
+            status.running !== previousServiceStatus.running ||
+            status.message !== previousServiceStatus.message) {
+          setWsPageMessage(current =>
+            status.running === 'false' && current.startsWith('❌') &&
+              !status.message.startsWith('❌') ? current : status.message,
+          );
         }
-
-        if (latest.server_mode === 'P2P') {
-          const msg2 = latest.p2pStatusMessage;
-          if (msg2 !== null) {
-            setWsPageP2PMessage(msg2);
-          }
-        }
-
-        // Files available to download
-        if (latest.filesAvailableToDownload === 'true') {
-          setEnableFilesDownloadButton(true);
-        } else {
-          setEnableFilesDownloadButton(false);
-        }
+        setWsPageP2PMessage(status.p2pMessage);
+        setEnableFilesDownloadButton(status.filesAvailable);
+        previousServiceStatus = status;
       }
       await sleep(300);
     }

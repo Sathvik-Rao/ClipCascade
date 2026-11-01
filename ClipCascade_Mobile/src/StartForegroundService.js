@@ -22,6 +22,7 @@ import {webSocketErrorMessage, webSocketCloseMessage} from './WebSocketStatus';
 import {isClipboardSyncEnabled} from './DevicePreferences';
 import {fileUris, encodeFiles, deliverPendingShare} from './FileTransfer';
 import {acquireServiceRun, serviceRun} from './ServiceLifecycle';
+import {deactivateStompClient} from './StompShutdown';
 
 import {
   getDataFromAsyncStorage,
@@ -671,16 +672,16 @@ module.exports = async (inputData = null) => {
             // 2) Deactivate STOMP client safely
             if (stompClient) {
               // Remove stomp event handlers
-              stompClient.onConnect = null;
-              stompClient.onDisconnect = null;
-              stompClient.onStompError = null;
-              stompClient.onWebSocketError = null;
+              stompClient.onConnect = () => {};
+              stompClient.onDisconnect = () => {};
+              stompClient.onStompError = () => {};
+              stompClient.onWebSocketError = () => {};
               stompClient.onWebSocketClose = () => {};
 
-              // A replacement must wait for the socket to finish closing.
-              // The UI's bounded wait reports a timeout without releasing ownership.
+              // Allow a graceful disconnect, then discard an unresponsive socket.
+              // Keep ownership until the old STOMP callbacks are detached.
               try {
-                await stompClient.deactivate();
+                await deactivateStompClient(stompClient);
               } catch (error) {
                 transportCleanupFailed = true;
                 throw error;
@@ -1828,9 +1829,14 @@ module.exports = async (inputData = null) => {
 
         return await pollFlagsLoop();
       } catch (error) {
-        await setDataInAsyncStorage('wsStatusMessage', '❌ Error:' + error);
-        await cleanupTransport();
-        cleanupClipboardListeners();
+        try {
+          await cleanupTransport();
+        } finally {
+          cleanupClipboardListeners();
+          // Cleanup reports Disconnected; publish the failure afterwards so
+          // the dashboard can explain why the service stopped.
+          await setDataInAsyncStorage('wsStatusMessage', '❌ Error: ' + error);
+        }
         return false;
       }
     };
