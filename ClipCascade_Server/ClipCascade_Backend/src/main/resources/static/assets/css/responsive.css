@@ -1,0 +1,149 @@
+/* Shared layout adjustments for the Bootstrap 3, 4 and 5 pages. */
+.dashboard-page .navbar > .container-fluid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 16px;
+}
+.dashboard-page .navbar > .container-fluid::before,
+.dashboard-page .navbar > .container-fluid::after { display: none; }
+.dashboard-page .navbar-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  min-width: 0;
+}
+.dashboard-page .navbar-brand { flex-shrink: 0; }
+.dashboard-page .navbar-text { overflow-wrap: anywhere; }
+.dashboard-page #account-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0 0 0 auto;
+}
+.dashboard-page .navigation-toggle { display: none; }
+.dashboard-page .admin-toolbar > * { margin-left: 0 !important; }
+.dashboard-page .button-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dashboard-page .button-container button { margin: 0; }
+.dashboard-page #conversation { table-layout: fixed; }
+.dashboard-page #conversation th:last-child { width: 36%; }
+.dashboard-page #conversation td { overflow-wrap: anywhere; vertical-align: top; }
+.dashboard-page #users-table { min-width: 690px; }
+.dashboard-page .modal { padding: 16px; }
+.dashboard-page .modal-content {
+  width: 100%;
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+}
+.dashboard-page .modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  top: 0;
+  right: 0;
+}
+.dashboard-page .modal-content h3 { padding-right: 28px; }
+.advance-page .section-container,
+.dashboard-page .alert { overflow-wrap: anywhere; }
+.auth-page .captcha-image-container { min-width: 0; }
+.auth-page #captchaImage { max-width: 100%; height: auto; }
+.auth-page .captcha-reload-btn { flex-shrink: 0; }
+
+/* Fill short login screens, but let the footer follow taller forms/keyboard views. */
+.auth-page.login-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-bottom: 0;
+}
+.login-page > .container {
+  flex: 1 0 auto;
+  width: 100%;
+  padding-bottom: 32px;
+}
+.auth-page.login-page > .footer {
+  position: static;
+  flex-shrink: 0;
+  margin-top: 0;
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+}
+
+@media (max-width: 991px) {
+  .advance-page { padding: 16px 0; }
+  .advance-page > .container { max-width: 100%; }
+  .advance-page .unlock-user-btn { margin-top: 0; }
+  .dashboard-page #user-section .form-inline .form-group,
+  .dashboard-page #ws_text { display: block; width: 100%; }
+  .dashboard-page #send { margin-top: 8px; }
+}
+
+@media (max-width: 767px) {
+  /* Account actions stay one tap away without filling the first screen. */
+  .dashboard-page .navbar > .container-fluid { display: block; }
+  .dashboard-page .navbar-header { margin: 0; padding-bottom: 8px; }
+  .dashboard-page .navbar-brand { margin-right: auto; padding-left: 0; }
+  .dashboard-page .navigation-toggle { display: inline-block; }
+  .dashboard-page .navbar-text {
+    flex-basis: 100%;
+    margin: 4px 0 !important;
+  }
+  .dashboard-page #account-navigation { display: none; margin: 0; padding: 8px 0; }
+  .dashboard-page #account-navigation.is-open { display: flex; flex-direction: column; align-items: stretch; }
+  .dashboard-page #account-navigation > li > a { padding: 12px; }
+  .dashboard-page .theme-nav-item { padding: 4px 12px; }
+  .dashboard-page > .container { margin-top: 0; }
+  .dashboard-page #user-section,
+  .dashboard-page #admin-section { margin-top: 16px; }
+  .dashboard-page #conversation th:last-child { width: 120px; }
+  .dashboard-page .admin-toolbar > .btn { flex: 1 1 140px; white-space: normal; }
+  .dashboard-page .admin-toolbar .admin-search-input { width: 100%; max-width: none; }
+  .dashboard-page .footer { justify-content: center; }
+  .dashboard-page .footer #server-version { flex-basis: 100%; margin: 0; text-align: center; }
+  .advance-page .section-container { padding: 16px; }
+  .advance-page .table-toolbar .search-input { max-width: none; flex: 1 1 100%; }
+  .advance-page h1 { font-size: 1.75rem; }
+  .advance-page h2 { font-size: 1.4rem; }
+  .advance-page .theme-header { padding: 0 0 54px; }
+  .advance-page .theme-header .theme-toggle { top: auto; bottom: 0; }
+  .advance-page .table-toolbar > .btn { white-space: normal; }
+  /* 16px fields avoid focus zoom on iOS; 44px controls are easier to tap. */
+  body .form-control,
+  body .form-select { font-size: 16px; min-height: 44px; }
+  body .btn,
+  .auth-page .back-to-login,
+  .auth-page .captcha-reload-btn { min-height: 44px; min-width: 44px; }
+  .auth-page .theme-corner,
+  .logout-page .theme-corner { position: static; display: flex; justify-content: flex-end; padding: 12px 16px 0; }
+  .auth-page .app-title { padding: 0; margin-top: 8px; font-size: 28px; }
+  .auth-page .form-signin,
+  .auth-page .form-signup { margin-top: 24px; padding: 20px; }
+  .logout-page { padding-top: 0; }
+  .logout-page .logout-form { margin-top: 24px; padding: 24px; }
+}
+
+/* Let the login footer follow the form on tablets and short landscape screens. */
+@media (max-width: 991px), (max-height: 600px) {
+  .auth-page { padding-bottom: 0; }
+  .auth-page .footer {
+    position: static;
+    margin-top: 32px;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 16px;
+  }
+  .auth-page .footer-middle-container {
+    order: 3;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .auth-page .footer a { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; }
+  .auth-page .footer-middle-container a img { margin: 0; }
+}

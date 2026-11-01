@@ -1,0 +1,27 @@
+services:
+  clipcascade:
+    image: ${CLIPCASCADE_IMAGE:-sathvikrao/clipcascade:latest}
+    restart: unless-stopped
+    volumes:
+      - ./cc_users:/database
+    environment:
+      CC_PORT: "8080"
+      CC_P2P_ENABLED: ${CC_P2P_ENABLED:-false}
+      CC_P2P_STUN_URL: ${CC_P2P_STUN_URL:-stun:stun.l.google.com:19302}
+      CC_MAX_MESSAGE_SIZE_IN_MiB: ${CC_MAX_MESSAGE_SIZE_IN_MiB:-1}
+      CC_ALLOWED_ORIGINS: ${CC_ALLOWED_ORIGINS:-*}
+      CC_SESSION_PERSISTENCE_ENABLED: ${CC_SESSION_PERSISTENCE_ENABLED:-false}
+
+      # Reverse Proxy Settings: trust only the proxy on the private backend network.
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      SERVER_TOMCAT_REDIRECT_CONTEXT_ROOT: "false"
+      SERVER_SERVLET_SESSION_COOKIE_SECURE: "true"
+    # Only the proxy can reach this port. Do not publish it to the internet.
+    expose:
+      - "8080"
+    networks:
+      - backend
+
+networks:
+  # Allow outbound server update checks; the backend port stays unpublished.
+  backend: {}

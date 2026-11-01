@@ -289,12 +289,7 @@ public class ClipCascadeProperties {
     @Value("${CC_P2P_SIGNALING_RATE_LIMIT_PER_SEC:-1}")
     private int p2pSignalingRateLimitPerSec;
 
-    /*
-     * Captcha difficulty as a percentage from 0 (easiest) to 100 (hardest,
-     * which is the existing behavior). Lower values reduce noise lines and
-     * skip the distortion (gimpy) effect for better human readability while
-     * keeping at least the basic challenge. (default: 100)
-     */
+    // CAPTCHA difficulty: 0 (easiest) to 100 (hardest). Default: 100.
     @Value("${CC_CAPTCHA_DIFFICULTY_PERCENT:100}")
     private int captchaDifficultyPercent;
 

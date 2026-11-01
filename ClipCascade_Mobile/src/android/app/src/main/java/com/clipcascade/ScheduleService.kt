@@ -48,11 +48,13 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
             if(hasNotificationPermission(applicationContext)) {
                 val bridgeData = AsyncStorageBridge(applicationContext)
                 if(enableForegroundService(bridgeData)) {
-                    if(!foregroundServiceIsActive(bridgeData)) {
+                    if(!foregroundServiceIsActive(bridgeData) && enableForegroundService(bridgeData)) {
                         showNotificationIfNotPresent()
                     } else {
                         removeNotificationIfPresent(applicationContext)
                     }
+                } else {
+                    removeNotificationIfPresent(applicationContext)
                 }
             }
 
@@ -65,8 +67,8 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
 
 
     fun enableForegroundService(bridgeData: AsyncStorageBridge) : Boolean {
-        // Get websocket(foreground service) status (enabled/disabled)
-        return bridgeData.getValue("wsIsRunning")?.toBoolean() ?: false 
+        // Monitor requested sync even after a handled service failure.
+        return bridgeData.isSyncRequested()
     } 
     
     suspend fun foregroundServiceIsActive(bridgeData: AsyncStorageBridge) : Boolean {

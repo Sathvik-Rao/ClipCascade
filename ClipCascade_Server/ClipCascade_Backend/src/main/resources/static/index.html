@@ -3,6 +3,11 @@
   <head>
     <!-- Apply the saved or system theme before the page is painted. -->
     <script src="/assets/js/theme.js"></script>
+    <link rel="manifest" href="/assets/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/assets/images/apple-touch-icon.png" />
+    <meta name="theme-color" content="#2866c4" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="ClipCascade" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ClipCascade</title>
@@ -16,6 +21,7 @@
     <!-- Your custom CSS (external) -->
     <link rel="stylesheet" href="/assets/css/style.css" />
     <link rel="stylesheet" href="/assets/css/theme.css" />
+    <link rel="stylesheet" href="/assets/css/responsive.css" />
   </head>
   <body class="dashboard-page">
     <!-- =======================================
@@ -25,6 +31,8 @@
       <div class="container-fluid">
         <div class="navbar-header">
           <a href="#" class="navbar-brand">ClipCascade</a>
+          <button type="button" id="navigation-toggle" class="btn btn-default navigation-toggle"
+            aria-controls="account-navigation" aria-expanded="false">Menu</button>
           <span
             id="max-message-size"
             class="navbar-text"
@@ -36,7 +44,7 @@
             Hi, <span id="user-name">User</span>
           </span>
         </div>
-        <ul class="nav navbar-nav navbar-right">
+        <ul id="account-navigation" class="nav navbar-nav navbar-right">
           <li class="theme-nav-item"><button type="button" id="theme-toggle" class="theme-toggle" role="switch"
         aria-label="Dark mode" aria-checked="false" title="Switch to dark mode">
         <svg class="theme-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
@@ -260,6 +268,9 @@
               type="text"
               class="form-control"
               id="add-username-input"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
               required
             />
           </div>
@@ -303,6 +314,9 @@
               type="text"
               class="form-control"
               id="edit-user-new-username"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
             />
           </div>
           <div class="form-group">

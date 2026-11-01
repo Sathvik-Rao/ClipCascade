@@ -8,7 +8,7 @@ import com.facebook.react.bridge.ReactApplicationContext
 
 class NativeBridgePackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-        return listOf(NativeBridgeModule(reactContext), ServerTlsModule(reactContext))
+        return listOf(NativeBridgeModule(reactContext), ServerTlsModule(reactContext), ShizukuPermissionsModule(reactContext))
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {

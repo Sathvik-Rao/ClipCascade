@@ -1,0 +1,20 @@
+{
+    email {$ACME_EMAIL}
+    auto_https disable_redirects
+}
+
+http://{$DOMAIN} {
+    redir https://{$DOMAIN}:{$HTTPS_PORT}{uri} 308
+}
+
+https://{$DOMAIN} {
+    reverse_proxy clipcascade:8080 {
+        # ForwardedHeaderFilter must not trust spoofed RFC 7239 headers.
+        header_up -Forwarded
+        header_up -X-Forwarded-Prefix
+        # Infer the public port from Host, not a client-supplied port header.
+        header_up -X-Forwarded-Port
+    }
+    log
+}
+# Caddy supplies HTTPS, WebSocket upgrades, and X-Forwarded-* automatically.

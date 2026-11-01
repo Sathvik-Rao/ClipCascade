@@ -73,6 +73,7 @@ def enableProguardInReleaseBuilds = false
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
+    buildFeatures { aidl true }
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
@@ -117,6 +118,8 @@ android {
 }
 
 dependencies {
+    implementation "dev.rikka.shizuku:api:13.1.5"
+    implementation "dev.rikka.shizuku:provider:13.1.5"
     // debugImplementation "com.squareup.leakcanary:leakcanary-android:2.12"
     // releaseImplementation "com.squareup.leakcanary:leakcanary-android:2.12" // for debugging release builds only
 

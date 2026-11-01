@@ -9,6 +9,7 @@ from core.constants import *
 
 from core.config import Config
 from utils.request_manager import RequestManager
+from utils.transport_manager import TransportManager
 from utils.cipher_manager import CipherManager
 from utils.update_checker import UpdateChecker, parse_version
 from stomp_ws.stomp_manager import STOMPManager
@@ -63,6 +64,9 @@ class Application:
             self.request_manager = RequestManager(self.config)
             self.stomp_manager = STOMPManager(self.config)
             self.p2p_manager = P2PManager(self.config)
+            self.transport_manager = TransportManager(
+                self.config, self.request_manager, self.stomp_manager, self.p2p_manager
+            )
             self.cipher_manager = CipherManager(self.config)
         except Exception as e:
             CustomDialog(
@@ -165,7 +169,10 @@ class Application:
 
     def authenticate_and_connect(self):
         # Attempt to connect with existing cookie
-        if self.config.data.get("cookie"):
+        if self.config.data.get("cookie") and (
+            not self.config.data["cipher_enabled"]
+            or self.config.data.get("hashed_password") is not None
+        ):
             ws_conn_successful, msg = self._get_ws_manager().connect()
             if ws_conn_successful:
                 self._get_ws_manager().is_login_phase = False
@@ -188,17 +195,14 @@ class Application:
             else:
                 display_login_success_dialog = True
                 self.config.data["password"] = ""  # Clear the password
-                login_form = LoginForm(
-                    self.config,
-                    on_quit_callback=(
-                        None
-                        if (PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI)
-                        else lambda: sys.exit(0)
-                    ),
-                )
+                login_form = LoginForm(self.config)
                 if not (PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI):
                     login_form.watch_updates(self.update_checker)
                 login_form.mainloop()  # wait until login form is closed
+                if not (PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI) and login_form.cancelled:
+                    # Exit outside Tk's callback: SystemExit inside a callback
+                    # can be intercepted by Tcl while wait_window is running.
+                    sys.exit(0)
                 raw_password = self.config.data[
                     "password"
                 ]  # Store the raw password temporarily for hashing
@@ -211,33 +215,28 @@ class Application:
             )
             if login_successful:
                 self.config.data["csrf_token"] = self.request_manager.get_csrf_token()
-                self.config.data["server_mode"] = self.request_manager.get_server_mode()
-                if self.config.data["server_mode"] == "P2P":
-                    self.config.data["stun_url"] = self.request_manager.get_stun_url()
-                    self.config.data["maxsize"] = -1
-                    self.config.data["websocket_url"] = Config.convert_to_websocket_url(
-                        self.config.data["server_url"], WEBSOCKET_ENDPOINT_P2P
-                    )
-                else:
-                    self.config.data["stun_url"] = ""
-                    self.config.data["maxsize"] = self.request_manager.maxsize()
-                    self.config.data["websocket_url"] = Config.convert_to_websocket_url(
-                        self.config.data["server_url"], WEBSOCKET_ENDPOINT
+                # Connecting installs clipboard listeners immediately. Prepare the
+                # key before either transport can send or receive clipboard data.
+                if self.config.data["cipher_enabled"]:
+                    self.config.data["hashed_password"] = (
+                        self.cipher_manager.hash_password(raw_password)
                     )
                 ws_conn_successful, msg = self._get_ws_manager().connect()
                 if ws_conn_successful:
                     self._get_ws_manager().is_login_phase = False
-                    if self.config.data["cipher_enabled"]:
-                        self.config.data["hashed_password"] = (
-                            self.cipher_manager.hash_password(raw_password)
-                        )
                     if self.config.data["cipher_enabled"] or not self.config.data["save_password"]:
                         self.config.data["password"] = ""
-                    if display_login_success_dialog:
+                    if display_login_success_dialog and not self.config.data.get("hide_login_success_dialog", False):
+                        dialog_options = {}
+                        if not (PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI):
+                            dialog_options["on_dont_show_again"] = lambda: self.config.save_preferences(
+                                {"hide_login_success_dialog": True}
+                            )
                         CustomDialog(
                             "Success! ClipCascade will now run in the task bar/menu bar.",
                             msg_type="success",
                             timeout=5000,
+                            **dialog_options,
                         ).mainloop()
                     break
                 else:
@@ -254,10 +253,7 @@ class Application:
                 Echo("-" * 53)
 
     def _get_ws_manager(self):
-        if self.config.data["server_mode"] == "P2P":
-            return self.p2p_manager
-        else:
-            return self.stomp_manager
+        return self.transport_manager
 
     def get_version_update_status(self) -> list | None:
         """

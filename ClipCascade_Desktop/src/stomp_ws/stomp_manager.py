@@ -120,6 +120,8 @@ class STOMPManager(ReconnectMixin, WSInterface):
             self._start_reconnect()
 
     def send(self, payload: str, payload_type: str = "text"):
+        if not self.config.data.get("send_clipboard", True):
+            return
         try:
             if self.is_connected:
                 if self.clipboard_manager.has_clipboard_changed(payload):
@@ -133,6 +135,8 @@ class STOMPManager(ReconnectMixin, WSInterface):
             logging.error(f"Failed to send data: {e}")
 
     def _receive(self, frame: any) -> str:
+        if not self.config.data.get("receive_clipboard", True):
+            return
         try:
             if self.is_connected:
                 body = json.loads(frame.body)

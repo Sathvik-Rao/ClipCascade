@@ -7,6 +7,7 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import org.json.JSONObject
+import org.json.JSONTokener
 
 
 /* 
@@ -82,7 +83,7 @@ class AsyncStorageBridge(private val context: Context) {
             var value: String? = null
             if (cursor.moveToFirst()) {
                 value = cursor.getString(cursor.getColumnIndexOrThrow(VALUE_COLUMN))
-                value = value.replace("^\"|\"$".toRegex(), "") // Remove leading and trailing double quotes 
+                value = (JSONTokener(value).nextValue() as? String) ?: value
             }
             return value
         } catch (e: Exception) {
@@ -92,6 +93,10 @@ class AsyncStorageBridge(private val context: Context) {
             cursor?.close()
         }
     }
+
+    // Older installations used the running flag for both intent and liveness.
+    fun isSyncRequested(): Boolean = getValue("sync_requested")?.toBoolean()
+        ?: (getValue("wsIsRunning")?.toBoolean() ?: false)
 
     // Method to get values for multiple keys as a JSON object
     fun getValuesForKeys(keys: List<String>): String {
@@ -108,17 +113,17 @@ class AsyncStorageBridge(private val context: Context) {
         ensureConnection()
 
         try {
+            val database = db ?: return false
             val values = ContentValues().apply {
                 put(KEY_COLUMN, key)
-                put(VALUE_COLUMN, "\"$value\"")
+                put(VALUE_COLUMN, JSONObject.quote(value))
             }
-            db?.insertWithOnConflict(
+            return database.insertWithOnConflict(
                 TABLE_CATALYST,                   // Table name
                 null,                             //NullColumnHack 
                 values,                           // ContentValues containing the key-value pair
                 SQLiteDatabase.CONFLICT_REPLACE   // Replace if key already exists
-            )
-            return true
+            ) != -1L
         } catch (e: Exception) {
             Log.e(TAG, "Error setting value for key $key", e)
             return false

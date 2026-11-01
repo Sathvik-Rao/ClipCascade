@@ -13,8 +13,6 @@ import androidx.appcompat.app.AppCompatActivity
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import com.facebook.react.ReactInstanceManager
 import com.facebook.react.bridge.ReactContext
-import com.facebook.react.bridge.Arguments
-import com.facebook.react.bridge.WritableMap
 
 class ClipboardFloatingActivity : AppCompatActivity() {
 
@@ -70,42 +68,13 @@ class ClipboardFloatingActivity : AppCompatActivity() {
     }
 
     private fun getClipboardContent() {
-        val clip = clipboardManager.primaryClip
-        if (clip != null && clip.itemCount > 0) {
-
-            val description = clip.description
-            if (description == null) {
-                return
+        clipboardManager.primaryClip?.let { clip ->
+            ClipboardContent.fromClipboard(clip, contentResolver)?.let { content ->
+                PendingShares.clear()
+                reactContext
+                    ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    ?.emit("onClipboardChange", content.toMap())
             }
-
-            val mimeType = description.getMimeType(0)
-            if (mimeType == null) {
-                return
-            }
-
-            val item = clip.getItemAt(0)
-            val params: WritableMap = Arguments.createMap()
-            
-            if (mimeType.startsWith("text/") && item.text != null) {
-                // Text
-                params.putString("content", item.text.toString())
-                params.putString("type", "text")
-            }
-            else if (mimeType.startsWith("image/") && item.uri != null) {
-                // Image
-                params.putString("content", item.uri.toString())
-                params.putString("type", "image")
-            }
-            else if (item.uri != null) {
-                // Files
-                params.putString("content", item.uri.toString())
-                params.putString("type", "files")
-            }
-
-            // Emit event to JS
-            reactContext
-                ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                ?.emit("onClipboardChange", params) 
         }
     }
 

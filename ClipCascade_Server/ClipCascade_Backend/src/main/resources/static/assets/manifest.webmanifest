@@ -1,0 +1,16 @@
+{
+  "id": "/",
+  "name": "ClipCascade",
+  "short_name": "ClipCascade",
+  "description": "Monitor clipboard sharing and manage your ClipCascade server.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f9",
+  "theme_color": "#2866c4",
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "/assets/images/app-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/images/app-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

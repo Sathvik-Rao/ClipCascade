@@ -33,6 +33,9 @@ class ReconnectMixin:
         return max(1.0, base + random.uniform(-jitter, jitter))
 
     def _start_reconnect(self, immediate=False):
+        handler = getattr(self, "reconnect_handler", None)
+        if handler is not None:
+            return handler(immediate=immediate)
         with self._retry_lock:
             if self.disconnected or self.is_login_phase:
                 return

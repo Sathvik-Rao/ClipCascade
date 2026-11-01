@@ -7,6 +7,11 @@
   <head>
     <!-- Apply the saved or system theme before the page is painted. -->
     <script src="/assets/js/theme.js"></script>
+    <link rel="manifest" href="/assets/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/assets/images/apple-touch-icon.png" />
+    <meta name="theme-color" content="#2866c4" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="ClipCascade" />
     <title>ClipCascade - Please Log In</title>
     <meta charset="utf-8" />
     <meta
@@ -91,8 +96,9 @@
       }
     </style>
     <link rel="stylesheet" href="/assets/css/theme.css" />
+    <link rel="stylesheet" href="/assets/css/responsive.css" />
   </head>
-  <body class="auth-page">
+  <body class="auth-page login-page">
     <div class="theme-corner"><button type="button" id="theme-toggle" class="theme-toggle" role="switch"
         aria-label="Dark mode" aria-checked="false" title="Switch to dark mode">
         <svg class="theme-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
@@ -110,6 +116,7 @@
       <form
         class="form-signin"
         id="loginForm"
+        action="/login"
         th:action="@{/login}"
         method="post"
       >
@@ -133,6 +140,10 @@
             type="text"
             id="username"
             name="username"
+            autocomplete="username"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
             class="form-control"
             placeholder="Username"
             required="required"
@@ -145,6 +156,7 @@
             type="password"
             id="password"
             name="password"
+            autocomplete="current-password"
             class="form-control"
             placeholder="Password"
             required="required"
@@ -158,6 +170,7 @@
       <div class="text-center mt-3" th:if="${signupEnabled}">
         <a href="/signup">Create an account</a>
       </div>
+    </div>
 
       <!-- Footer -->
       <div class="footer">
@@ -219,7 +232,6 @@
           <span>Brute-Force Protected</span>
         </div>
       </div>
-    </div>
 
     <!-- js-sha3 library (CDN) -->
     <script src="/assets/js/sha3.min.js"></script>
@@ -229,15 +241,10 @@
         const loginForm = document.getElementById("loginForm");
         const passwordField = document.getElementById("password");
 
-        loginForm.addEventListener("submit", function (event) {
-          // 1) Get the raw password value
-          const rawPassword = passwordField.value;
-
-          // 2) Compute the SHA3-512 hash (returns a lowercase hex string)
-          const hashedPassword = sha3_512(rawPassword);
-
-          // 3) Replace the password field's value with the hashed version
-          passwordField.value = hashedPassword;
+        loginForm.addEventListener("formdata", function (event) {
+          // Keep the entered password available to password managers while
+          // preserving the server's SHA3-512 password protocol on submission.
+          event.formData.set("password", sha3_512(passwordField.value));
         });
       });
     </script>

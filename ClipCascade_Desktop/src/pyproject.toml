@@ -46,6 +46,7 @@ dependencies = [
     "av>=16.0.0,<17; python_version >= '3.14'",
     # Platform-specific dependencies
     "pyfiglet==1.0.2; sys_platform == 'linux'",
+    "prompt_toolkit>=3.0.43,<4; sys_platform == 'linux'",
     "pyperclip==1.8.2; sys_platform == 'win32' or sys_platform == 'darwin'",
     "pywin32==306; sys_platform == 'win32'",
     "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",

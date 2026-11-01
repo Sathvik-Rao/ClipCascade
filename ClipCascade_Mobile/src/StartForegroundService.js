@@ -2,7 +2,6 @@ import {
   NativeEventEmitter,
   NativeModules,
   DeviceEventEmitter,
-  Alert,
 } from 'react-native';
 
 import notifee, { AndroidImportance } from '@notifee/react-native';
@@ -16,17 +15,22 @@ import {
   RTCIceCandidate,
   RTCSessionDescription,
 } from 'react-native-webrtc';
-import Clipboard from '@react-native-clipboard/clipboard';
+import {discoverServer} from './ServerDiscovery';
 import {checkForUpdates} from './UpdateChecker';
+import {downloadDirectoryLabel} from './DownloadDirectory';
+import {webSocketErrorMessage, webSocketCloseMessage} from './WebSocketStatus';
+import {isClipboardSyncEnabled} from './DevicePreferences';
+import {fileUris, encodeFiles, deliverPendingShare} from './FileTransfer';
+import {acquireServiceRun, serviceRun} from './ServiceLifecycle';
+import {deactivateStompClient} from './StompShutdown';
 
 import {
-  setDataInAsyncStorage,
   getDataFromAsyncStorage,
   getMultipleDataFromAsyncStorage,
-  clearAsyncStorage,
 } from './AsyncStorageManagement';
 
 function cleanupClipboardListeners() {
+  DeviceEventEmitter.removeAllListeners('SHARE_AVAILABLE');
   DeviceEventEmitter.removeAllListeners('SHARED_TEXT');
   DeviceEventEmitter.removeAllListeners('SHARED_IMAGE');
   DeviceEventEmitter.removeAllListeners('SHARED_FILES');
@@ -34,6 +38,16 @@ function cleanupClipboardListeners() {
 }
 
 module.exports = async (inputData = null) => {
+  const bridge = NativeModules.NativeBridgeModule;
+  let runId;
+  try {
+    runId = await acquireServiceRun(bridge);
+  } catch (error) {
+    return [false, error];
+  }
+  const run = serviceRun(bridge, runId);
+  const setDataInAsyncStorage = run.setData;
+  let runnerStarted = false;
   // Constants
   const SUBSCRIPTION_DESTINATION = '/user/queue/cliptext';
   const SEND_DESTINATION = '/app/cliptext';
@@ -41,20 +55,80 @@ module.exports = async (inputData = null) => {
   const HEARTBEAT_INTERVAL = 20000; // 20 seconds
   const FRAGMENT_SIZE = 15360; // 15 KiB
   const FRAGMENT_TTL_MS = 60000; // drop partial fragment buffers idle for 60s
-  const STOMP_DEACTIVATE_TIMEOUT_MS = 5000; // bound the STOMP deactivate() wait
+  const P2P_CONNECTION_TIMEOUT_MS = 90000;
 
   // forground service
-  notifee.registerForegroundService(notification => {
-    return new Promise(async () => {
+  notifee.registerForegroundService(async notification => {
+    // Notifee may deliver another start event for an existing notification.
+    if (!bridge.activateServiceRunSync(runId)) return;
+    runnerStarted = true;
+    let transportCleanupFailed = false;
+    const { ClipboardListener } = NativeModules;
+    const serviceController = new AbortController();
+    let heartbeatStopped = false;
+    let heartbeatPending = false;
+    // Discovery, transfers, and retry delays must not block liveness checks.
+    const heartbeatTimer = setInterval(async () => {
+      if (heartbeatStopped || heartbeatPending) return;
+      heartbeatPending = true;
       try {
+        const flags = JSON.parse(NativeModules.NativeBridgeModule.getFlagsSync([
+          'wsIsRunning', 'echo',
+        ]));
+        if (!run.isCurrent() || flags.wsIsRunning !== 'true') {
+          serviceController.abort();
+        } else if (flags.echo === 'ping') {
+          await setDataInAsyncStorage('echo', 'pong');
+        }
+      } catch (error) {
+        console.warn('Could not check foreground service flags', error);
+      } finally {
+        heartbeatPending = false;
+      }
+    }, 1000);
+    const waitForRetry = (delay = RECONNECT_WS_TIMER) => new Promise(resolve => {
+      const signal = serviceController.signal;
+      const finish = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, delay);
+      signal.addEventListener('abort', finish);
+      if (signal.aborted) finish();
+    });
+    let clipboardStarted = false;
+    const stopClipboard = async () => {
+      if (clipboardStarted) {
+        await ClipboardListener.stopListening();
+        clipboardStarted = false;
+      }
+    };
+    const runTransport = async () => {
+      let cleanupTransport = async () => {};
+      try {
+        if (!run.isCurrent()) return false;
+        let restarting = false;
+        let transportStopped = false;
+        const track = callback => run.track((...args) => !transportStopped && callback(...args));
         const { NativeBridgeModule } = NativeModules;
         // Restore trust before either WebSocket mode starts, including headless boot.
         await NativeModules.ServerTlsModule.configure(
           await getDataFromAsyncStorage('server_url'),
           (await getDataFromAsyncStorage('ssl_ca_bundle')) || '',
         );
-        const textEncoder = new TextEncoder();
-        const textDecoder = new TextDecoder();
+        if (!run.isCurrent()) return false;
+        if (!clipboardStarted) {
+          // Request native log access while monitoring is being started, before
+          // network discovery can delay it. Transport changes reuse this reader.
+          ClipboardListener.startListening();
+          clipboardStarted = true;
+        }
+        const textEncoder = new encoding.TextEncoder();
+        const textDecoder = new encoding.TextDecoder();
+
+        await setDataInAsyncStorage('fileDownloadInProgress', 'false');
+        await setDataInAsyncStorage('fileDownloadStatus', '');
 
         let previous_clipboard_content_hash = '';
         let toggle = false; // p2s toggle
@@ -69,31 +143,53 @@ module.exports = async (inputData = null) => {
         let sendClipBoardP2P = null;
         let stopServicesP2S = null;
         let stopServicesP2P = null;
+        let isShareTransportReady = () => false;
         let getP2PStatusMessage = null;
         let isP2PStatusMsgChanged = false;
 
-        // get data from async storage
+        // Discover in the service too: Android can start it without the app UI.
+        const keys = [
+          'server_url', 'websocket_url', 'cipher_enabled', 'maxsize',
+          'server_mode', 'stun_url', 'enable_image_sharing',
+          'enable_file_sharing', 'enable_websocket_status_notification',
+          'max_clipboard_size_local_limit_bytes',
+        ];
+        let settings = await getMultipleDataFromAsyncStorage(keys);
+        const refreshSettings = async () => {
+          while (run.isCurrent() && !serviceController.signal.aborted && !transportStopped && (await getDataFromAsyncStorage('wsIsRunning')) === 'true') {
+            try {
+              const next = await discoverServer(settings, fetch, serviceController.signal);
+              if (!run.isCurrent() || serviceController.signal.aborted || transportStopped || (await getDataFromAsyncStorage('wsIsRunning')) !== 'true') return null;
+              for (const key of ['server_mode', 'websocket_url', 'stun_url', 'maxsize']) {
+                await setDataInAsyncStorage(key, next[key]);
+              }
+              return next;
+            } catch (error) {
+              if (!run.isCurrent() || serviceController.signal.aborted || transportStopped) return null;
+              await setDataInAsyncStorage('wsStatusMessage', '❌ ' + error.message + '; retrying…');
+              await waitForRetry();
+            }
+          }
+          return null;
+        };
+        settings = await refreshSettings();
+        if (!settings || !run.isCurrent()) {
+          return false;
+        }
         const {
-          websocket_url,
-          cipher_enabled,
-          maxsize: maxsizeStr,
-          server_mode,
-          stun_url,
-          enable_image_sharing,
-          enable_file_sharing,
+          websocket_url, cipher_enabled, maxsize: maxsizeStr, server_mode,
+          stun_url, enable_image_sharing, enable_file_sharing,
           enable_websocket_status_notification,
           max_clipboard_size_local_limit_bytes: maxClipboardLimitStr,
-        } = await getMultipleDataFromAsyncStorage([
-          'websocket_url',
-          'cipher_enabled',
-          'maxsize',
-          'server_mode',
-          'stun_url',
-          'enable_image_sharing',
-          'enable_file_sharing',
-          'enable_websocket_status_notification',
-          'max_clipboard_size_local_limit_bytes',
-        ]);
+        } = settings;
+        const prepareReconnect = async () => {
+          const next = await refreshSettings();
+          if (!next || !run.isCurrent() || transportStopped) return false;
+          // Rebuild the service's transport state when any server setting changes.
+          restarting = ['server_mode', 'websocket_url', 'stun_url', 'maxsize']
+            .some(key => next[key] !== settings[key]);
+          return !restarting;
+        };
 
         const maxsize = Number(maxsizeStr);
         let max_clipboard_size_local_limit_bytes = Number(maxClipboardLimitStr);
@@ -209,11 +305,9 @@ module.exports = async (inputData = null) => {
           } else if (type === 'files') {
             if (
               direction.toLowerCase() === 'outbound' &&
-              typeof clipContent === 'string'
+              (typeof clipContent === 'string' || Array.isArray(clipContent))
             ) {
-              const file_paths = clipContent
-                .split(',')
-                .filter(item => item.trim() !== '');
+              const file_paths = fileUris(clipContent);
               for (const file_path of file_paths) {
                 clipContentByteLength += Number(
                   await NativeBridgeModule.getFileSize(file_path),
@@ -272,66 +366,13 @@ module.exports = async (inputData = null) => {
           return false;
         };
 
-        // Event triggered when text content is shared with the app. (or) when text selection popup menu action is invoked
-        DeviceEventEmitter.addListener('SHARED_TEXT', async event => {
-          try {
-            const clipContent = event.text;
-            if (clipContent) {
-              /**
-               * Sometimes `Clipboard.setString` is invoked before the app is fully opened, leading to an unauthorized state.
-               * To handle this, implement a fail-safe mechanism that retries sending clipboard content only when it hasn't been successfully sent yet.
-               * If both events are triggered successfully, the content won't be sent twice because the same content is hashed, ensuring that identical data is only processed once.
-               */
-              Clipboard.setString(clipContent);
-              await sendClipBoard(clipContent, 'text');
-            }
-          } catch (e) {
-            await setDataInAsyncStorage(
-              'wsStatusMessage',
-              '❌ Outbound Error: ' + e,
-            );
-          }
-        });
-
-        // Event listener triggered when image is shared with the app.
-        DeviceEventEmitter.addListener('SHARED_IMAGE', async event => {
-          try {
-            const clipContent = event.image;
-            if (clipContent) {
-              await sendClipBoard(clipContent, 'image');
-            }
-          } catch (e) {
-            await setDataInAsyncStorage(
-              'wsStatusMessage',
-              '❌ Outbound Error: ' + e,
-            );
-          }
-        });
-
-        // Event listener triggered when files are shared with the app.
-        DeviceEventEmitter.addListener('SHARED_FILES', async event => {
-          try {
-            const clipContent = event.files;
-            if (clipContent) {
-              await sendClipBoard(clipContent, 'files');
-            }
-          } catch (e) {
-            await setDataInAsyncStorage(
-              'wsStatusMessage',
-              '❌ Outbound Error: ' + e,
-            );
-          }
-        });
-
         //clipboard monitor
-        const { ClipboardListener } = NativeModules;
         const clipboardListener = new NativeEventEmitter(ClipboardListener);
         // start clipboard listening
-        ClipboardListener.startListening();
         // clipboard listener callback
         const clipboardOnChange = clipboardListener.addListener(
           'onClipboardChange',
-          async params => {
+          track(async params => {
             try {
               if (params && params.content && params.type) {
                 await sendClipBoard(params.content, params.type);
@@ -342,12 +383,17 @@ module.exports = async (inputData = null) => {
                 '❌ Outbound Error: ' + e,
               );
             }
-          },
+          }),
         );
 
         const clearFiles = async (expensiveCall = false) => {
           files_in_memory = null;
           if (!expensiveCall) {
+            // A finished download belongs to the previous clipboard item.
+            // Keep active saving progress visible until that batch finishes.
+            if ((await getDataFromAsyncStorage('fileDownloadInProgress')) !== 'true') {
+              await setDataInAsyncStorage('fileDownloadStatus', '');
+            }
             await notifee.cancelNotification(
               'ClipCascade_Download_Files_Notification_Id',
             );
@@ -357,11 +403,13 @@ module.exports = async (inputData = null) => {
           }
         };
 
-        const showFilesDownloadNotification = async msg => {
+        const showFilesDownloadNotification = async files => {
+          const count = Object.keys(JSON.parse(files)).length;
+          await setDataInAsyncStorage('availableFileCount', String(count));
           // Display a silent notification
           await notifee.displayNotification({
             id: 'ClipCascade_Download_Files_Notification_Id',
-            title: msg,
+            title: `📥 Download ${count === 1 ? 'File' : 'Files'}`,
             android: {
               channelId: 'ClipCascade',
               smallIcon: 'ic_small_icon',
@@ -397,21 +445,32 @@ module.exports = async (inputData = null) => {
           // websocket stomp client
           stompClient = new Client({
             brokerURL: websocket_url,
+            beforeConnect: async () => {
+              if (!(await track(prepareReconnect)()) && stompClient) {
+                // Do not await deactivate inside beforeConnect: it can wait on
+                // this very connection attempt. The poll loop completes cleanup.
+                void stompClient.deactivate();
+              }
+            },
             reconnectDelay: RECONNECT_WS_TIMER,
             connectionTimeout: 5000,
             heartbeatIncoming: HEARTBEAT_INTERVAL,
             heartbeatOutgoing: 0,
             forceBinaryWSFrames: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#forceBinaryWSFrames
             // appendMissingNULLonIncoming: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#appendMissingNULLonIncoming
-            onConnect: async () => {
+            onConnect: track(async () => {
               await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
 
               toggle = false;
               // Subscribe to a topic
-              stompClient.subscribe(SUBSCRIPTION_DESTINATION, async message => {
+              stompClient.subscribe(SUBSCRIPTION_DESTINATION, track(async message => {
                 try {
-                  await clearFiles();
+                  // Echoes still release the outbound throttle in send-only mode.
                   toggle = false;
+                  if (!(await isClipboardSyncEnabled('receive_clipboard'))) {
+                    return;
+                  }
+                  await clearFiles();
                   await setDataInAsyncStorage(
                     'wsStatusMessage',
                     '✅ Connected - Subscribed',
@@ -440,18 +499,20 @@ module.exports = async (inputData = null) => {
 
                       // validate clipboard size
                       if (await validateClipboardSize(cb, type_, 'Inbound')) {
+                        if (!(await isClipboardSyncEnabled('receive_clipboard'))) {
+                          return;
+                        }
+                        await NativeBridgeModule.discardPendingShare();
                         // set clipboard content
                         if (type_ === 'text') {
-                          Clipboard.setString(cb);
+                          await NativeBridgeModule.copyTextToClipboard(cb);
                         } else if (type_ === 'image') {
                           await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
                             cb,
                           );
                           block_image_once = true;
                         } else if (type_ === 'files') {
-                          await showFilesDownloadNotification(
-                            '📥 Download File(s)',
-                          );
+                          await showFilesDownloadNotification(cb);
 
                           files_in_memory = cb;
                           await setDataInAsyncStorage(
@@ -468,7 +529,7 @@ module.exports = async (inputData = null) => {
                     '❌ Inbound Error: ' + e,
                   );
                 }
-              });
+              }));
 
               if (enable_websocket_status_notification === 'true') {
                 if (websocket_status_notification_toggle == true) {
@@ -482,31 +543,30 @@ module.exports = async (inputData = null) => {
                   );
                 }
               }
-            },
-            onDisconnect: async () => {
+            }),
+            onDisconnect: track(async () => {
               block_image_once = false;
               await setDataInAsyncStorage('wsStatusMessage', 'Disconnected');
-            },
-            onStompError: async frame => {
+            }),
+            onStompError: track(async frame => {
               block_image_once = false;
               await setDataInAsyncStorage(
                 'wsStatusMessage',
                 '❌ STOMP Error: ' + JSON.stringify(frame, null, 2),
               );
-            },
-            onWebSocketError: async event => {
+            }),
+            onWebSocketError: track(async event => {
               block_image_once = false;
               await setDataInAsyncStorage(
                 'wsStatusMessage',
-                '❌ WebSocket Error: ' + JSON.stringify(event, null, 2),
+                webSocketErrorMessage(event),
               );
-            },
-            onWebSocketClose: async event => {
+            }),
+            onWebSocketClose: track(async event => {
               block_image_once = false;
-              const reason = event?.reason || 'closed by client';
               await setDataInAsyncStorage(
                 'wsStatusMessage',
-                `⚠️ WebSocket Close: ${reason}`,
+                webSocketCloseMessage(event),
               );
               if (
                 enable_websocket_status_notification === 'true' &&
@@ -519,8 +579,10 @@ module.exports = async (inputData = null) => {
                   -1,
                 );
               }
-            },
+            }),
           });
+
+          isShareTransportReady = () => run.isCurrent() && !!stompClient?.connected && !toggle;
 
           // start websocket stomp connection
           stompClient.activate();
@@ -529,12 +591,13 @@ module.exports = async (inputData = null) => {
           sendClipBoardP2S = async (clipContent, type_ = 'text') => {
             try {
               await clearFiles();
+              if (!stompClient?.connected || toggle) return false;
               if (stompClient && stompClient.connected && !toggle) {
                 if (
                   (type_ === 'image' && enable_image_sharing === 'false') ||
                   (type_ === 'files' && enable_file_sharing === 'false')
                 ) {
-                  return;
+                  return true;
                 }
 
                 if (
@@ -546,23 +609,12 @@ module.exports = async (inputData = null) => {
                       clipContent,
                     );
                   } else if (type_ === 'files') {
-                    temp = {};
-                    const file_paths = clipContent
-                      .split(',')
-                      .filter(item => item.trim() !== '');
-
-                    for (const file_path of file_paths) {
-                      temp[await NativeBridgeModule.getFileName(file_path)] =
-                        await NativeBridgeModule.getFileAsBase64(file_path);
-                    }
-                    clipContent = JSON.stringify(temp);
+                    clipContent = await encodeFiles(clipContent, NativeBridgeModule);
                   }
 
                   // clipboad content hash
                   const hcb = await hashCB(clipContent);
                   if (await newCB(hcb)) {
-                    previous_clipboard_content_hash = hcb;
-
                     if (block_image_once) {
                       block_image_once = false;
                     } else {
@@ -578,6 +630,11 @@ module.exports = async (inputData = null) => {
                         '✅ Connected - Broadcasting',
                       );
 
+                      if (!(await isClipboardSyncEnabled('send_clipboard'))) {
+                        toggle = false;
+                        return true;
+                      }
+                      if (!run.isCurrent() || transportStopped) return false;
                       // send
                       stompClient.publish({
                         destination: SEND_DESTINATION,
@@ -586,10 +643,12 @@ module.exports = async (inputData = null) => {
                           type: type_,
                         }),
                       });
+                      previous_clipboard_content_hash = hcb;
                     }
                   }
                 }
               }
+              return true;
             } catch (e) {
               toggle = false;
               block_image_once = false;
@@ -599,9 +658,10 @@ module.exports = async (inputData = null) => {
 
           // stop events and connection P2S
           stopServicesP2S = async () => {
+            transportStopped = true;
             // 1) Stop clipboard listening
             try {
-              await ClipboardListener.stopListening();
+              if (!restarting) await stopClipboard();
               if (clipboardOnChange) {
                 clipboardOnChange.remove();
               }
@@ -612,42 +672,43 @@ module.exports = async (inputData = null) => {
             // 2) Deactivate STOMP client safely
             if (stompClient) {
               // Remove stomp event handlers
-              stompClient.onConnect = null;
-              stompClient.onDisconnect = null;
-              stompClient.onStompError = null;
-              stompClient.onWebSocketError = null;
+              stompClient.onConnect = () => {};
+              stompClient.onDisconnect = () => {};
+              stompClient.onStompError = () => {};
+              stompClient.onWebSocketError = () => {};
               stompClient.onWebSocketClose = () => {};
 
-              // Deactivate the stomp connection, but don't hang here forever:
-              // some socket states cause deactivate() to never resolve, which
-              // would prevent the foreground service from stopping.
+              // Allow a graceful disconnect, then discard an unresponsive socket.
+              // Keep ownership until the old STOMP callbacks are detached.
               try {
-                await Promise.race([
-                  stompClient.deactivate(),
-                  new Promise(resolve =>
-                    setTimeout(resolve, STOMP_DEACTIVATE_TIMEOUT_MS),
-                  ),
-                ]);
-              } catch (e) {
-                // no-op
+                await deactivateStompClient(stompClient);
+              } catch (error) {
+                transportCleanupFailed = true;
+                throw error;
               }
             }
             stompClient = null;
 
             await setDataInAsyncStorage('wsStatusMessage', '✅ Disconnected');
             cleanupClipboardListeners();
-            await notifee.stopForegroundService();
           };
+          cleanupTransport = stopServicesP2S;
         } else if (server_mode === 'P2P') {
           // p2p variables
           let myPeerId = null; // Your assigned peer ID from server
           let peers = new Set(); // Current set of known peer IDs in the "room"
           let peerConnections = {}; // Map: peerId -> RTCPeerConnection
           let dataChannels = {}; // Map: peerId -> RTCDataChannel
+          isShareTransportReady = () => run.isCurrent() && Object.values(dataChannels).some(channel => channel.readyState === 'open');
           let liveConnectionsCount = 0; // Track open DataChannels
           let pendingPeerList = null;
           let p2pShuttingDown = false;
+          let signalingStopped = false;
+          let signalingReconnectTimer = null;
           const peerOpChains = {};
+          const peerRetryAttempts = {};
+          const peerConnectionDeadlines = {};
+          const pendingIce = new WeakMap();
           const dataChannelHeartbeatTimers = {};
           const P2P_DC_KEEPALIVE_JSON = JSON.stringify({ _cc_keepalive: true });
 
@@ -717,7 +778,9 @@ module.exports = async (inputData = null) => {
 
           const runSerializedPeerOp = (peerId, op) => {
             const prev = peerOpChains[peerId] || Promise.resolve();
-            const next = prev.then(() => op()).catch(() => {});
+            const next = prev.then(() => op()).catch(error => {
+              console.warn('P2P operation failed for peer', peerId, error);
+            });
             peerOpChains[peerId] = next;
             return next;
           };
@@ -728,7 +791,7 @@ module.exports = async (inputData = null) => {
             }
             dataChannelHeartbeatTimers[remotePeerId] = setInterval(() => {
               try {
-                if (channel.readyState === 'open') {
+                if (run.isCurrent() && channel.readyState === 'open') {
                   channel.send(P2P_DC_KEEPALIVE_JSON);
                 }
               } catch (e) {
@@ -739,6 +802,9 @@ module.exports = async (inputData = null) => {
 
           async function cleanupPeerConnections() {
             p2pShuttingDown = true;
+            for (const id of Object.keys(peerConnectionDeadlines)) {
+              cancelPeerConnectionDeadline(id);
+            }
             try {
               for (const id of Object.keys(dataChannelHeartbeatTimers)) {
                 clearInterval(dataChannelHeartbeatTimers[id]);
@@ -773,6 +839,9 @@ module.exports = async (inputData = null) => {
               }
               peerConnections = {};
 
+              for (const id of Object.keys(peerRetryAttempts)) {
+                delete peerRetryAttempts[id];
+              }
               myPeerId = null;
               pendingPeerList = null;
               peers.clear();
@@ -787,12 +856,18 @@ module.exports = async (inputData = null) => {
             }
           }
 
-          const initializeWebSocketSignalingClient = async () => {
-            if (wsSignalingClient == null) {
-              wsSignalingClient = new WebSocket(websocket_url);
+          const initializeWebSocketSignalingClient = track(async () => {
+            if (!signalingStopped && wsSignalingClient == null) {
+              if (!(await prepareReconnect()) || !run.isCurrent() || signalingStopped) return;
+              const socket = new WebSocket(websocket_url);
+              wsSignalingClient = socket;
+              const current = () =>
+                run.isCurrent() && !signalingStopped && wsSignalingClient === socket;
 
-              wsSignalingClient.onopen = async () => {
+              socket.onopen = track(async () => {
+                if (!current()) return;
                 await cleanupPeerConnections();
+                if (!current()) return;
 
                 await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
 
@@ -808,9 +883,10 @@ module.exports = async (inputData = null) => {
                     );
                   }
                 }
-              };
+              });
 
-              wsSignalingClient.onmessage = async event => {
+              socket.onmessage = track(async event => {
+                if (!current()) return;
                 try {
                   const data = JSON.parse(event.data);
                   switch (data.type) {
@@ -843,37 +919,42 @@ module.exports = async (inputData = null) => {
                       break;
                   }
 
+                  if (!current()) return;
                   await setDataInAsyncStorage(
                     'wsStatusMessage',
                     '✅ Connected',
                   );
                 } catch (e) {
+                  if (!current()) return;
                   await setDataInAsyncStorage(
                     'wsStatusMessage',
                     '❌ Inbound Error: ' + e,
                   );
                 }
-              };
+              });
 
-              wsSignalingClient.onerror = async event => {
+              socket.onerror = track(async event => {
+                if (!current()) return;
                 block_image_once = false;
                 await setDataInAsyncStorage(
                   'wsStatusMessage',
-                  '❌ WebSocket Error: ' + JSON.stringify(event, null, 2),
+                  webSocketErrorMessage(event),
                 );
-              };
+              });
 
-              wsSignalingClient.onclose = async event => {
+              socket.onclose = track(async event => {
+                if (!current()) return;
                 block_image_once = false;
-                const reason = event?.reason || 'closed by client';
                 await setDataInAsyncStorage(
                   'wsStatusMessage',
-                  '⚠️ WebSocket Close: ' + reason,
+                  webSocketCloseMessage(event),
                 );
+                if (!current()) return;
                 if (
                   enable_websocket_status_notification === 'true' &&
                   websocket_status_notification_toggle == false &&
-                  (await getDataFromAsyncStorage('wsIsRunning')) === 'true'
+                  (await getDataFromAsyncStorage('wsIsRunning')) === 'true' &&
+                  current()
                 ) {
                   websocket_status_notification_toggle = true;
                   await showWebSocketStatusNotification(
@@ -882,18 +963,24 @@ module.exports = async (inputData = null) => {
                   );
                 }
 
+                if (!current()) return;
                 wsSignalingClient = null;
-                setTimeout(async () => {
+                clearTimeout(signalingReconnectTimer);
+                signalingReconnectTimer = setTimeout(async () => {
+                  signalingReconnectTimer = null;
+                  if (signalingStopped || wsSignalingClient != null) return;
+                  const running = await getDataFromAsyncStorage('wsIsRunning');
                   if (
+                    !signalingStopped &&
                     wsSignalingClient == null &&
-                    (await getDataFromAsyncStorage('wsIsRunning')) === 'true'
+                    running === 'true'
                   ) {
                     initializeWebSocketSignalingClient();
                   }
                 }, RECONNECT_WS_TIMER);
-              };
+              });
             }
-          };
+          });
 
           // start websocket signaling connection
           initializeWebSocketSignalingClient();
@@ -901,6 +988,7 @@ module.exports = async (inputData = null) => {
           // send clipboard content P2P
           sendClipBoardP2P = async (clipContent, type_ = 'text') => {
             try {
+              if (!isShareTransportReady()) return false;
               await clearFiles();
               if (
                 (type_ === 'image' && enable_image_sharing === 'false') ||
@@ -916,23 +1004,12 @@ module.exports = async (inputData = null) => {
                     clipContent,
                   );
                 } else if (type_ === 'files') {
-                  temp = {};
-                  const file_paths = clipContent
-                    .split(',')
-                    .filter(item => item.trim() !== '');
-
-                  for (const file_path of file_paths) {
-                    temp[await NativeBridgeModule.getFileName(file_path)] =
-                      await NativeBridgeModule.getFileAsBase64(file_path);
-                  }
-                  clipContent = JSON.stringify(temp);
+                  clipContent = await encodeFiles(clipContent, NativeBridgeModule);
                 }
 
                 // clipboad content hash
                 const hcb = await hashCB(clipContent);
                 if (await newCB(hcb)) {
-                  previous_clipboard_content_hash = hcb;
-
                   if (block_image_once) {
                     block_image_once = false;
                   } else {
@@ -961,12 +1038,18 @@ module.exports = async (inputData = null) => {
                       combinedRawPayloadSizeInBytes: rawPayloadSizeInBytes,
                     };
 
+                    const recipients = Object.values(dataChannels).filter(channel => channel.readyState === 'open');
+                    if (!recipients.length) return false;
                     let loopBroken = false;
                     sendingFragmentId = metadata.id;
                     for (let i = 0; i < fragments.length; i++) {
+                      if (!(await isClipboardSyncEnabled('send_clipboard'))) {
+                        await resetSendingFragmentId();
+                        return;
+                      }
                       if (sendingFragmentId != metadata.id) {
                         loopBroken = true;
-                        return;
+                        return false;
                       }
 
                       const fragment = fragments[i];
@@ -978,14 +1061,18 @@ module.exports = async (inputData = null) => {
                       });
                       metadata.index += 1;
 
-                      // send to all open DataChannels
-                      Object.entries(dataChannels).forEach(
-                        async ([peerId, channel]) => {
-                          if (channel.readyState === 'open') {
-                            await channel.send(messageJson);
-                          }
-                        },
-                      );
+                      // A peer joining midway cannot receive a partial batch.
+                      let sent = false;
+                      for (const channel of recipients) {
+                        if (run.isCurrent() && !transportStopped && channel.readyState === 'open') {
+                          await channel.send(messageJson);
+                          sent = true;
+                        }
+                      }
+                      if (!sent) {
+                        await resetSendingFragmentId();
+                        return false;
+                      }
 
                       // Update stats
                       if (metadata.isFragmented) {
@@ -994,6 +1081,7 @@ module.exports = async (inputData = null) => {
                       }
                     }
                     if (!loopBroken) {
+                      previous_clipboard_content_hash = hcb;
                       await resetSendingFragmentId();
                     }
                   }
@@ -1003,14 +1091,21 @@ module.exports = async (inputData = null) => {
               block_image_once = false;
               p2pMsg = '❌ P2P Outbound Error: ' + JSON.stringify(e, null, 2);
               await p2pStatusMessageChanged();
+              throw e;
             }
           };
 
           // stop events and connection P2P
           stopServicesP2P = async () => {
+            transportStopped = true;
+            // This service must stay stopped even if a newer service sets the
+            // shared running flag back to true before an old retry completes.
+            signalingStopped = true;
+            clearTimeout(signalingReconnectTimer);
+            signalingReconnectTimer = null;
             // 1) Stop listening to clipboard events
             try {
-              await ClipboardListener.stopListening();
+              if (!restarting) await stopClipboard();
               if (clipboardOnChange) {
                 clipboardOnChange.remove();
               }
@@ -1042,13 +1137,14 @@ module.exports = async (inputData = null) => {
             await setDataInAsyncStorage('wsStatusMessage', '✅ Disconnected');
             await setDataInAsyncStorage('p2pStatusMessage', '');
             cleanupClipboardListeners();
-            await notifee.stopForegroundService();
           };
+          cleanupTransport = stopServicesP2P;
 
           // send message to websocket signaling server
           const signalingSend = async obj => {
             try {
               if (
+                run.isCurrent() &&
                 wsSignalingClient &&
                 wsSignalingClient.readyState === WebSocket.OPEN
               ) {
@@ -1071,7 +1167,11 @@ module.exports = async (inputData = null) => {
                 return;
               }
 
-              await clearFiles((expensiveCall = true));
+              if (!(await isClipboardSyncEnabled('receive_clipboard'))) {
+                await resetReceivingFragments();
+                return;
+              }
+              await clearFiles(true);
               await resetSendingFragmentId();
 
               let cb = String(message.payload);
@@ -1155,16 +1255,21 @@ module.exports = async (inputData = null) => {
                 await resetReceivingFragments();
                 // validate clipboard size
                 if (await validateClipboardSize(cb, type_, 'Inbound')) {
+                  if (!(await isClipboardSyncEnabled('receive_clipboard'))) {
+                    await resetReceivingFragments();
+                    return;
+                  }
+                  await NativeBridgeModule.discardPendingShare();
                   // set clipboard content
                   if (type_ === 'text') {
-                    Clipboard.setString(cb);
+                    await NativeBridgeModule.copyTextToClipboard(cb);
                   } else if (type_ === 'image') {
                     await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
                       cb,
                     );
                     block_image_once = true;
                   } else if (type_ === 'files') {
-                    await showFilesDownloadNotification('📥 Download File(s)');
+                    await showFilesDownloadNotification(cb);
 
                     files_in_memory = cb;
                     await setDataInAsyncStorage(
@@ -1193,8 +1298,8 @@ module.exports = async (inputData = null) => {
             peers = updatedPeers;
             await removeStalePeers(updatedPeers);
 
-            peers.forEach(async pid => {
-              if (pid === myPeerId) return; // skip self
+            await Promise.all([...peers].map(pid => runSerializedPeerOp(pid, async () => {
+              if (!run.isCurrent() || p2pShuttingDown || !myPeerId || !peers.has(pid) || pid === myPeerId) return;
               if (!peerConnections[pid]) {
                 // Create new PeerConnection
                 const pc = await createPeerConnection(pid);
@@ -1208,7 +1313,7 @@ module.exports = async (inputData = null) => {
                   await createOffer(pid);
                 }
               }
-            });
+            })));
           };
 
           /**
@@ -1221,7 +1326,9 @@ module.exports = async (inputData = null) => {
             );
             // 2) For each stale peer, close data channel and peer connection
             for (const oldPid of stalePeerIds) {
+              cancelPeerConnectionDeadline(oldPid);
               delete peerOpChains[oldPid];
+              delete peerRetryAttempts[oldPid];
               if (dataChannelHeartbeatTimers[oldPid]) {
                 clearInterval(dataChannelHeartbeatTimers[oldPid]);
                 delete dataChannelHeartbeatTimers[oldPid];
@@ -1251,6 +1358,7 @@ module.exports = async (inputData = null) => {
           };
 
           const disposePeerConnection = async peerId => {
+            cancelPeerConnectionDeadline(peerId);
             if (dataChannelHeartbeatTimers[peerId]) {
               clearInterval(dataChannelHeartbeatTimers[peerId]);
               delete dataChannelHeartbeatTimers[peerId];
@@ -1283,10 +1391,28 @@ module.exports = async (inputData = null) => {
             await syncLiveConnectionsCount();
           };
 
+          const cancelPeerConnectionDeadline = peerId => {
+            if (peerConnectionDeadlines[peerId] != null) {
+              clearTimeout(peerConnectionDeadlines[peerId]);
+              delete peerConnectionDeadlines[peerId];
+            }
+          };
+
+          const peerConnectionTimedOut = (peerId, pc) => {
+            if (peerConnections[peerId] !== pc) return;
+            delete peerConnectionDeadlines[peerId];
+            if (!run.isCurrent() || p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(peerId)) return;
+            if (dataChannels[peerId]?.readyState === 'open') return;
+            console.warn('P2P: data channel did not open within 90s; scheduling recovery',
+              peerId, pc.connectionState, pc.iceConnectionState, pc.signalingState);
+            recoverPeerTransport(peerId, pc);
+          };
+
           /**
            * Create and return a RTCPeerConnection, set up listeners for ICE + DataChannel.
            */
           const createPeerConnection = async remotePeerId => {
+            if (!run.isCurrent()) throw new Error('Sync run is stopping');
             const pc = new RTCPeerConnection({
               iceServers: [
                 {
@@ -1295,7 +1421,7 @@ module.exports = async (inputData = null) => {
               ],
             });
 
-            pc.onicecandidate = async event => {
+            pc.onicecandidate = track(async event => {
               if (event.candidate) {
                 await signalingSend({
                   type: 'ICE_CANDIDATE',
@@ -1304,13 +1430,17 @@ module.exports = async (inputData = null) => {
                   candidate: event.candidate,
                 });
               }
-            };
+            });
 
-            pc.ondatachannel = async event => {
+            pc.ondatachannel = track(async event => {
               const channel = event.channel;
+              if (peerConnections[remotePeerId] !== pc) {
+                channel.close();
+                return;
+              }
               dataChannels[remotePeerId] = channel;
               await setupDataChannel(remotePeerId, channel);
-            };
+            });
 
             pc.onconnectionstatechange = () => {
               const st = pc.connectionState;
@@ -1319,6 +1449,10 @@ module.exports = async (inputData = null) => {
               }
             };
 
+            cancelPeerConnectionDeadline(remotePeerId);
+            peerConnectionDeadlines[remotePeerId] = setTimeout(
+              () => peerConnectionTimedOut(remotePeerId, pc), P2P_CONNECTION_TIMEOUT_MS,
+            );
             return pc;
           };
 
@@ -1338,28 +1472,30 @@ module.exports = async (inputData = null) => {
             });
           };
 
-          const recoverPeerTransport = async (remotePeerId, deadPc) => {
-            if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
+          const recoverPeerTransport = track(async (remotePeerId, deadPc) => {
+            if (!run.isCurrent() || p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(remotePeerId)) {
               return;
             }
-            if (deadPc != null && peerConnections[remotePeerId] !== deadPc) {
+            deadPc = deadPc || peerConnections[remotePeerId];
+            if (!deadPc || peerConnections[remotePeerId] !== deadPc) {
               return;
             }
+            const attempt = peerRetryAttempts[remotePeerId] || 0;
+            await waitForRetry(Math.min(2 ** Math.min(attempt, 5), 30) * 1000);
             await runSerializedPeerOp(remotePeerId, async () => {
-              if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
+              if (!run.isCurrent() || p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(remotePeerId)) {
                 return;
               }
               if (deadPc != null && peerConnections[remotePeerId] !== deadPc) {
                 return;
               }
-              if (deadPc == null) {
-                const ch = dataChannels[remotePeerId];
-                if (ch && ch.readyState === 'open') {
-                  return;
-                }
+              const ch = dataChannels[remotePeerId];
+              if (ch && ch.readyState === 'open') {
+                return;
               }
+              peerRetryAttempts[remotePeerId] = Math.min(attempt + 1, 5);
               await disposePeerConnection(remotePeerId);
-              if (p2pShuttingDown || !myPeerId || !peers.has(remotePeerId)) {
+              if (!run.isCurrent() || p2pShuttingDown || signalingStopped || !myPeerId || !peers.has(remotePeerId)) {
                 return;
               }
               const newPc = await createPeerConnection(remotePeerId);
@@ -1371,13 +1507,13 @@ module.exports = async (inputData = null) => {
                 await createOffer(remotePeerId);
               }
             });
-          };
+          });
 
           /**
            * Handle incoming OFFER from remote, then respond with ANSWER.
            */
           const handleOffer = async (fromPeerId, offer) => {
-            if (p2pShuttingDown) {
+            if (!run.isCurrent() || p2pShuttingDown) {
               return;
             }
             // Ignore delayed/stale OFFERs for peers removed from the latest PEER_LIST.
@@ -1386,7 +1522,7 @@ module.exports = async (inputData = null) => {
               return;
             }
             await runSerializedPeerOp(fromPeerId, async () => {
-              if (p2pShuttingDown) {
+              if (!run.isCurrent() || p2pShuttingDown) {
                 return;
               }
               // TOCTOU guard: PEER_LIST can change after the outer fast-path check.
@@ -1395,13 +1531,19 @@ module.exports = async (inputData = null) => {
               }
               // Full new offer (e.g. after peer recovery): must not apply on an
               // existing connected PC or datachannel counts diverge across devices.
-              if (peerConnections[fromPeerId]) {
+              let pc = peerConnections[fromPeerId];
+              if (pc && !(pc.signalingState === 'stable' &&
+                  !pc.remoteDescription && pc.connectionState === 'new')) {
                 await disposePeerConnection(fromPeerId);
+                pc = null;
               }
-              const pc = await createPeerConnection(fromPeerId);
-              peerConnections[fromPeerId] = pc;
+              if (!pc) {
+                pc = await createPeerConnection(fromPeerId);
+                peerConnections[fromPeerId] = pc;
+              }
 
               await pc.setRemoteDescription(new RTCSessionDescription(offer));
+              await flushPendingIce(pc);
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
 
@@ -1417,81 +1559,148 @@ module.exports = async (inputData = null) => {
           /**
            * Handle incoming ANSWER from remote to our previously sent OFFER.
            */
-          const handleAnswer = async (fromPeerId, answer) => {
-            const pc = peerConnections[fromPeerId];
-            if (!pc) {
-              return;
+          const flushPendingIce = async pc => {
+            const candidates = pendingIce.get(pc) || [];
+            pendingIce.delete(pc);
+            for (const candidate of candidates) {
+              await pc.addIceCandidate(candidate);
             }
-            if (
-              pc.connectionState === 'failed' ||
-              pc.connectionState === 'closed'
-            ) {
-              return;
-            }
+          };
 
-            await pc.setRemoteDescription(new RTCSessionDescription(answer));
+          const handleAnswer = async (fromPeerId, answer) => {
+            await runSerializedPeerOp(fromPeerId, async () => {
+              const pc = peerConnections[fromPeerId];
+              if (!pc) {
+                return;
+              }
+              if (
+                pc.connectionState === 'failed' ||
+                pc.connectionState === 'closed'
+              ) {
+                return;
+              }
+
+              if (pc.signalingState !== 'have-local-offer') return;
+              await pc.setRemoteDescription(new RTCSessionDescription(answer));
+              await flushPendingIce(pc);
+            });
           };
 
           /**
            * Handle incoming ICE candidate from remote peer.
            */
           const handleIceCandidate = async (fromPeerId, candidateData) => {
-            const pc = peerConnections[fromPeerId];
-            if (!pc) {
-              return;
-            }
-            if (
-              pc.connectionState === 'failed' ||
-              pc.connectionState === 'closed'
-            ) {
-              return;
-            }
+            await runSerializedPeerOp(fromPeerId, async () => {
+              const pc = peerConnections[fromPeerId];
+              if (!pc) {
+                return;
+              }
+              if (
+                pc.connectionState === 'failed' ||
+                pc.connectionState === 'closed'
+              ) {
+                return;
+              }
 
-            await pc.addIceCandidate(new RTCIceCandidate(candidateData));
+              const candidate = new RTCIceCandidate(candidateData);
+              if (!pc.remoteDescription) {
+                const candidates = pendingIce.get(pc) || [];
+                if (candidates.length < 256) candidates.push(candidate);
+                pendingIce.set(pc, candidates);
+                return;
+              }
+              await pc.addIceCandidate(candidate);
+            });
           };
 
           /**
            * Set up DataChannel for remotePeerId.
            */
           const setupDataChannel = async (remotePeerId, channel) => {
-            channel.onopen = async () => {
+            channel.onopen = track(async () => {
+              if (dataChannels[remotePeerId] !== channel) return;
+              cancelPeerConnectionDeadline(remotePeerId);
+              delete peerRetryAttempts[remotePeerId];
               startDataChannelHeartbeat(remotePeerId, channel);
               await syncLiveConnectionsCount();
-            };
+            });
 
-            channel.onmessage = async e => {
+            channel.onmessage = track(async e => {
               await onDataChannelMessage(e.data);
-            };
+            });
 
-            channel.onclose = async () => {
+            channel.onclose = track(async () => {
+              if (dataChannels[remotePeerId] !== channel) return;
+              const pc = peerConnections[remotePeerId];
               if (dataChannelHeartbeatTimers[remotePeerId]) {
                 clearInterval(dataChannelHeartbeatTimers[remotePeerId]);
                 delete dataChannelHeartbeatTimers[remotePeerId];
               }
               await syncLiveConnectionsCount();
-              await recoverPeerTransport(remotePeerId, null);
-            };
+              await recoverPeerTransport(remotePeerId, pc);
+            });
 
-            channel.onerror = async err => {
+            channel.onerror = track(async err => {
               p2pMsg = '❌ DataChannel error with ' + remotePeerId + ': ' + err;
               await p2pStatusMessageChanged();
-            };
+            });
 
             if (channel.readyState === 'open') {
-              startDataChannelHeartbeat(remotePeerId, channel);
-              await syncLiveConnectionsCount();
+              await channel.onopen();
             }
           };
         }
 
         // send clipboard content
         const sendClipBoard = async (clipContent, type_ = 'text') => {
-          if (server_mode === 'P2S') {
-            await sendClipBoardP2S(clipContent, type_);
-          } else if (server_mode === 'P2P') {
-            await sendClipBoardP2P(clipContent, type_);
+          if (!run.isCurrent() || transportStopped) return false;
+          if (type_ !== 'image') block_image_once = false;
+          if (!(await isClipboardSyncEnabled('send_clipboard'))) {
+            block_image_once = false;
+            return;
           }
+          const sent = server_mode === 'P2S'
+            ? await sendClipBoardP2S(clipContent, type_)
+            : await sendClipBoardP2P(clipContent, type_);
+          if (sent === false) {
+            throw new Error('Clipboard not sent: connection unavailable, busy, or interrupted. Copy/share it again when connected.');
+          }
+          return sent;
         };
+
+        let deliveringShare = false;
+        async function processPendingShares() {
+          if (!run.isCurrent() || deliveringShare) return;
+          deliveringShare = true;
+          try {
+            while (await deliverPendingShare(
+              NativeBridgeModule,
+              isShareTransportReady,
+              async (content, type) => {
+                block_image_once = false;
+                const result = await sendClipBoard(content, type);
+                if (run.isCurrent() && type === 'text') {
+                  try {
+                    await NativeBridgeModule.copyTextToClipboard(content);
+                  } catch (error) {
+                    await setDataInAsyncStorage('wsStatusMessage', '❌ Clipboard error: ' + error);
+                  }
+                }
+                return result;
+              },
+              error => setDataInAsyncStorage('wsStatusMessage', '❌ Share failed: ' + error),
+            )) {
+              // Each entry is consumed once; this only handles a newly arrived share.
+            }
+          } finally {
+            deliveringShare = false;
+          }
+        }
+        DeviceEventEmitter.addListener('SHARE_AVAILABLE', () => {
+          processPendingShares().catch(error => {
+            setDataInAsyncStorage('wsStatusMessage', '❌ Share failed: ' + error);
+          });
+        });
 
         // terminate service when wsIsRunning is false
         const stopServices = async () => {
@@ -1502,6 +1711,7 @@ module.exports = async (inputData = null) => {
           }
 
           cleanupClipboardListeners();
+          await run.drain();
         };
 
         function sleep(ms) {
@@ -1511,7 +1721,6 @@ module.exports = async (inputData = null) => {
         async function pollFlagsLoop() {
           const POLL_KEYS = [
             'wsIsRunning',
-            'echo',
             'downloadFiles',
             'filesAvailableToDownload',
           ];
@@ -1520,15 +1729,19 @@ module.exports = async (inputData = null) => {
             const json = NativeBridgeModule.getFlagsSync(POLL_KEYS);
             const latest = JSON.parse(json);
 
-            // check if wsIsRunning is true or else terminate the service
-            if (latest.wsIsRunning !== 'true') {
+            if (run.isCurrent() && restarting && latest.wsIsRunning === 'true') {
               await stopServices();
-              await setDataInAsyncStorage(
-                'wsForegroundServiceTerminated',
-                'true',
-              );
+              return true;
+            }
+
+            // check if wsIsRunning is true or else terminate the service
+            if (!run.isCurrent() || latest.wsIsRunning !== 'true') {
+              restarting = false;
+              await stopServices();
               break;
             }
+
+            await processPendingShares();
 
             // The shared checker gates requests to once a day and deduplicates
             // concurrent screen/service checks. Never delay clipboard polling.
@@ -1542,60 +1755,113 @@ module.exports = async (inputData = null) => {
               );
             }
 
-            // check if ping initiated
-            if (latest.echo === 'ping') {
-              await setDataInAsyncStorage('echo', 'pong');
-            }
-
             // check if user wants to download files
             if (
-              latest.downloadFiles === 'true' &&
-              latest.filesAvailableToDownload === 'true'
+              latest.downloadFiles === 'true'
             ) {
-              try {
-                await setDataInAsyncStorage('downloadFiles', 'false');
-                const dirPath = await getDataFromAsyncStorage('dirPath');
-
-                // display progress notification
-                await notifee.displayNotification({
-                  id: 'ClipCascade_Download_Files_Progress_Notification_Id',
-                  title: 'Downloading File(s)...',
-                  android: {
-                    channelId: 'ClipCascade_Progress',
-                    smallIcon: 'ic_small_icon',
-                    progress: {
-                      indeterminate: true,
+              let saved = 0;
+              let total = 0;
+              let dirPath = '';
+              const downloadId = String(Date.now());
+              const reportDownload = async (message, inProgress, canOpenFolder = false, failed = false) => {
+                await setDataInAsyncStorage('fileDownloadStatus', message);
+                // Notification permission must not determine whether saving succeeds.
+                try {
+                  if (!inProgress && !failed &&
+                      (await getDataFromAsyncStorage('download_notifications')) === 'false') {
+                    await notifee.cancelNotification('ClipCascade_Download_Files_Progress_Notification_Id');
+                    return;
+                  }
+                  await notifee.displayNotification({
+                    id: 'ClipCascade_Download_Files_Progress_Notification_Id',
+                    title: inProgress ? 'Downloading files…' : 'File download',
+                    body: canOpenFolder ? `${message} Tap to open folder.` : message,
+                    data: canOpenFolder ? {downloadDirectory: dirPath, downloadId} : {},
+                    android: {
+                      channelId: 'ClipCascade_Progress',
+                      smallIcon: 'ic_small_icon',
+                      onlyAlertOnce: true,
+                      ongoing: inProgress,
+                      progress: inProgress ? {max: total, current: saved} : undefined,
+                      pressAction: {id: canOpenFolder ? 'open-download-folder' : 'default', launchActivity: 'default'},
                     },
-                  },
-                });
-
-                if (files_in_memory != null) {
-                  // save files
+                  });
+                } catch (notificationError) {
+                  console.warn('Could not show download notification', notificationError);
+                }
+              };
+              try {
+                // Snapshot the batch; incoming clipboard updates can replace files_in_memory.
+                const files = JSON.parse(files_in_memory || '{}');
+                const entries = Object.entries(files);
+                total = entries.length;
+                await setDataInAsyncStorage('fileDownloadInProgress', 'true');
+                await setDataInAsyncStorage('downloadFiles', 'false');
+                dirPath = await getDataFromAsyncStorage('dirPath');
+                if (!total || latest.filesAvailableToDownload !== 'true') {
+                  throw new Error('Files are no longer available. Share them again to retry.');
+                }
+                await reportDownload(`Saving 0 of ${total} ${total === 1 ? 'file' : 'files'}…`, true);
+                for (const [name, content] of entries) {
                   await NativeBridgeModule.saveBase64Files(
                     dirPath,
-                    files_in_memory,
+                    JSON.stringify({[name]: content}),
                   );
+                  saved += 1;
+                  await reportDownload(`Saving ${saved} of ${total} ${total === 1 ? 'file' : 'files'}…`, true);
                 }
+                await reportDownload(`Downloaded ${saved} ${saved === 1 ? 'file' : 'files'} to ${downloadDirectoryLabel(dirPath)}.`, false, true);
               } catch (e) {
-                // Alert is displayed only when the app is open because this is called from foreground service
-                Alert.alert('Error', 'Failed to download files: ' + e);
-              } finally {
-                await notifee.cancelNotification(
-                  'ClipCascade_Download_Files_Progress_Notification_Id',
+                await reportDownload(
+                  `Download failed. Saved ${saved} of ${total} ${total === 1 ? 'file' : 'files'}${dirPath ? ` to ${downloadDirectoryLabel(dirPath)}` : ''}. ${e.message || String(e)}`,
+                  false,
+                  saved > 0,
+                  true,
                 );
+              } finally {
+                await setDataInAsyncStorage('downloadFiles', 'false');
+                await setDataInAsyncStorage('fileDownloadInProgress', 'false');
               }
             }
             await sleep(1000);
           }
         }
 
-        pollFlagsLoop();
+        return await pollFlagsLoop();
       } catch (error) {
-        await setDataInAsyncStorage('wsStatusMessage', '❌ Error:' + error);
-        cleanupClipboardListeners();
-        await notifee.stopForegroundService();
+        try {
+          await cleanupTransport();
+        } finally {
+          cleanupClipboardListeners();
+          // Cleanup reports Disconnected; publish the failure afterwards so
+          // the dashboard can explain why the service stopped.
+          await setDataInAsyncStorage('wsStatusMessage', '❌ Error: ' + error);
+        }
+        return false;
       }
-    });
+    };
+    try {
+      while (await runTransport()) {
+        // Keep the foreground notification alive while replacing the transport.
+      }
+    } finally {
+      bridge.requestServiceRunStopSync(runId, false);
+      heartbeatStopped = true;
+      clearInterval(heartbeatTimer);
+      serviceController.abort();
+      // Keep ownership until every old callback and native cleanup completes.
+      // If cleanup fails/hangs, a new start times out instead of overlapping.
+      await stopClipboard();
+      cleanupClipboardListeners();
+      await run.drain();
+      if (transportCleanupFailed) throw new Error('Sync transport cleanup failed; restart ClipCascade before starting sync again.');
+      if (run.isOwner()) {
+        await notifee.stopForegroundService();
+        await setDataInAsyncStorage('wsIsRunning', 'false');
+        await setDataInAsyncStorage('wsForegroundServiceTerminated', 'true');
+        bridge.releaseServiceRunSync(runId);
+      }
+    }
   });
 
   try {
@@ -1638,6 +1904,12 @@ module.exports = async (inputData = null) => {
 
     return [true, 'Foreground service is running'];
   } catch (error) {
+    if (!runnerStarted && run.isOwner()) {
+      bridge.requestServiceRunStopSync(runId, false);
+      await notifee.stopForegroundService();
+      await setDataInAsyncStorage('wsForegroundServiceTerminated', 'true');
+      bridge.releaseServiceRunSync(runId);
+    }
     return [false, error];
   }
 };

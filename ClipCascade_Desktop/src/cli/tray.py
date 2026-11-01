@@ -1,15 +1,21 @@
 import math
 import os
+import sys
 import threading
 import time
 import webbrowser
+from contextlib import nullcontext
+from itertools import count
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout
+from prompt_toolkit.utils import get_cwidth
 
 from cli.echo import Echo
 from cli.info import CustomDialog
 from core.config import Config
 from core.constants import *
-from itertools import count
+from clipboard.file_utils import save_download_file
 
 
 if PLATFORM != WINDOWS:
@@ -50,73 +56,103 @@ class TaskbarPanel:
         self.menu_items = None
         self.numbered_menu = None
         self.loop_terminate = False
+        self._menu_lock = threading.RLock()
+        self._prompt_session = None
+        self._displayed_menu = ""
+        self._displayed_numbered_menu = {}
 
         self.update_stats()  # Start the stats update thread
 
     def run(self):
         Echo("-" * 53)
-        self.menu_items, self.numbered_menu = self.create_menu()
+        self.update_menu(no_dialog=True)
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            # Reuse the prompt's terminal space after Enter instead of leaving
+            # a completed copy of the whole menu in scrollback.
+            self._prompt_session = PromptSession(
+                refresh_interval=0.5, erase_when_done=True
+            )
+        # Redirect background notifications above the live prompt instead of
+        # letting them overwrite the menu or the user's partially typed choice.
+        with patch_stdout() if self._prompt_session is not None else nullcontext():
+            try:
+                self._run_menu()
+            except (EOFError, KeyboardInterrupt):
+                self._on_quit()
+            finally:
+                self._prompt_session = None
 
+    def _run_menu(self):
         while not self.loop_terminate:
-            Echo("\n")
-
-            self.display_menu()
-
-            # input
-            choice = input("Choice: \n")
-            Echo("Please wait...")
-            if choice == "":  # refresh
+            if self._prompt_session is not None:
+                choice = self._prompt_session.prompt(self._get_menu_prompt)
+            else:
+                # Keep redirected input usable without terminal control codes.
+                choice = input(self._get_menu_prompt())
+            if choice == "":
                 continue
 
             if choice.isdigit():
                 choice = int(choice)
             else:
                 Echo("Invalid choice. Please enter a number.")
+                continue
 
-            if choice in self.numbered_menu:
-                fun = self.numbered_menu[choice][1]
+            if choice in self._displayed_numbered_menu:
+                fun = self._displayed_numbered_menu[choice][1]
                 if fun is not None:
                     fun()
             else:
                 Echo("Invalid choice.")
 
+    def _get_menu_prompt(self):
+        with self._menu_lock:
+            # New download/update rows can change option numbers. Keep the
+            # displayed choices stable while the user is entering a selection.
+            typing = (
+                self._prompt_session is not None
+                and self._prompt_session.default_buffer.text
+            )
+            if not typing or not self._displayed_menu:
+                self._displayed_menu = self._format_menu() + "\nChoice: "
+                self._displayed_numbered_menu = self.numbered_menu.copy()
+            return self._displayed_menu
+
     def get_max_width(self):
-        """Determine the maximum width of menu item texts."""
-        menu_texts = [
-            item[0] if isinstance(item, tuple) else "" for item in self.menu_items
+        """Measure terminal columns using the same widths as the prompt renderer."""
+        return max(get_cwidth(row) for row in self._menu_rows())
+
+    def _menu_rows(self):
+        counter = count(1)
+        return [
+            (f"{next(counter):<2}. {item[0]}" if callable(item[1]) else f"    {item[0]}")
+            if isinstance(item, tuple) else ""
+            for item in self.menu_items
         ]
-        return max(len(text) for text in menu_texts) + 1
 
     def display_menu(self):
-        counter = count(1)
-        max_width = self.get_max_width()
+        Echo(self._format_menu())
 
-        total_width = max_width + 8
+    def _format_menu(self):
+        inner_width = max(self.get_max_width(), get_cwidth(" MAIN MENU ")) + 2
+        lines = []
 
         # Box Top Border
-        print("\n╔" + "═" * (max_width + 6) + "╗")
-        print(f"║{' MAIN MENU ':^{max_width + 6}}║")
-        print("╠" + "═" * (max_width + 6) + "╣")
+        lines.append("\n╔" + "═" * inner_width + "╗")
+        lines.append(f"║{' MAIN MENU ':^{inner_width}}║")
+        lines.append("╠" + "═" * inner_width + "╣")
 
         # Menu Items
-        for item in self.menu_items:
-            if isinstance(item, tuple):
-                width = max_width
-                # The version icon uses the same variation selector as Open Logs,
-                # so both rows need the extra padding to align the right border.
-                if any(label in item[0].lower() for label in ("disconnect", "logs", "version")):
-                    if "disconnecting" in item[0].lower():
-                        width -= 1
-                    else:
-                        width += 1
-                else:
-                    width -= 1
-                print(f"║ {next(counter):<2}. {item[0]:<{width}} ║")
+        for row in self._menu_rows():
+            if row:
+                padding = " " * (inner_width - get_cwidth(row) - 2)
+                lines.append(f"║ {row}{padding} ║")
             else:
-                print(f"║ {'─' * (max_width + 4)} ║")
+                lines.append(f"║ {'─' * (inner_width - 2)} ║")
 
         # Box Bottom Border
-        print("╚" + "═" * (max_width + 6) + "╝")
+        lines.append("╚" + "═" * inner_width + "╝")
+        return "\n".join(lines)
 
     def create_menu(self, item_: tuple = None):
         # Menu items
@@ -181,17 +217,16 @@ class TaskbarPanel:
         # Create numbered menu
         counter = count(1)
         numbered_menu = {
-            next(counter): item for item in menu_items if isinstance(item, tuple)
+            next(counter): item for item in menu_items
+            if isinstance(item, tuple) and callable(item[1])
         }
 
         return (menu_items, numbered_menu)
 
     def update_menu(self, item_: tuple = None, no_dialog=False):
-        self.menu_items, self.numbered_menu = self.create_menu(item_=item_)
-        if not no_dialog:
-            CustomDialog(
-                "Menu Updated! Press Enter to Refresh. ⏎", msg_type="info"
-            ).mainloop()
+        # Keep the shared tray method signature; CLI refreshes are always silent.
+        with self._menu_lock:
+            self.menu_items, self.numbered_menu = self.create_menu(item_=item_)
 
     def update_stats(self):
         threading.Thread(target=self._update_stats_thread, daemon=True).start()
@@ -206,7 +241,7 @@ class TaskbarPanel:
                 status = checker.claim_alert(self.config.data.get("update_notifications", True))
                 if status:
                     CustomDialog(
-                        f"ClipCascade {status[1]} is available. Press Enter to refresh the update menu.",
+                        f"ClipCascade {status[1]} is available.",
                         msg_type="info",
                     ).mainloop()
             current_stats = self.ws_interface.get_stats()
@@ -320,23 +355,26 @@ class TaskbarPanel:
     def enable_files_download(self, files):
         self.is_file_download_enabled = True
         self.file_download_items = (
-            "📥 Download File(s)",
+            f"📥 Download {'File' if len(files) == 1 else 'Files'}",
             0,
             lambda: self._on_download(files),
         )
         self.update_menu()
 
     def disable_files_download(self):
+        if not self.is_file_download_enabled and self.file_download_items is None:
+            return
         self.is_file_download_enabled = False
         self.file_download_items = None
         self.update_menu()
 
     def _on_download(self, files):
+        saved = 0
         try:
             if self.config.data["default_file_download_location"] != "":
                 target_directory = self.config.data["default_file_download_location"]
             else:
-                target_directory = input("Enter the location to save file(s): ").strip()
+                target_directory = input(f"Enter the location to save {'file' if len(files) == 1 else 'files'}: ").strip()
             if not target_directory:
                 CustomDialog(
                     "No input provided. Please enter a valid directory path.",
@@ -360,14 +398,16 @@ class TaskbarPanel:
             ).mainloop()
             # Save each file to the chosen directory
             for filename, file_obj in files.items():
-                file_path = os.path.join(target_directory, filename)
-                with open(file_path, "wb") as f:
-                    f.write(file_obj.getvalue())
+                file_path = save_download_file(
+                    target_directory, filename, file_obj.getvalue(), files.keys()
+                )
+                saved += 1
                 logging.debug(f"Saved: {file_path}")
-            CustomDialog("Done.", msg_type="success").mainloop()
+                CustomDialog(f"Saved {saved} of {len(files)} {'file' if len(files) == 1 else 'files'}: {os.path.basename(file_path)}", msg_type="info").mainloop()
+            CustomDialog(f"Downloaded {len(files)} {'file' if len(files) == 1 else 'files'} to: {target_directory}", msg_type="success").mainloop()
 
         except Exception as e:
-            msg = f"An error occurred while downloading files. Error: {e}"
+            msg = f"Download failed. Saved {saved} of {len(files)} {'file' if len(files) == 1 else 'files'}. {e}"
             logging.error(msg)
             CustomDialog(
                 msg,

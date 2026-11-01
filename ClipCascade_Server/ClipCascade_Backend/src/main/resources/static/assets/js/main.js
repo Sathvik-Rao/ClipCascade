@@ -90,6 +90,14 @@ let peerConnections = {}; // key = peerId, value = RTCPeerConnection
 let dataChannels = {}; // key = peerId, value = RTCDataChannel
 let heartbeatIntervalId = null; // for 20s keep-alive on P2P
 let stunConfig = { iceServers: [] }; // will be loaded from /stun-url
+const P2P_CONNECTION_TIMEOUT_MS = 90000;
+let roomPeers = new Set();
+let pendingPeerList = null;
+const peerConnectionDeadlines = new Map();
+const peerRetryTimers = new Map();
+const peerRetryAttempts = new Map();
+const peerOperations = new Map();
+const pendingPeerIce = new WeakMap();
 
 // Common
 let monitoringRequested = false;
@@ -127,6 +135,14 @@ function compareReleaseVersions(latest, installed) {
          ============  ON DOCUMENT READY  =========
          ----------------------------------------- */
 $(function () {
+  // Keep navigation usable before the account requests have completed.
+  const navigationToggle = document.getElementById("navigation-toggle");
+  navigationToggle.addEventListener("click", () => {
+    const expanded = navigationToggle.getAttribute("aria-expanded") !== "true";
+    navigationToggle.setAttribute("aria-expanded", String(expanded));
+    document.getElementById("account-navigation").classList.toggle("is-open", expanded);
+  });
+
   // Prevent form submissions from reloading the page
   $("form").on("submit", (e) => e.preventDefault());
 
@@ -244,6 +260,7 @@ async function connectMonitoring(generation) {
       monitoringSessionExpired();
       return;
     }
+    if (!(await refreshMonitoringSettings(generation))) return;
     if (CURRENT_MODE === "P2S") connectStomp(generation);
     else await connectP2P(generation);
   } catch (error) {
@@ -255,6 +272,55 @@ async function connectMonitoring(generation) {
       scheduleMonitoringReconnect(generation);
     }
   }
+}
+
+async function refreshMonitoringSettings(generation) {
+  const current = () => monitoringRequested && generation === monitoringGeneration;
+  const request = (url) => $.ajax({ url, dataType: "json", cache: false, timeout: 10000 });
+  let mode;
+  try {
+    const data = await request(ENDPOINTS.serverMode);
+    mode = data && data.mode;
+  } catch (error) {
+    // Older servers may not expose discovery. Keep the page's existing mode
+    // only for a missing endpoint, not for outages or expired sessions.
+    if (error.status !== 404) throw error;
+    mode = CURRENT_MODE;
+  }
+  if (!current()) return false;
+  if (mode !== "P2P" && mode !== "P2S") throw new Error("Unsupported server mode");
+
+  let maxSize = "∞";
+  let iceServers = [];
+  if (mode === "P2P") {
+    const data = await request(ENDPOINTS.stunUrl);
+    if (!data || typeof data.url !== "string") throw new Error("Invalid server STUN URL");
+    if (data.url) iceServers = [{ urls: data.url }];
+  } else {
+    const data = await request(ENDPOINTS.maxMessageSize);
+    if (!data || typeof data.maxmessagesize !== "number" ||
+        !Number.isFinite(data.maxmessagesize) || data.maxmessagesize < 0) {
+      throw new Error("Invalid server message size limit");
+    }
+    maxSize = data.maxmessagesize;
+  }
+  if (!current()) return false;
+
+  // Commit a complete configuration together. Detach old callbacks and peers
+  // before starting the newly selected transport.
+  disconnectStomp();
+  disconnectP2P();
+  clearTimeout(connectionTimer);
+  connectionTimer = null;
+  const changed = mode !== CURRENT_MODE;
+  CURRENT_MODE = mode;
+  MAX_MESSAGE_SIZE = maxSize;
+  stunConfig = { iceServers };
+  if (changed) autoPopulateWebSocketURL();
+  $(SELECTORS.maxMessageSize).text(
+    `Max Message Size: ${maxSize}${mode === "P2S" ? " MiB" : ""}`
+  );
+  return true;
 }
 
 function updateMonitoringControls(connected) {
@@ -362,16 +428,44 @@ function base64EncodeUnicode(str) {
   }
   return btoa(binary);
 }
-function downloadFile(filename, base64Content) {
-  const blob = new Blob([atob(base64Content)], { type: "text/plain" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+async function downloadFile(filename, base64Content, button) {
+  if (button && button.disabled) return;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Preparing…";
+  }
+  const status = button ? button.closest("td").querySelector(".download-status") : null;
+  const report = (message) => {
+    if (status) status.textContent = message;
+    else showStatusMessage(message, "info");
+  };
+  report("Preparing download…");
+  let url;
+  let a;
+  try {
+    // Let the browser paint the pending state before decoding the payload.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const bytes = Uint8Array.from(atob(base64Content), (char) => char.charCodeAt(0));
+    const blob = new Blob([bytes], { type: "text/plain;charset=utf-8" });
+    url = URL.createObjectURL(blob);
+    a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    report(`Download started: ${filename}. Check your browser's downloads for progress.`);
+  } catch (error) {
+    console.error("Failed to start download:", error);
+    report("Download failed to start. Please try again.");
+  } finally {
+    if (a) a.remove();
+    // Allow the browser time to consume the object URL.
+    if (url) setTimeout(() => URL.revokeObjectURL(url), 60000);
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Download";
+    }
+  }
 }
 function copyToClipboard(text) {
   navigator.clipboard
@@ -523,25 +617,6 @@ function fetchServerMode() {
     });
   });
 }
-function fetchStunUrl() {
-  return new Promise((resolve, reject) => {
-    $.ajax({
-      url: ENDPOINTS.stunUrl,
-      method: "GET",
-      success: (data) => {
-        if (data && data.url) {
-          stunConfig = { iceServers: [{ urls: data.url }] };
-        }
-        resolve();
-      },
-      error: (err) => {
-        console.error("Failed to fetch STUN url:", err);
-        resolve();
-      },
-    });
-  });
-}
-
 function fetchDonationStatus() {
   return new Promise((resolve, reject) => {
     $.ajax({
@@ -618,7 +693,6 @@ function sendTextToServerStomp(textVal) {
                ----------------------------------------- */
 async function connectP2P(generation) {
   const signalingUrl = $(SELECTORS.brokerUrlInput).val();
-  await fetchStunUrl();
   if (!monitoringRequested || generation !== monitoringGeneration) return;
   const socket = new WebSocket(signalingUrl);
   p2pSignalingWebSocket = socket;
@@ -651,7 +725,11 @@ async function connectP2P(generation) {
 }
 
 function closePeerConnections() {
-  for (const peerId in peerConnections) peerConnections[peerId].close();
+  roomPeers.clear();
+  pendingPeerList = null;
+  for (const peerId in peerConnections) disposePeerConnection(peerId);
+  peerOperations.clear();
+  peerRetryAttempts.clear();
   peerConnections = {};
   dataChannels = {};
   myPeerId = null;
@@ -670,8 +748,10 @@ function handleSignalingMessage(msg) {
   const type = msg.type || "";
   switch (type) {
     case "ASSIGNED_ID":
+      if (myPeerId && myPeerId !== msg.peerId) closePeerConnections();
       myPeerId = msg.peerId;
       console.log("Assigned myPeerId:", myPeerId);
+      if (pendingPeerList !== null) handlePeerListUpdate(pendingPeerList);
       break;
     case "PEER_LIST":
       handlePeerListUpdate(msg.peers || []);
@@ -693,6 +773,12 @@ function handleSignalingMessage(msg) {
 
 // Tie-break logic: Only create an offer if myPeerId < peerId
 function handlePeerListUpdate(peers) {
+  roomPeers = new Set(peers);
+  if (!myPeerId) {
+    pendingPeerList = peers;
+    return;
+  }
+  pendingPeerList = null;
   peers.forEach((peerId) => {
     if (peerId === myPeerId) return; // Ignore self
     if (!peerConnections[peerId]) {
@@ -704,11 +790,64 @@ function handlePeerListUpdate(peers) {
   // If any leftover peers are gone from the list, close them
   for (const pid in peerConnections) {
     if (!peers.includes(pid)) {
-      peerConnections[pid].close();
-      delete peerConnections[pid];
-      delete dataChannels[pid];
+      disposePeerConnection(pid);
+      peerRetryAttempts.delete(pid);
+      peerOperations.delete(pid);
     }
   }
+}
+
+function cancelPeerConnectionDeadline(peerId) {
+  clearTimeout(peerConnectionDeadlines.get(peerId));
+  peerConnectionDeadlines.delete(peerId);
+}
+
+function disposePeerConnection(peerId) {
+  cancelPeerConnectionDeadline(peerId);
+  clearTimeout(peerRetryTimers.get(peerId));
+  peerRetryTimers.delete(peerId);
+  const pc = peerConnections[peerId];
+  const channel = dataChannels[peerId];
+  delete peerConnections[peerId];
+  delete dataChannels[peerId];
+  if (channel) {
+    channel.onopen = channel.onclose = channel.onmessage = null;
+    channel.close();
+  }
+  if (pc) {
+    pc.onicecandidate = pc.ondatachannel = pc.onconnectionstatechange = null;
+    pc.close();
+  }
+}
+
+function recoverPeerTransport(peerId, pc) {
+  const current = () => monitoringRequested && myPeerId && roomPeers.has(peerId) &&
+    peerConnections[peerId] === pc;
+  if (!current() || dataChannels[peerId]?.readyState === "open" || peerRetryTimers.has(peerId)) return;
+  const attempt = peerRetryAttempts.get(peerId) || 0;
+  const delay = Math.min(2 ** Math.min(attempt, 5), 30) * 1000;
+  console.warn("P2P: scheduling peer recovery", peerId, pc.connectionState, delay);
+  peerRetryTimers.set(peerId, setTimeout(() => {
+    if (!current()) return;
+    peerRetryTimers.delete(peerId);
+    if (dataChannels[peerId]?.readyState === "open") return;
+    peerRetryAttempts.set(peerId, Math.min(attempt + 1, 5));
+    disposePeerConnection(peerId);
+    createPeerConnection(peerId, myPeerId < peerId);
+  }, delay));
+}
+
+function runPeerOperation(peerId, operation) {
+  const next = (peerOperations.get(peerId) || Promise.resolve())
+    .then(operation).catch(error => console.error("P2P operation failed", peerId, error));
+  peerOperations.set(peerId, next);
+  return next;
+}
+
+async function flushPendingPeerIce(pc) {
+  const candidates = pendingPeerIce.get(pc) || [];
+  pendingPeerIce.delete(pc);
+  for (const candidate of candidates) await pc.addIceCandidate(candidate);
 }
 
 function createPeerConnection(peerId, initiator) {
@@ -719,7 +858,7 @@ function createPeerConnection(peerId, initiator) {
   peerConnections[peerId] = pc;
 
   pc.onicecandidate = (event) => {
-    if (event.candidate) {
+    if (peerConnections[peerId] === pc && event.candidate) {
       sendSignalingMessage({
         type: "ICE_CANDIDATE",
         fromPeerId: myPeerId,
@@ -731,8 +870,27 @@ function createPeerConnection(peerId, initiator) {
 
   pc.ondatachannel = (event) => {
     const channel = event.channel;
+    if (peerConnections[peerId] !== pc) {
+      channel.close();
+      return;
+    }
     setupDataChannel(peerId, channel);
   };
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+      recoverPeerTransport(peerId, pc);
+    }
+  };
+  cancelPeerConnectionDeadline(peerId);
+  peerConnectionDeadlines.set(peerId, setTimeout(() => {
+    if (peerConnections[peerId] !== pc) return;
+    peerConnectionDeadlines.delete(peerId);
+    if (dataChannels[peerId]?.readyState === "open") return;
+    console.warn("P2P: data channel did not open within 90s", peerId,
+      pc.connectionState, pc.iceConnectionState, pc.signalingState);
+    recoverPeerTransport(peerId, pc);
+  }, P2P_CONNECTION_TIMEOUT_MS));
 
   // If we are the initiator, create data channel + send offer
   if (initiator) {
@@ -740,8 +898,11 @@ function createPeerConnection(peerId, initiator) {
     setupDataChannel(peerId, channel);
 
     pc.createOffer()
-      .then((offer) => pc.setLocalDescription(offer))
+      .then((offer) => {
+        if (peerConnections[peerId] === pc) return pc.setLocalDescription(offer);
+      })
       .then(() => {
+        if (peerConnections[peerId] !== pc) return;
         sendSignalingMessage({
           type: "OFFER",
           fromPeerId: myPeerId,
@@ -758,10 +919,17 @@ function createPeerConnection(peerId, initiator) {
 function setupDataChannel(peerId, channel) {
   dataChannels[peerId] = channel;
   channel.onopen = () => {
+    if (dataChannels[peerId] !== channel) return;
+    cancelPeerConnectionDeadline(peerId);
+    clearTimeout(peerRetryTimers.get(peerId));
+    peerRetryTimers.delete(peerId);
+    peerRetryAttempts.delete(peerId);
     console.log("Data channel open with peer:", peerId);
   };
   channel.onclose = () => {
+    if (dataChannels[peerId] !== channel) return;
     console.log("Data channel closed with peer:", peerId);
+    recoverPeerTransport(peerId, peerConnections[peerId]);
   };
   channel.onmessage = (event) => {
     let msgObj;
@@ -773,56 +941,73 @@ function setupDataChannel(peerId, channel) {
     }
     displayIncomingMessage(msgObj);
   };
+  if (channel.readyState === "open") channel.onopen();
 }
 
 function handleOffer(msg) {
   const fromPeerId = msg.fromPeerId;
-  if (!peerConnections[fromPeerId]) {
-    createPeerConnection(fromPeerId, false);
-  }
-  const pc = peerConnections[fromPeerId];
-  pc.setRemoteDescription(new RTCSessionDescription(msg.offer))
-    .then(() => pc.createAnswer())
-    .then((answer) => pc.setLocalDescription(answer))
-    .then(() => {
+  return runPeerOperation(fromPeerId, async () => {
+    if (!monitoringRequested || !roomPeers.has(fromPeerId)) return;
+    let pc = peerConnections[fromPeerId];
+    // A recovery offer describes a fresh transport, not renegotiation of the old one.
+    if (pc && !(pc.signalingState === "stable" &&
+        !pc.remoteDescription && pc.connectionState === "new")) {
+      disposePeerConnection(fromPeerId);
+      pc = null;
+    }
+    if (!pc) {
+      createPeerConnection(fromPeerId, false);
+      pc = peerConnections[fromPeerId];
+    }
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
+    if (peerConnections[fromPeerId] !== pc) return;
+    await flushPendingPeerIce(pc);
+    if (peerConnections[fromPeerId] !== pc) return;
+    const answer = await pc.createAnswer();
+    if (peerConnections[fromPeerId] !== pc) return;
+    await pc.setLocalDescription(answer);
+    if (peerConnections[fromPeerId] === pc) {
       sendSignalingMessage({
         type: "ANSWER",
         fromPeerId: myPeerId,
         toPeerId: fromPeerId,
         answer: pc.localDescription,
       });
-    })
-    .catch((err) => {
-      console.error("Failed to handleOffer:", err);
-    });
+    }
+  });
 }
 
 function handleAnswer(msg) {
   const fromPeerId = msg.fromPeerId;
-  const pc = peerConnections[fromPeerId];
-  if (!pc) return;
+  return runPeerOperation(fromPeerId, async () => {
+    const pc = peerConnections[fromPeerId];
+    if (!pc || pc.connectionState === "closed" || pc.connectionState === "failed") return;
 
-  // If for some reason we get an ANSWER at an unexpected time:
-  if (pc.signalingState !== "have-local-offer") {
-    console.warn(
-      `Ignoring unexpected ANSWER in signalingState= ${pc.signalingState}`
-    );
-    return;
-  }
-  pc.setRemoteDescription(new RTCSessionDescription(msg.answer)).catch(
-    (err) => {
-      console.error("Failed to setRemoteDescription(Answer):", err);
+    // Ignore delayed answers from an earlier negotiation.
+    if (pc.signalingState !== "have-local-offer") {
+      console.warn(
+        `Ignoring unexpected ANSWER in signalingState= ${pc.signalingState}`
+      );
+      return;
     }
-  );
+    await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+    if (peerConnections[fromPeerId] === pc) await flushPendingPeerIce(pc);
+  });
 }
 
 function handleIceCandidateMsg(msg) {
   const fromPeerId = msg.fromPeerId;
-  const pc = peerConnections[fromPeerId];
-  if (!pc) return;
-
-  pc.addIceCandidate(new RTCIceCandidate(msg.candidate)).catch((err) => {
-    console.error("Error adding ICE candidate:", err);
+  return runPeerOperation(fromPeerId, async () => {
+    const pc = peerConnections[fromPeerId];
+    if (!pc || pc.connectionState === "closed" || pc.connectionState === "failed") return;
+    const candidate = new RTCIceCandidate(msg.candidate);
+    if (!pc.remoteDescription) {
+      const candidates = pendingPeerIce.get(pc) || [];
+      if (candidates.length < 256) candidates.push(candidate);
+      pendingPeerIce.set(pc, candidates);
+    } else {
+      await pc.addIceCandidate(candidate);
+    }
   });
 }
 
@@ -874,10 +1059,11 @@ function displayIncomingMessage(message) {
             <td>
               <div class="button-container">
                 <button class="btn btn-primary download-btn"
-                        onclick="downloadFile('${filename}', '${encodedText}')">Download</button>
+                        onclick="downloadFile('${filename}', '${encodedText}', this)">Download</button>
                 <button class="btn btn-default copy-btn"
                         onclick="copyToClipboard('${escapedPayload}')">Copy</button>
               </div>
+              <div class="download-status" role="status" aria-live="polite"></div>
             </td>
           </tr>
         `);

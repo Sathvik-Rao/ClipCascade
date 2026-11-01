@@ -45,3 +45,9 @@ export const clearAsyncStorage = async () => {
     throw e;
   }
 };
+
+// Publish related transport fields in one storage operation.
+export const saveTransportSettings = async settings => {
+  const keys = ['server_mode', 'websocket_url', 'stun_url', 'maxsize'];
+  await AsyncStorage.multiSet(keys.map(key => [key, JSON.stringify(settings[key])]));
+};

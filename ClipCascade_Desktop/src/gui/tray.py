@@ -5,19 +5,25 @@ import time
 import tkinter as tk
 from tkinter import filedialog
 import webbrowser
-from pystray import Icon, MenuItem as item, Menu
+from pystray import Icon, MenuItem, Menu
 from PIL import Image, ImageDraw
 
 from utils.main_thread import on_main_thread
 from utils.notification_manager import NotificationManager
 from core.config import Config
 from gui.info import CustomDialog
+from gui.tk_owner import get_gui_root
+from clipboard.file_utils import save_download_file
 from core.constants import *
 
 if PLATFORM == MACOS:
     from PyObjCTools import AppHelper
     from gui.macos_tray import MacOSTrayIcon as TrayIcon
     from clipboard import clipboard_monitor_mac
+elif PLATFORM == WINDOWS:
+    from gui.windows_tray import WindowsTrayIcon as TrayIcon
+elif PLATFORM.startswith(LINUX) and Icon.__module__ in ("pystray._gtk", "pystray._appindicator"):
+    from gui.linux_tray import LinuxTrayIcon as TrayIcon
 else:
     TrayIcon = Icon
 
@@ -25,6 +31,13 @@ if PLATFORM != WINDOWS:
     import subprocess
 
 MACOS_SHUTDOWN_TIMEOUT = 15
+
+
+def item(text, action, *, key=None, **kwargs):
+    entry = MenuItem(text, action, **kwargs)
+    # Dynamic labels need an identity independent of their displayed text.
+    entry._clipcascade_key = key if key is not None else text
+    return entry
 
 
 class TaskbarPanel:
@@ -55,12 +68,17 @@ class TaskbarPanel:
         self.is_disconnecting = False
         self.disconnecting_items = None
         self.is_file_download_enabled = False
+        self._download_in_progress = False
+        self._download_lock = threading.Lock()
+        self._save_thread = None
+        self.download_status = ""
         self.file_download_items = None
         self._stopped = threading.Event()
+        self.previous_connection_status = None
         self.previous_stats: str = ""
         self.previous_stats_items = None
 
-        self.root = tk.Tk()
+        self.root = get_gui_root()
         self.root.withdraw()  # Hide the root window
 
         # Hide dock icon on macOS after creating tkinter window
@@ -84,8 +102,18 @@ class TaskbarPanel:
         self.update_stats()  # Start the stats update thread
 
     def run(self):
+        if PLATFORM == WINDOWS:
+            try:
+                self.icon.run_with_shutdown(lambda: self._on_quit(None, None))
+            finally:
+                self._stopped.set()
+                self.root.destroy()
+            return
         if PLATFORM != MACOS:
-            self.icon.run()
+            try:
+                self.icon.run()
+            finally:
+                self._stopped.set()
             return
 
         # PyObjC callbacks re-entering Tk's macOS mainloop can corrupt its
@@ -94,19 +122,19 @@ class TaskbarPanel:
             self.icon.run_with_shutdown(lambda: self._on_quit(None, None))
         finally:
             self._stopped.set()
-            try:
-                self.icon.stop()
-            finally:
-                self.root.destroy()
+            self.icon.stop()
 
     def _begin_macos_shutdown(self, logoff=False):
-        if self._stopped.is_set():
-            return
-        self._stopped.set()
+        with self._download_lock:
+            if self._stopped.is_set():
+                return
+            self._stopped.set()
         logging.info("macOS shutdown requested (logoff=%s)", logoff)
         # Leave the watchdog armed after the UI closes, including while Python
         # waits for remaining threads. Normal process exit kills this daemon.
-        self._shutdown_watchdog = threading.Timer(MACOS_SHUTDOWN_TIMEOUT, os._exit, args=(1,))
+        self._shutdown_watchdog = threading.Timer(
+            MACOS_SHUTDOWN_TIMEOUT, self._macos_shutdown_timeout,
+        )
         self._shutdown_watchdog.daemon = True
         self._shutdown_watchdog.start()
 
@@ -116,6 +144,7 @@ class TaskbarPanel:
 
         def cleanup():
             try:
+                self._wait_for_file_save()
                 if self.on_shutdown_callback:
                     self.on_shutdown_callback(logoff)
             except Exception:
@@ -125,6 +154,18 @@ class TaskbarPanel:
 
         threading.Thread(target=cleanup, name="MacOSShutdown", daemon=True).start()
         self._poll_macos_shutdown()
+
+    def _macos_shutdown_timeout(self):
+        # A large download may legitimately take longer than the network
+        # cleanup timeout. Never force-exit in the middle of writing it.
+        if self._save_thread is not None and self._save_thread.is_alive():
+            self._shutdown_watchdog = threading.Timer(
+                MACOS_SHUTDOWN_TIMEOUT, self._macos_shutdown_timeout,
+            )
+            self._shutdown_watchdog.daemon = True
+            self._shutdown_watchdog.start()
+        else:
+            os._exit(1)
 
     def _poll_macos_shutdown(self):
         # Network cleanup may dispatch pasteboard work back to the main thread.
@@ -213,31 +254,38 @@ class TaskbarPanel:
         )
         menu_items = [
             Menu.SEPARATOR,
-            item("🗒️ Open Logs", self._open_logs),
-            item("📂 Program Files", self._open_program_location),
+            item("🗒️ Open logs", self._open_logs),
+            item("📂 Program files", self._open_program_location),
+            item("❓ Help / About", Menu(
+                item("❓ Help", self._open_help),
+                item("🏠 Homepage", self._open_homepage),
+                item("🌐 GitHub", self._open_github),
+                item("💟 Donate", self._open_donate),
+                Menu.SEPARATOR,
+                item(
+                    f"ℹ️ Version {APP_VERSION}{version_suffix}", None,
+                    enabled=False, key="version",
+                ),
+            )),
             Menu.SEPARATOR,
-            item("🏠 Homepage", self._open_homepage),
-            item("❓ Help", self._open_help),
-            item("💟 Donate", self._open_donate),
-            item("🌐 GitHub", self._open_github),
-            Menu.SEPARATOR,
-            item(f"ℹ️ Version v{APP_VERSION}{version_suffix}", None, enabled=False),
-            Menu.SEPARATOR,
-            item("🔒 Logoff and Quit", self._on_logoff),
+            item("🔒 Log out and quit", self._on_logoff),
             item("❌ Quit", self._on_quit),
         ]
 
         # Add connect/disconnect option (top of the menu - 0 index)
         if not self.is_connected:
-            menu_items.insert(0, item("🔗 Connect", self._on_connect, default=True))
+            menu_items.insert(0, item("🔗 Start sync", self._on_connect, default=True))
         else:
             if self.is_disconnecting and self.disconnecting_items is not None:
                 menu_items.insert(
                     self.disconnecting_items[1],
-                    item(self.disconnecting_items[0], self.disconnecting_items[2]),
+                    item(
+                        self.disconnecting_items[0], self.disconnecting_items[2],
+                        enabled=False, key="stop_sync",
+                    ),
                 )
             else:
-                menu_items.insert(0, item("⛓️‍💥 Disconnect", self._on_disconnect))
+                menu_items.insert(0, item("⛓️‍💥 Stop sync", self._on_disconnect, key="stop_sync"))
 
         # Add update option (before the last 3 items)
         if self.new_version_available is not None and self.new_version_available[0]:
@@ -246,6 +294,7 @@ class TaskbarPanel:
                 item(
                     f"🔄 Update ({self.new_version_available[2]} ➞ {self.new_version_available[1]})",
                     self._on_update,
+                    key="update",
                 ),
             )
 
@@ -257,8 +306,15 @@ class TaskbarPanel:
                     self.file_download_items[0],
                     self.file_download_items[2],
                     default=True,
+                    enabled=not self._download_in_progress,
+                    key="download",
                 ),
             )
+
+        if self.download_status:
+            menu_items.insert(0, item(
+                self.download_status, None, enabled=False, key="download_status",
+            ))
 
         # Add stats option (top of the menu - 0 index)
         if self.previous_stats_items is not None:
@@ -268,10 +324,27 @@ class TaskbarPanel:
                     self.previous_stats_items[0],
                     self.previous_stats_items[2],
                     enabled=self.previous_stats_items[2] is not None,
+                    key="stats",
                 ),
             )
 
+        status, status_dot = self._connection_status()
+        menu_items.insert(0, item(
+            f"{status_dot} Clipboard sync: {status}", None,
+            enabled=False, key="connection_status",
+        ))
         return Menu(*menu_items)
+
+    def _connection_status(self):
+        if self.is_disconnecting:
+            return "Stopping…", "🟠"
+        if not self.is_connected:
+            return "Stopped", "🔴"
+        if self.ws_interface is not None and self.ws_interface.is_connected:
+            return "Connected", "🟢"
+        if self.ws_interface is not None and self.ws_interface.disconnected:
+            return "Disconnected", "🔴"
+        return "Reconnecting…", "🔴"
 
     @on_main_thread
     def update_menu(self, item_: tuple = None):
@@ -297,24 +370,39 @@ class TaskbarPanel:
                         preference="update_notifications",
                     )
             current_stats = self.ws_interface.get_stats()
-            if current_stats is not None and self.previous_stats != current_stats:
+            connection_status = self._connection_status()
+            stats_changed = current_stats is not None and self.previous_stats != current_stats
+            if stats_changed:
                 self.previous_stats = current_stats
                 self.previous_stats_items = (current_stats, 0, None)
+            if stats_changed or connection_status != self.previous_connection_status:
+                self.previous_connection_status = connection_status
                 self.update_menu()
             self._stopped.wait(1)
 
-    @staticmethod
-    def open_webbrowser(url):
+    def _show_tray_message(self, message, msg_type="error", timeout=None):
+        if PLATFORM in (WINDOWS, MACOS) or PLATFORM.startswith(LINUX):
+            NotificationManager(self.config).notify(
+                f"ClipCascade: {'Error' if msg_type == 'error' else 'Information'}",
+                message, preference=None,
+            )
+            return
+        dialog = CustomDialog(message, msg_type=msg_type, timeout=timeout)
+        # Wait only for this dialog, not for every Tk window (including the
+        # hidden tray owner) to be destroyed.
+        dialog.wait_window()
+
+    def open_webbrowser(self, url):
         try:
-            webbrowser.open(url)
+            if not webbrowser.open(url):
+                self._show_tray_message(f"Unable to open the browser. Here is the URL: {url}")
         except Exception as e:
-            CustomDialog(
+            self._show_tray_message(
                 f"Failed to open the browser. Here is the URL: {url}\nError: {e}",
-                msg_type="error",
-            ).mainloop()
+            )
 
     def _on_update(self, icon, item):
-        TaskbarPanel.open_webbrowser(self.new_version_available[3])
+        self.open_webbrowser(self.new_version_available[3])
 
     def _on_connect(self, icon, item):
         if self.on_connect_callback:
@@ -361,17 +449,17 @@ class TaskbarPanel:
         self.update_menu()
 
     def _open_homepage(self, icon, item):
-        TaskbarPanel.open_webbrowser(self.config.data["server_url"])
+        self.open_webbrowser(self.config.data["server_url"])
 
     def _open_github(self, icon, item):
-        TaskbarPanel.open_webbrowser(self.github_url)
+        self.open_webbrowser(self.github_url)
 
     def _open_help(self, icon, item):
-        TaskbarPanel.open_webbrowser(HELP_URL)
+        self.open_webbrowser(HELP_URL)
 
     def _open_donate(self, icon, item):
         if self.donation_url is not None:
-            TaskbarPanel.open_webbrowser(self.donation_url)
+            self.open_webbrowser(self.donation_url)
 
     def open_location(self, path):
         if PLATFORM == WINDOWS:
@@ -387,31 +475,31 @@ class TaskbarPanel:
             try:
                 self.open_location(log_file_path)
             except Exception as e:
-                CustomDialog(
+                self._show_tray_message(
                     f"Failed to open the log file '{log_file_path}'.\nError: {e}",
-                    msg_type="error",
-                ).mainloop()
+                )
         else:
-            CustomDialog(
-                f"Log file not found at '{log_file_path}'.", msg_type="error"
-            ).mainloop()
+            self._show_tray_message(f"Log file not found at '{log_file_path}'.")
 
     def _open_program_location(self, icon, item):
         try:
             program_location = get_program_files_directory()
             self.open_location(program_location)
         except Exception as e:
-            CustomDialog(
+            self._show_tray_message(
                 f"Failed to open the program location '{program_location}'.\nError: {e}",
-                msg_type="error",
-            ).mainloop()
+            )
 
     @on_main_thread
     def enable_files_download(self, files):
+        if self._stopped.is_set():
+            return
+        if not self._download_in_progress:
+            self.download_status = ""
         self.is_file_download_enabled = True
         self.icon.icon = self.create_clipboard_icon_with_dot()
         self.file_download_items = (
-            "📥 Download File(s)",
+            f"📥 Download {'File' if len(files) == 1 else 'Files'}",
             0,
             lambda icon, item: self._on_download(icon, item, files),
         )
@@ -419,13 +507,92 @@ class TaskbarPanel:
 
     @on_main_thread
     def disable_files_download(self):
+        if self._stopped.is_set():
+            return
+        if not self._download_in_progress:
+            self.download_status = ""
         self.is_file_download_enabled = False
         self.file_download_items = None
         self.icon.icon = self.create_clipboard_icon()
         self.update_menu()
 
+    @on_main_thread
+    def _set_download_status(self, message):
+        if self._stopped.is_set():
+            return
+        self.download_status = message
+        self.update_menu()
+
+    def _choose_download_directory(self, files):
+        if (PLATFORM == MACOS or PLATFORM.startswith(LINUX)) and threading.current_thread() is not threading.main_thread():
+            # A GTK callback can be serviced by the clipboard's GTK loop.
+            # Let the existing download fallback handle this without touching Tk.
+            raise RuntimeError("Download picker must run on the main thread")
+        if PLATFORM == MACOS:
+            # AppKit owns the tray loop. A Tk picker would re-enter Tcl from
+            # an AppKit callback, which can corrupt Tk's saved thread state.
+            from AppKit import NSOpenPanel, NSModalResponseOK
+            from Foundation import NSURL
+
+            panel = NSOpenPanel.openPanel()
+            panel.setTitle_(f"Select location to save {'file' if len(files) == 1 else 'files'}")
+            panel.setCanChooseDirectories_(True)
+            panel.setCanChooseFiles_(False)
+            panel.setAllowsMultipleSelection_(False)
+            panel.setCanCreateDirectories_(True)
+            panel.setDirectoryURL_(NSURL.fileURLWithPath_(get_downloads_folder()))
+            if panel.runModal() == NSModalResponseOK:
+                return str(panel.URL().path())
+            return ""
+        title = f"Select location to save {'file' if len(files) == 1 else 'files'}"
+        if PLATFORM == WINDOWS:
+            # Downloads run on a worker. A temporary Tk root can outlive that
+            # worker through Python cycles and crash Tcl when another thread
+            # collects it. Use the native shell picker without creating Tcl.
+            from pythoncom import CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED
+            from win32com.shell import shell, shellcon
+            import win32gui
+
+            def initialize_picker(hwnd, message, unused, initial_directory):
+                if message == shellcon.BFFM_INITIALIZED:
+                    win32gui.SendMessage(
+                        hwnd, shellcon.BFFM_SETSELECTIONW, 1, initial_directory
+                    )
+
+            CoInitializeEx(COINIT_APARTMENTTHREADED)
+            try:
+                pidl, _, _ = shell.SHBrowseForFolder(
+                    0, None, title,
+                    # BIF_NEWDIALOGSTYLE (0x40) is absent from pywin32's shellcon.
+                    shellcon.BIF_RETURNONLYFSDIRS | shellcon.BIF_EDITBOX | 0x40,
+                    initialize_picker, get_downloads_folder(),
+                )
+                return shell.SHGetPathFromIDListW(pidl) if pidl is not None else ""
+            finally:
+                CoUninitialize()
+        return filedialog.askdirectory(
+            parent=self.root, title=title, initialdir=get_downloads_folder()
+        )
+
     def _on_download(self, icon, item, files):
-        """Download the files to the user's Downloads folder."""
+        if self._stopped.is_set() or self._download_in_progress:
+            return
+        self._download_in_progress = True
+        if PLATFORM == WINDOWS:
+            # A shell dialog must not run inside pystray's window procedure.
+            # Keep the tray message loop free to process refreshes and clicks.
+            try:
+                threading.Thread(
+                    target=self._start_download, args=(files,),
+                    name="WindowsFileDownload", daemon=True,
+                ).start()
+            except Exception:
+                self._download_in_progress = False
+                raise
+            return
+        self._start_download(files)
+
+    def _start_download(self, files):
         try:
             try:
                 if self.config.data["default_file_download_location"] != "":
@@ -433,63 +600,118 @@ class TaskbarPanel:
                         "default_file_download_location"
                     ]
                 else:
-                    target_directory = filedialog.askdirectory(
-                        title="Select location to Save File(s)",
-                        initialdir=get_downloads_folder(),
-                    )
+                    target_directory = self._choose_download_directory(files)
                 if not target_directory:
                     logging.debug("No directory selected. Exiting.")
+                    self._download_in_progress = False
+                    self.update_menu()
                     return
-            except RuntimeError as re:
+            except (RuntimeError, tk.TclError) as error:
                 target_directory = os.path.join(
                     get_program_files_directory(), "downloads"
                 )
                 if not os.path.exists(target_directory):
                     os.makedirs(target_directory)
                 logging.error(
-                    f"A runtime error occurred while starting filedialog to select a directory. Error: {re}.\n"
+                    f"Failed to open the download directory picker. Error: {error}.\n"
                     + f"Setting the default location to the program directory '{target_directory}'."
                 )
-                CustomDialog(
-                    f"ClipCascade 📥: Saving files to the program directory '{target_directory}'.",
-                    msg_type="info",
-                    timeout=5000,
-                ).mainloop()
+                message = f"ClipCascade 📥: Saving files to the program directory '{target_directory}'."
+                if PLATFORM == WINDOWS:
+                    NotificationManager(self.config).notify(
+                        "ClipCascade: Download location", message, preference=None,
+                    )
+                else:
+                    self._show_tray_message(message, msg_type="info", timeout=5000)
 
-            # Save each file to the chosen directory
-            for filename, file_obj in files.items():
-                file_path = os.path.join(target_directory, filename)
-                with open(file_path, "wb") as f:
-                    f.write(file_obj.getvalue())
-                logging.debug(f"Saved: {file_path}")
+            pending_files = list(files.items())
+            total = len(pending_files)
+            self._set_download_status(f"Saving 0 of {total} {'file' if total == 1 else 'files'}…")
 
+            def save_files():
+                saved = 0
+                notifier = NotificationManager(self.config)
+                failed = False
+                try:
+                    for filename, file_obj in pending_files:
+                        save_download_file(
+                            target_directory, filename, file_obj.getvalue(), files.keys()
+                        )
+                        saved += 1
+                        self._set_download_status(f"Saving {saved} of {total} {'file' if total == 1 else 'files'}…")
+                    message = f"Downloaded {saved} {'file' if saved == 1 else 'files'} to: {target_directory}"
+                    title = "ClipCascade: Download complete"
+                except Exception as error:
+                    failed = True
+                    logging.exception("Failed to download files")
+                    message = f"Download failed. Saved {saved} of {total} {'file' if total == 1 else 'files'}. {error}"
+                    title = "ClipCascade: Download failed"
+                finally:
+                    self._download_in_progress = False
+                self._set_download_status(message)
+                notifier.notify(
+                    title, message,
+                    preference=None if failed else "download_notifications",
+                )
+
+            # Serialize starting a save against shutdown on every platform:
+            # shutdown either waits for this save or prevents it from starting.
+            with self._download_lock:
+                if self._stopped.is_set():
+                    self._download_in_progress = False
+                    return
+                self._save_thread = threading.Thread(
+                    target=save_files, name="FileSave", daemon=False,
+                )
+                self._save_thread.start()
         except Exception as e:
-            msg = f"An error occurred while downloading files. Error: {e}"
-            logging.error(msg)
-            CustomDialog(
-                msg,
-                msg_type="error",
-            ).mainloop()
+            self._download_in_progress = False
+            logging.exception("Failed to start file download")
+            self._set_download_status(f"Download failed: {e}")
+            if PLATFORM == WINDOWS:
+                NotificationManager(self.config).notify(
+                    "ClipCascade: Download failed", str(e), preference=None,
+                )
+            else:
+                self._show_tray_message(f"Download failed: {e}")
+
+    def _wait_for_file_save(self):
+        save_thread = self._save_thread
+        if save_thread is not None and save_thread.is_alive():
+            logging.info("Waiting for file saving to finish before quitting")
+            save_thread.join()
+
+    def _begin_threaded_shutdown(self, logoff=False):
+        with self._download_lock:
+            if self._stopped.is_set():
+                return
+            self._stopped.set()
+
+        def finish_shutdown():
+            try:
+                self._wait_for_file_save()
+                if logoff and self.on_logoff_callback:
+                    self.on_logoff_callback()
+            except Exception as error:
+                logging.exception("Tray shutdown cleanup failed")
+                self._show_tray_message(f"Failed to finish logging off: {error}")
+            finally:
+                # Each backend schedules stop on its UI loop. On Windows, run()
+                # then destroys Tk on the thread that created it.
+                self.icon.stop()
+
+        threading.Thread(
+            target=finish_shutdown, name="TrayShutdown", daemon=False,
+        ).start()
 
     def _on_logoff(self, icon, item):
         if PLATFORM == MACOS:
             self._begin_macos_shutdown(logoff=True)
             return
-        self._stopped.set()
-        try:
-            if self.on_logoff_callback:
-                self.on_logoff_callback()
-            self.icon.stop()
-            self.root.quit()
-        except Exception as e:
-            CustomDialog(
-                f"An error occurred while logging off: {e}", msg_type="error"
-            ).mainloop()
+        self._begin_threaded_shutdown(logoff=True)
 
     def _on_quit(self, icon, item):
         if PLATFORM == MACOS:
             self._begin_macos_shutdown()
             return
-        self._stopped.set()
-        self.icon.stop()
-        self.root.quit()
+        self._begin_threaded_shutdown()

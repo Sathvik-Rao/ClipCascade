@@ -6,9 +6,13 @@ export const DEVICE_PREFERENCE_FIELDS = new Set([
   'relaunch_on_boot',
   'enable_websocket_status_notification',
   'update_notifications',
+  'download_notifications',
   'enable_periodic_checks',
   'enable_image_sharing',
   'enable_file_sharing',
+  'send_clipboard',
+  'receive_clipboard',
+  'show_android_setup_guide',
 ]);
 
 export const isValidClipboardLimit = value =>
@@ -47,3 +51,11 @@ export const saveDevicePreference = (field, value) => {
 };
 
 export const waitForPreferenceWrites = () => pendingWrites;
+
+// Read persisted values for every operation so a headless service sees UI changes.
+// Missing preferences preserve two-way sync for existing installations.
+export const isClipboardSyncEnabled = async field => {
+  await pendingWrites.catch(() => {});
+  const raw = await AsyncStorage.getItem(field);
+  return raw === null || JSON.parse(raw) !== 'false';
+};
