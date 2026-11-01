@@ -565,7 +565,14 @@ class P2PManager(ReconnectMixin, WSInterface):
             if dead_pc is not None and self.peer_connections.get(remote_peer_id) is not dead_pc:
                 return
             ch = self.data_channels.get(remote_peer_id)
-            if ch is not None and getattr(ch, "readyState", "") == "open":
+            # A failed transport can leave its channel reporting open. Only
+            # suppress a queued retry when the transport has actually recovered.
+            if (
+                ch is not None
+                and getattr(ch, "readyState", "") == "open"
+                and dead_pc.connectionState == "connected"
+                and dead_pc.iceConnectionState in ("connected", "completed")
+            ):
                 return
 
             self._peer_retry_attempts[remote_peer_id] = min(attempt + 1, 5)

@@ -1490,7 +1490,11 @@ module.exports = async (inputData = null) => {
                 return;
               }
               const ch = dataChannels[remotePeerId];
-              if (ch && ch.readyState === 'open') {
+              // A failed transport can leave its channel reporting open. Only
+              // suppress a queued retry when the transport has actually recovered.
+              if (ch && ch.readyState === 'open' &&
+                  deadPc.connectionState === 'connected' &&
+                  ['connected', 'completed'].includes(deadPc.iceConnectionState)) {
                 return;
               }
               peerRetryAttempts[remotePeerId] = Math.min(attempt + 1, 5);
