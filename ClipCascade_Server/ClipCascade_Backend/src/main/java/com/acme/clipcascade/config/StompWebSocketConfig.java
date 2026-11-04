@@ -4,9 +4,16 @@ import org.springframework.lang.NonNull;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
@@ -28,6 +35,36 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public StompWebSocketConfig(ClipCascadeProperties clipCascadeProperties, LiveWebSocketService liveWebSockets) {
         this.clipCascadeProperties = clipCascadeProperties;
         this.liveWebSockets = liveWebSockets;
+    }
+
+    @Override
+    public void configureClientInboundChannel(@NonNull ChannelRegistration registration) {
+        registration.interceptors(new ChannelInterceptor() {
+            @Override
+            public Message<?> preSend(@NonNull Message<?> message, @NonNull MessageChannel channel) {
+                StompHeaderAccessor headers = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
+                if (headers == null) {
+                    throw new AccessDeniedException("STOMP frame not allowed");
+                }
+                if (headers.isHeartbeat()) {
+                    return message;
+                }
+
+                // Authorize the original client destination before Spring resolves user queues.
+                var command = headers.getCommand();
+                boolean allowed = command != null && switch (command) {
+                    case SEND -> headers.getUser() != null && "/app/cliptext".equals(headers.getDestination());
+                    case SUBSCRIBE -> headers.getUser() != null
+                            && "/user/queue/cliptext".equals(headers.getDestination());
+                    case CONNECT, STOMP, DISCONNECT, UNSUBSCRIBE, ACK, NACK -> headers.getDestination() == null;
+                    default -> false;
+                };
+                if (!allowed) {
+                    throw new AccessDeniedException("STOMP frame not allowed");
+                }
+                return message;
+            }
+        });
     }
 
     @Override
