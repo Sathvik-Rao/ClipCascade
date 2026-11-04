@@ -136,9 +136,6 @@ class RequestManager:
         try:
             response = RequestManager.get(
                 url=METADATA_URL,
-                headers={
-                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
-                },
                 verify=True,
             )
             if response.status_code == 200:
