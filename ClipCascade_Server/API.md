@@ -176,9 +176,9 @@ constraints. Username and password changes require deriving a new clipboard key
 on every client because both inputs participate in key derivation.
 
 - Multiple concurrent login sessions are allowed (no configured maximum).
-- `POST /logout` ends the current HTTP session. Explicitly close your socket and
-  P2P peer connections as part of logout; this route does not call the application's
-  all-session WebSocket revocation service.
+- `POST /logout` ends the current HTTP session and closes its STOMP or P2P
+  signaling WebSockets. Other logins stay connected. Clients should still
+  clean up their local connections, including direct WebRTC peer connections.
 - `DELETE /logout-session` revokes every session for the current username, not
   merely the calling device. Admin per-user/global logout does the analogous
   operation. Account password/status/name changes and deletion also revoke the
