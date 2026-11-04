@@ -285,6 +285,7 @@ All `/admin/*` routes below require an authenticated `ADMIN`. Mutations use
 | Method | Path | Input / response |
 | --- | --- | --- |
 | GET | `/admin/advance` | HTML showing server configuration; a non-admin is redirected to `/`. |
+| GET | `/admin/default-password-status` | JSON booleans `usingDefaultPassword` and `showPrompt`. Reading the status consumes the prompt for the current login when the default password is active. Non-admins receive `403`. |
 | GET | `/admin/server-version` | Same response as `/server-version`. |
 | GET | `/admin/latest-server-version` | Same response as `/latest-server-version`. |
 | GET | `/admin/server-time` | Plain text `Epoch time: <seconds>`. |
@@ -303,7 +304,7 @@ All `/admin/*` routes below require an authenticated `ADMIN`. Mutations use
 | PUT | `/admin/toggle-user-status` | JSON `{"username":"alice","enabled":"false"}` (string value). Expires the target user's sessions. |
 | PUT | `/admin/update-user-password` | JSON `{"username":"alice","newPassword":"<SHA3-512 digest>"}`. Expires the target user's sessions. |
 | PUT | `/admin/update-username` | JSON `{"oldUsername":"alice","newUsername":"alice2"}`. Expires sessions for the old username. |
-| PUT | `/admin/unlock-user` | JSON `{"username":"alice"}`; removes the user's brute-force tracker entry. |
+| PUT | `/admin/unlock-user` | JSON `{"username":"alice"}`. Clears user and per-IP lockout timers while retaining the tracker entry. |
 | DELETE | `/admin/delete-user` | JSON `{"username":"alice"}`. Expires sessions; the admin cannot be deleted. |
 | DELETE | `/admin/logout-user-session` | JSON `{"username":"alice"}`. Logs out all sessions for that user. |
 | DELETE | `/admin/logout-all-sessions` | No body. Logs out every user's sessions, including the admin's. |
@@ -467,6 +468,9 @@ STOMP versions `1.0,1.1`). A connection proceeds as follows:
 5. Process `MESSAGE` frames for your subscription and tolerate heartbeat newlines.
 6. On disconnect, repeat CONNECT and SUBSCRIBE; subscription IDs are local to a
    connection. Handle `ERROR` frames without trying to parse them as clipboard JSON.
+
+The server only accepts `SEND` to `/app/cliptext` and `SUBSCRIBE` to
+`/user/queue/cliptext`. Other send or subscription destinations are rejected.
 
 Wire example (`\0` below means one NUL byte, not the two characters backslash/zero;
 headers and the blank line use LF). Replace `host` with your server hostname:
@@ -1043,7 +1047,7 @@ Client-relevant server settings (defaults from this tree):
 | `CC_SESSION_PERSISTENCE_ENABLED` | `false` | Opt-in JDBC sessions, H2/PostgreSQL |
 | `CC_SIGNUP_ENABLED` | `false` | Public registration and captcha |
 | `CC_CAPTCHA_DIFFICULTY_PERCENT` | `100` | Captcha presentation difficulty, clamped to 0–100 |
-| `CC_MAX_USER_ACCOUNTS` | `-1` | Total account cap including admin; `-1` unlimited |
+| `CC_MAX_USER_ACCOUNTS` | `-1` | Regular user account cap, excluding the administrator. `-1` is unlimited. |
 | `CC_ACCOUNT_PURGE_TIMEOUT_SECONDS` | `-1` | Inactive non-admin cleanup at startup; negative disables |
 | `CC_MAX_UNIQUE_IP_ATTEMPTS` | `15` | Brute-force tracker unique-IP threshold |
 | `CC_MAX_ATTEMPTS_PER_IP` | `30` | Brute-force tracker per-IP threshold |

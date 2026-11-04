@@ -184,6 +184,14 @@ generates those blocks. Start without custom locations so **both** WebSocket
 endpoints inherit the generated upgrade settings. If old custom locations exist,
 remove/fix them rather than only patching `/clipsocket`.
 
+Before exposing this host, verify that the effective upstream location strips
+client-supplied `Forwarded` and `X-Forwarded-Prefix` and rebuilds
+`X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, and
+`X-Forwarded-Port` from trusted connection information. The generated proxy
+configuration may append to the incoming `X-Forwarded-For`. The timeout
+snippet does not sanitize headers. Use the bundled Nginx setup if you cannot
+enforce this at your proxy.
+
 For a nonstandard HTTPS port, prefer the bundled Nginx setup: the public Host and
 port must survive NPM's generated configuration, not merely its host port mapping.
 Do not use an HTTP upstream with NPM's scheme set to HTTPS.
