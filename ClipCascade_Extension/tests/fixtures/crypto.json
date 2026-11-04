@@ -1,0 +1,45 @@
+{
+  "sha3_512": [
+    {
+      "input": "admin123",
+      "hex": "5ec73815fe122068a506d57c351bdae988495237ba77b483e2ae01c3df3e78999e9870990b7d99a86906b6cbe2080b1ca5487646bdc70bba185e069f87260dea"
+    },
+    {
+      "input": "",
+      "hex": "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26"
+    },
+    {
+      "input": "pässwörd ✓",
+      "hex": "0438a2f1aebeb53607547121e02580a780ca0a862224b301bf1746793e11c0915c6d955cad8ef51c0cc7dcc2add92935316f69ad1f3845c2db814f653a2c2bad"
+    }
+  ],
+  "cases": [
+    {
+      "username": "admin",
+      "password": "admin123",
+      "salt": "",
+      "rounds": 664937,
+      "keyHex": "2daea803d900034be4df9336cb5bb63c262789b34e83695d05ff4f4d13be2992",
+      "plaintext": "hello from python",
+      "payload": "{\"nonce\": \"lBpx89Qi6/xjZoq37frwMg==\", \"ciphertext\": \"zP988FKsaICuTGqVm8GaX2g=\", \"tag\": \"f+ukFsdgC8FNEx+JEargVA==\"}"
+    },
+    {
+      "username": "alice",
+      "password": "pässwörd ✓",
+      "salt": "pepper",
+      "rounds": 1000,
+      "keyHex": "60d042c8edbf14bebb909102527ed6d79f08e990ef6b8b78066e1f7fcb5cbb6a",
+      "plaintext": "unicode: 日本語 🎉\nsecond line",
+      "payload": "{\"nonce\": \"cVBD5IMRAFN6iSemPcYhSQ==\", \"ciphertext\": \"0c4s1yBhUiXBh3ZAv9/JACcZbyw2XQzvmBeBb9v9/UGlrj0=\", \"tag\": \"Rbz9FjFydvT91bhD0dK1Ug==\"}"
+    },
+    {
+      "username": "bob",
+      "password": "p",
+      "salt": "",
+      "rounds": 1,
+      "keyHex": "5c5f1c143403e761e47a8f08c77fbbe7d30f97720e4caf4af5524999ed064550",
+      "plaintext": "",
+      "payload": "{\"nonce\": \"yLceU/k2SbqlOzZ0g8hRsQ==\", \"ciphertext\": \"\", \"tag\": \"oN/szx3XhuWdkZLqAAl5mw==\"}"
+    }
+  ]
+}

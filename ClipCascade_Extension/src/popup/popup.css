@@ -1,0 +1,22 @@
+body { width: 360px; padding: 12px; }
+header { margin-bottom: 12px; }
+.pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--surface); color: var(--muted); }
+.pill.connected { color: var(--ok); }
+.pill.connecting { color: var(--warn); }
+.pill.disconnected { color: var(--err); }
+.wide { width: 100%; }
+.account { margin-bottom: 8px; }
+.card { background: var(--surface); border-radius: var(--radius); padding: 10px; margin: 10px 0; }
+.card .check:last-child { margin-bottom: 0; }
+#compose textarea { margin-bottom: 8px; }
+#reconnect { margin-top: 8px; }
+#history { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow-y: auto; }
+#history li { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--border); }
+#history li:first-child { border-top: 0; }
+.dir { width: 16px; text-align: center; color: var(--muted); flex: none; }
+.dir.in { color: var(--accent); }
+.summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meta { font-size: 11px; color: var(--muted); }
+.thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; flex: none; background: var(--surface); }
+#history button { flex: none; padding: 3px 8px; font-size: 12px; }
+footer { margin-top: 10px; }

@@ -1,0 +1,6 @@
+body { padding: 24px 16px; }
+main { max-width: 560px; margin: 0 auto; }
+header { margin-bottom: 20px; }
+section { padding: 16px 0; border-top: 1px solid var(--border); }
+.narrow { max-width: 180px; }
+kbd { font: 12px ui-monospace, monospace; padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
