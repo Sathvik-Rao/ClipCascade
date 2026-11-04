@@ -1,6 +1,8 @@
 package com.acme.clipcascade.constants;
 
 public class ServerConstants {
+    public static final String DEFAULT_ADMIN_PASSWORD = "admin123";
+    public static final String DEFAULT_PASSWORD_PROMPT_SHOWN = "defaultPasswordPromptShown";
     // App version
     public static final String APP_VERSION = "3.4.0";
 

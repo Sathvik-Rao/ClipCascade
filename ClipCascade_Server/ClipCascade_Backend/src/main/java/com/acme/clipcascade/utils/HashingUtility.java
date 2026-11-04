@@ -19,10 +19,11 @@ public class HashingUtility {
         return encoder.encode(input);
     }
 
-    public static String doubleHash(String input, MessageDigest sha, PasswordEncoder encoder) {
-        String layer1 = convertBytesToLowercaseHex(
-                sha.digest(input.getBytes(StandardCharsets.UTF_8))); // Layer 1 hash
+    public static String preHashPassword(String input, MessageDigest sha) {
+        return convertBytesToLowercaseHex(sha.digest(input.getBytes(StandardCharsets.UTF_8)));
+    }
 
-        return hashPassword(layer1, encoder); // Layer 2 hash
+    public static String doubleHash(String input, MessageDigest sha, PasswordEncoder encoder) {
+        return hashPassword(preHashPassword(input, sha), encoder);
     }
 }

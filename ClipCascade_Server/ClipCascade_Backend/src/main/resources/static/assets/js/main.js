@@ -52,6 +52,7 @@ const SELECTORS = {
 
 const ENDPOINTS = {
   whoami: "/whoami",
+  defaultPasswordStatus: "/admin/default-password-status",
   logout: "/logout",
   logoutAllDevices: "/logout-session",
   csrfToken: "/csrf-token",
@@ -191,6 +192,9 @@ $(function () {
 
       // Initialize event handlers
       initEventHandlers();
+      if (userData.role === "ADMIN") {
+        showDefaultPasswordWarning();
+      }
 
       // Auto-populate the default WebSocket/Signaling URL
       autoPopulateWebSocketURL();
@@ -222,6 +226,14 @@ function initEventHandlers() {
   $(SELECTORS.changePasswordLink).click(onChangePasswordClick);
   $(SELECTORS.logoutLink).click(onLogoutClick);
   $(SELECTORS.logoutAllDevicesLink).click(onLogoutAllDevicesClick);
+
+  const defaultPasswordDialog = document.getElementById("default-password-dialog");
+  $("#default-password-warning-change").click(onChangePasswordClick);
+  $("#default-password-change").click(() => {
+    defaultPasswordDialog.close();
+    onChangePasswordClick();
+  });
+  $("#default-password-later").click(() => defaultPasswordDialog.close());
 
   // Admin Section
   $(SELECTORS.loadUsersBtn).click(loadAllUsers);
@@ -1099,8 +1111,22 @@ function onChangeUsernameClick() {
   });
 }
 
+async function showDefaultPasswordWarning() {
+  try {
+    const status = await $.getJSON(ENDPOINTS.defaultPasswordStatus);
+    document.getElementById("default-password-warning").hidden = !status.usingDefaultPassword;
+    const dialog = document.getElementById("default-password-dialog");
+    if (status.showPrompt && typeof dialog.showModal === "function") {
+      dialog.showModal();
+    }
+  } catch (error) {
+    console.error("Failed to check the default admin password:", error);
+  }
+}
+
 function onChangePasswordClick() {
   const newPassword = prompt("Enter your new password:");
+  if (newPassword === null) return;
   if (!newPassword) {
     alert("Password cannot be empty.");
     return;
@@ -1114,6 +1140,7 @@ function onChangePasswordClick() {
     data: JSON.stringify({ newPassword: hashedPassword }),
     success: (res) => {
       alert(res);
+      window.location.href = "/login?expired";
     },
     error: (err) => {
       alert("Failed to update password");

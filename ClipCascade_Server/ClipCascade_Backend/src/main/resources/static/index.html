@@ -99,6 +99,12 @@
 
     <!-- Main Container -->
     <div class="container">
+      <div id="default-password-warning" class="alert alert-warning" role="status" hidden>
+        <strong>Your server is using the default admin password.</strong>
+        <button type="button" id="default-password-warning-change" class="btn btn-warning btn-sm">
+          Change password
+        </button>
+      </div>
       <noscript>
         <h2 style="color: #f00">
           Seems your browser doesn't support JavaScript!
@@ -252,6 +258,14 @@
       <!-- /#admin-section -->
     </div>
     <!-- /.container -->
+
+    <dialog id="default-password-dialog" aria-labelledby="default-password-title">
+      <h3 id="default-password-title">Change the default admin password</h3>
+      <p>Anyone who can reach this server can sign in as administrator with the published password.</p>
+      <p>Change it before making your server accessible to others.</p>
+      <button type="button" id="default-password-change" class="btn btn-primary">Change password</button>
+      <button type="button" id="default-password-later" class="btn btn-default">Remind me later</button>
+    </dialog>
 
     <!-- =====================================================
        ===========    MODALS FOR ADMIN ACTIONS    ===========

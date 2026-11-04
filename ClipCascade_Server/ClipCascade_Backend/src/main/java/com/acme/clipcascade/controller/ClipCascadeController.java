@@ -311,6 +311,23 @@ public class ClipCascadeController {
         });
     }
 
+    @GetMapping("/admin/default-password-status")
+    public ResponseEntity<?> defaultPasswordStatus(
+            @AuthenticationPrincipal UserPrincipal userPrincipal, HttpSession session) {
+        if (!userPrincipal.isAdmin()) {
+            return ResponseEntity.status(403).build();
+        }
+
+        boolean usingDefaultPassword = userService.usesDefaultAdminPassword(userPrincipal.getUsername());
+        boolean showPrompt = usingDefaultPassword
+                && session.getAttribute(ServerConstants.DEFAULT_PASSWORD_PROMPT_SHOWN) == null;
+        if (showPrompt) {
+            session.setAttribute(ServerConstants.DEFAULT_PASSWORD_PROMPT_SHOWN, true);
+        }
+        return ResponseEntity.ok().header("Cache-Control", "no-store")
+                .body(Map.of("usingDefaultPassword", usingDefaultPassword, "showPrompt", showPrompt));
+    }
+
     @GetMapping("/validate-session")
     public ResponseEntity<?> validateSession() {
         return ResponseEntityUtil.executeWithResponse(() -> "OK");
