@@ -10,6 +10,7 @@ import java.util.Map;
 import javax.imageio.ImageIO;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -54,6 +55,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.PutMapping;
 
 @Controller
@@ -153,15 +155,19 @@ public class ClipCascadeController {
 
     @GetMapping("/admin/advance")
     public String advance(
+            @AuthenticationPrincipal UserPrincipal userPrincipal) {
+        return userPrincipal.isAdmin() ? "redirect:/#advanced" : "redirect:/";
+    }
+
+    @GetMapping("/admin/advance/fragment")
+    public String advanceFragment(
             @AuthenticationPrincipal UserPrincipal userPrincipal,
             Model model) {
-
-        if (userPrincipal.isAdmin()) {
-            model.addAttribute("envVariables", clipCascadeProperties);
-            return "advance"; // advance.html
-        } else {
-            return "redirect:/"; // Redirect to the home page
+        if (!userPrincipal.isAdmin()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
+        model.addAttribute("envVariables", clipCascadeProperties);
+        return "advance :: tools";
     }
 
     /**

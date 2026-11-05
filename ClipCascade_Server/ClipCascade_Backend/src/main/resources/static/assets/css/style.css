@@ -231,3 +231,79 @@ label small {
 .col-resizer:hover {
   background: rgba(0, 123, 255, 0.25);
 }
+
+.advanced-header,
+#advanced-view .table-toolbar,
+#advanced-view .table-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.advanced-header,
+#advanced-view .section-container {
+  margin-bottom: 20px;
+}
+.advanced-header h2,
+#advanced-view .section-container h2 {
+  margin-top: 0;
+}
+.advanced-header h2 {
+  margin-bottom: 0;
+}
+#advanced-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+#advanced-back:focus-visible {
+  outline: 2px solid var(--cc-link);
+  outline-offset: 2px;
+}
+#advanced-status:empty {
+  display: none;
+}
+#advanced-view .section-container {
+  overflow-wrap: anywhere;
+}
+#advanced-view .table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  cursor: pointer;
+  user-select: none;
+}
+#advanced-view .sort-indicator {
+  font-size: 0.75em;
+  margin-left: 4px;
+}
+#advanced-view .sort-asc .sort-indicator::after {
+  content: "▲";
+}
+#advanced-view .sort-desc .sort-indicator::after {
+  content: "▼";
+}
+#advanced-view .table-toolbar .search-input {
+  max-width: 280px;
+}
+#advanced-view .table-pager {
+  margin-top: 8px;
+}
+#advanced-view .table-pager select {
+  width: auto;
+}
+.advance-unlock-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  row-gap: 8px;
+}
+.advance-output-button {
+  margin-bottom: 8px;
+}
+#websocket-stats-output,
+#server-time-output {
+  min-height: 20px;
+  padding: 8px;
+}

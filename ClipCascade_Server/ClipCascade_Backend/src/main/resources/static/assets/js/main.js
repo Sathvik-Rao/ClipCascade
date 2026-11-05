@@ -168,6 +168,7 @@ $(function () {
         showSection(SELECTORS.advanceLink);
         showSection(SELECTORS.changeUsernameLink);
         showSection(SELECTORS.adminSection);
+        initAdvancedNavigation();
       }
 
       // Show the read-only server version to every signed-in user.
