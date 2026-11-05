@@ -45,6 +45,25 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         return "NativeBridgeModule"
     }
 
+    @ReactMethod
+    fun readProtectedValue(name: String, promise: Promise) {
+        try {
+            promise.resolve(ProtectedStorage.read(asyncBridge, name))
+        } catch (error: Exception) {
+            promise.reject("PROTECTED_STORAGE_READ", "Could not read protected ClipCascade data", error)
+        }
+    }
+
+    @ReactMethod
+    fun writeProtectedValue(name: String, value: String, promise: Promise) {
+        try {
+            ProtectedStorage.write(asyncBridge, name, value)
+            promise.resolve(null)
+        } catch (error: Exception) {
+            promise.reject("PROTECTED_STORAGE_WRITE", "Could not save protected ClipCascade data", error)
+        }
+    }
+
     @ReactMethod(isBlockingSynchronousMethod = true)
     fun getServiceRunIdSync(): String? = ServiceRunRegistry.currentId()
 

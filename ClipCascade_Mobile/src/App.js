@@ -451,6 +451,11 @@ export default function App() {
           data_s[key] = value;
         }
       }
+      if (data_s.save_password === 'true' && data_s.cipher_enabled !== 'true') {
+        await getDataFromAsyncStorage('password'); // Migrate a saved login even when the cookie is still valid.
+      } else {
+        await setDataInAsyncStorage('password', '');
+      }
       return data_s;
     } catch (e) {
       throw e;
@@ -736,6 +741,8 @@ export default function App() {
             ];
           }
           data_s.hashed_password = hashResult[1].toString('base64');
+        } else {
+          data_s.hashed_password = '';
         }
 
         return [true, 'Login successful: ' + authentication.status, data_s];
@@ -794,6 +801,8 @@ export default function App() {
       }
 
       await setDataInAsyncStorage('csrf_token', '');
+      await setDataInAsyncStorage('hashed_password', '');
+      setData(previous => ({...previous, csrf_token: '', hashed_password: ''}));
       setEnableWSPage(false);
       setEnableLoginPage(true);
       setLoginStatusMessage('');

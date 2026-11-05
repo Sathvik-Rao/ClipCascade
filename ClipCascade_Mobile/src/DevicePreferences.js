@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {setDataInAsyncStorage} from './AsyncStorageManagement';
 
 export const DEVICE_PREFERENCE_FIELDS = new Set([
   'save_password',
@@ -41,11 +42,10 @@ export const saveDevicePreference = (field, value) => {
   pendingWrites = pendingWrites
     .catch(() => {})
     .then(async () => {
-      const entries = [[field, JSON.stringify(value)]];
       if (field === 'save_password' && value === 'false') {
-        entries.push(['password', JSON.stringify('')]);
+        await setDataInAsyncStorage('password', '');
       }
-      await AsyncStorage.multiSet(entries);
+      await AsyncStorage.setItem(field, JSON.stringify(value));
     });
   return pendingWrites;
 };
