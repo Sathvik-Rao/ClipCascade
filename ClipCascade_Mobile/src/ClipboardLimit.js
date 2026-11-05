@@ -17,8 +17,16 @@ export const parseClipboardLimit = (amount, unit) => {
   return String(bytes);
 };
 
-// Preserve the original byte value and blank-input behavior on every load.
-export const formatClipboardLimit = value => ({
-  amount: value == null ? '' : String(value),
-  unit: 'Bytes',
-});
+export const formatClipboardLimit = (value, display) => {
+  const bytes = value == null ? '' : String(value);
+  if (typeof display?.amount === 'string' && typeof display.unit === 'string') {
+    try {
+      if (parseClipboardLimit(display.amount, display.unit) === bytes) {
+        return display;
+      }
+    } catch {
+      // Invalid saved display values fall back to Bytes.
+    }
+  }
+  return {amount: bytes, unit: 'Bytes'};
+};

@@ -12,7 +12,7 @@ class Config:
     SECRET_FIELDS = ("hashed_password", "cookie", "password", "csrf_token")
     DEVICE_PREFERENCE_FIELDS = frozenset({
         "notification", "update_notifications", "download_notifications", "clipboard_notifications", "save_password",
-        "max_clipboard_size_local_limit_bytes",
+        "max_clipboard_size_local_limit_bytes", "clipboard_limit_display",
         "enable_image_sharing", "enable_file_sharing", "default_file_download_location",
         "send_clipboard", "receive_clipboard",
         "hide_login_success_dialog",
@@ -39,6 +39,7 @@ class Config:
             "save_password": False,
             "password": "",
             "max_clipboard_size_local_limit_bytes": None,
+            "clipboard_limit_display": None,
             "send_clipboard": True,
             "receive_clipboard": True,
             "enable_image_sharing": True,

@@ -42,7 +42,6 @@ import { DOMParser } from 'react-native-html-parser';
 import {
   setDataInAsyncStorage,
   getDataFromAsyncStorage,
-  getMultipleDataFromAsyncStorage,
   clearAsyncStorage,
 } from './AsyncStorageManagement';
 import StartForegroundService from './StartForegroundService';
@@ -65,6 +64,7 @@ import {
 import {
   DEVICE_PREFERENCE_FIELDS,
   isValidClipboardLimit,
+  saveClipboardLimit,
   saveDevicePreference,
   waitForPreferenceWrites,
 } from './DevicePreferences';
@@ -522,7 +522,10 @@ export default function App() {
         // get data from async storage and initialize data hook
         let data_s = await getAsyncStorage();
         setData(data_s);
-        setClipboardLimitDraft(formatClipboardLimit(data_s.max_clipboard_size_local_limit_bytes));
+        const clipboardLimitDisplay = await getDataFromAsyncStorage('clipboard_limit_display');
+        setClipboardLimitDraft(
+          formatClipboardLimit(data_s.max_clipboard_size_local_limit_bytes, clipboardLimitDisplay),
+        );
         setClipboardLimitError('');
         setDownloadDirectory((await getDownloadDirectory()) || '');
         await NativeModules.ServerTlsModule.configure(
@@ -955,11 +958,7 @@ export default function App() {
         ...prevData,
         [field]: value,
       }));
-      if (
-        DEVICE_PREFERENCE_FIELDS.has(field) &&
-        (field !== 'max_clipboard_size_local_limit_bytes' ||
-          isValidClipboardLimit(value))
-      ) {
+      if (DEVICE_PREFERENCE_FIELDS.has(field)) {
         saveDevicePreference(field, value)
           .then(async () => {
             if (field === 'enable_periodic_checks') {
@@ -999,11 +998,17 @@ export default function App() {
   };
 
   const handleClipboardLimitChange = draft => {
+    if (loginInProgressRef.current) {
+      return;
+    }
     setClipboardLimitDraft(draft);
     try {
       const bytes = parseClipboardLimit(draft.amount, draft.unit);
       setClipboardLimitError('');
-      handleInputChange('max_clipboard_size_local_limit_bytes', bytes);
+      setData(previous => ({...previous, max_clipboard_size_local_limit_bytes: bytes}));
+      saveClipboardLimit(bytes, draft).catch(error => {
+        setLoginStatusMessage('❌ Unable to save preference: ' + error);
+      });
     } catch (error) {
       setClipboardLimitError(error.message);
     }

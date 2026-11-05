@@ -384,7 +384,10 @@ class LoginForm(GuiWindow):
         limit_frame = ttk.Frame(self.clipboard_settings_frame)
         limit_frame.grid(row=0, column=1, padx=10, pady=5, sticky=tk.EW)
         limit_frame.columnconfigure(0, weight=1)
-        amount, unit = format_clipboard_limit(self.config.data["max_clipboard_size_local_limit_bytes"])
+        amount, unit = format_clipboard_limit(
+            self.config.data["max_clipboard_size_local_limit_bytes"],
+            self.config.data["clipboard_limit_display"],
+        )
         self.clipboard_limit_amount_var = tk.StringVar(value=amount)
         self.clipboard_limit_unit_var = tk.StringVar(value=unit)
         self.local_clipboard_size_entry = ttk.Entry(
@@ -853,16 +856,23 @@ class LoginForm(GuiWindow):
             self._save_clipboard_limit()
         self._sync_login_tab_order()
 
+    def _clipboard_limit_preferences(self):
+        amount = self.clipboard_limit_amount_var.get().strip()
+        unit = self.clipboard_limit_unit_var.get()
+        return {
+            "max_clipboard_size_local_limit_bytes": parse_clipboard_limit(amount, unit),
+            "clipboard_limit_display": {"amount": amount, "unit": unit},
+        }
+
     def _save_clipboard_limit(self, *_):
         try:
-            value = parse_clipboard_limit(
-                self.clipboard_limit_amount_var.get(), self.clipboard_limit_unit_var.get()
-            )
+            preferences = self._clipboard_limit_preferences()
         except ValueError as error:
             self.clipboard_limit_error_var.set(str(error))
             return  # Incomplete edits must not overwrite the last saved limit.
         self.clipboard_limit_error_var.set("")
-        self._save_preference("max_clipboard_size_local_limit_bytes", value)
+        if not self.config.save_preferences(preferences):
+            CustomDialog("Unable to save device preferences.", msg_type="error").mainloop()
 
     def _save_preference_entry(self, field, value):
         value = value.strip()
@@ -910,9 +920,7 @@ class LoginForm(GuiWindow):
         self.config.data["save_password"] = self.save_password_var.get()
 
         try:
-            self.config.data["max_clipboard_size_local_limit_bytes"] = parse_clipboard_limit(
-                self.clipboard_limit_amount_var.get(), self.clipboard_limit_unit_var.get()
-            )
+            self.config.data.update(self._clipboard_limit_preferences())
         except ValueError as error:
             CustomDialog(f"Invalid Input\n{error}", msg_type="error").mainloop()
             return
