@@ -55,17 +55,24 @@ class MainActivity : ReactActivity() {
         try{
             val bridgeData = AsyncStorageBridge(applicationContext)
             val enablePeriodicChecks = bridgeData.getValue("enable_periodic_checks")?.toBoolean() ?: true
-            if(enablePeriodicChecks) { 
+            if(enablePeriodicChecks) {
                 scheduleJob(applicationContext)
-                if(ScheduleService.hasNotificationPermission(applicationContext) == true) {
-                    ScheduleService.removeNotificationIfPresent(applicationContext)
-                }
             } else {
                 WorkManager.getInstance(applicationContext).cancelAllWorkByTag(WORK_NAME)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error scheduling job", e)
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        ScheduleService.onActivityStarted(applicationContext)
+    }
+
+    override fun onStop() {
+        ScheduleService.onActivityStopped()
+        super.onStop()
     }
 
     override fun onPause() {

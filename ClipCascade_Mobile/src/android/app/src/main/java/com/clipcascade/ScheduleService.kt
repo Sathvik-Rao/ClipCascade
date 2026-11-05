@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.work.WorkerParameters
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
@@ -22,13 +23,44 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
         private const val TAG = "ScheduleService"
         private const val NOTIFICATION_CHANNEL_ID = "clipcascade_foreground_service_stopped_running"
         private const val NOTIFICATION_ID = 1
+        private var activityVisible = false
+        private var notificationGeneration = 0L
 
+        @Synchronized
+        fun onActivityStarted(context: Context) {
+            activityVisible = true
+            removeNotificationIfPresent(context)
+        }
+
+        @Synchronized
+        fun onActivityStopped() {
+            activityVisible = false
+        }
+
+        @Synchronized
         fun removeNotificationIfPresent(context: Context) {
+            // A check that began before this dismissal can no longer post an alert.
+            notificationGeneration++
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.cancel(NOTIFICATION_ID)
         }
 
-        fun hasNotificationPermission(context: Context): Boolean {
+        @Synchronized
+        private fun beginNotificationCheck(): Long? =
+            if (activityVisible) null else notificationGeneration
+
+        @Synchronized
+        private fun postNotification(
+            generation: Long,
+            notificationManager: NotificationManager,
+            notification: Notification
+        ) {
+            if (!activityVisible && generation == notificationGeneration) {
+                notificationManager.notify(NOTIFICATION_ID, notification)
+            }
+        }
+
+        private fun hasNotificationPermission(context: Context): Boolean {
             return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 ContextCompat.checkSelfPermission(
                     context,
@@ -42,6 +74,7 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
 
     // init
     override suspend fun doWork(): Result {
+        val generation = beginNotificationCheck() ?: return Result.success()
 
         // show notification if foreground service is not running
         try {
@@ -49,7 +82,7 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
                 val bridgeData = AsyncStorageBridge(applicationContext)
                 if(enableForegroundService(bridgeData)) {
                     if(!foregroundServiceIsActive(bridgeData) && enableForegroundService(bridgeData)) {
-                        showNotificationIfNotPresent()
+                        showNotificationIfNotPresent(generation)
                     } else {
                         removeNotificationIfPresent(applicationContext)
                     }
@@ -83,7 +116,7 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
         return false
     }
 
-    private fun showNotificationIfNotPresent() {
+    private fun showNotificationIfNotPresent(generation: Long) {
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -116,7 +149,7 @@ class ScheduleService(context: Context, workerParams: WorkerParameters) : Corout
                 .setAutoCancel(true)
                 .build()
 
-            notificationManager.notify(NOTIFICATION_ID, notification)
+            postNotification(generation, notificationManager, notification)
         }
     }
 

@@ -89,7 +89,11 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     }
 
     @ReactMethod(isBlockingSynchronousMethod = true)
-    fun activateServiceRunSync(id: String): Boolean = ServiceRunRegistry.activate(id)
+    fun activateServiceRunSync(id: String): Boolean {
+        if (!ServiceRunRegistry.activate(id)) return false
+        ScheduleService.removeNotificationIfPresent(reactApplicationContext)
+        return true
+    }
 
     @ReactMethod(isBlockingSynchronousMethod = true)
     fun isServiceRunCurrentSync(id: String): Boolean = ServiceRunRegistry.isCurrent(id)
