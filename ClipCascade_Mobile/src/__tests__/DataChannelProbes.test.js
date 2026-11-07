@@ -48,11 +48,11 @@ test('unanswered transport probes time out while successful replies do not', () 
 test('suspended Android JS loop discards stale probe timers on resume', () => {
   let time = 0;
   const health = createDataChannelProbes(() => time);
-  health.ping('glass');
+  health.ping('fixture-peer');
   time = 3600000;
   health.poll();
   expect(health.stalePeers()).toEqual([]);
-  expect(health.ping('glass')).not.toContain('"id":"0-1"');
+  expect(health.ping('fixture-peer')).not.toContain('"id":"0-1"');
 });
 
 test('untrusted pong and old peer cleanup cannot forge a proof', () => {

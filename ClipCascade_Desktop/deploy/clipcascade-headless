@@ -1,16 +1,17 @@
-#!/home/brandon/.local/share/clipcascade-venv/bin/python
+#!/usr/bin/env python3
 import logging
 from logging.handlers import RotatingFileHandler
 import os
 import signal
 import sys
 import time
+from pathlib import Path
 
-SOURCE = "/home/brandon/clip-cascade/ClipCascade_Desktop/src"
-CONFIG_DIR = "/home/brandon/.config/clipcascade"
+SOURCE = str(Path(__file__).resolve().parents[1] / "src")
+CONFIG_DIR = str(Path.home() / ".config/clipcascade")
 DATA_FILE = os.path.join(CONFIG_DIR, "DATA")
 SECRET_FILE = os.path.join(CONFIG_DIR, "client-password")
-LOG_DIR = "/home/brandon/.local/state/clipcascade"
+LOG_DIR = str(Path.home() / ".local/state/clipcascade")
 LOG_FILE = os.path.join(LOG_DIR, "clipcascade.log")
 
 os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
@@ -47,10 +48,14 @@ signal.signal(signal.SIGINT, request_stop)
 def prepare_config():
     config = Config(file_name=DATA_FILE)
     config.load()
+    username = os.getenv("CLIPCASCADE_USERNAME") or config.data.get("username")
+    server_url = os.getenv("CLIPCASCADE_SERVER_URL") or config.data.get("server_url")
+    if not username or not server_url:
+        raise RuntimeError("Configure ClipCascade username and server URL")
     config.data.update(
         {
-            "username": "brandon",
-            "server_url": "https://nox.presley.nz/clipcascade",
+            "username": username,
+            "server_url": server_url,
             "save_password": True,
             "cipher_enabled": True,
             "notification": False,
@@ -107,7 +112,7 @@ def write_health_snapshot(manager):
     import json
     from pathlib import Path
 
-    path = Path(os.environ.get("XDG_RUNTIME_DIR", "/run/user/1000")) / "clipcascade-health.json"
+    path = Path(os.environ.get("XDG_RUNTIME_DIR", str(Path.home() / ".cache"))) / "clipcascade-health.json"
     if manager is not None:
         manager._sync_live_connections_count()
     state = {

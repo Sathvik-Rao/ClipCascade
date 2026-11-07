@@ -930,7 +930,7 @@ class P2PManager(WSInterface):
         #
         #    candidate:<foundation> <component> <protocol> <priority> <ip> <port> typ <candType>
         #    e.g.:
-        #    "candidate:3365442476 1 udp 2113939711 192.168.1.10 5000 typ host ..."
+        #    "candidate:3365442476 1 udp 2113939711 192.168.100.10 5000 typ host ..."
         foundation = tokens[0].split(":", 1)[1]
         component = int(tokens[1])
         protocol = tokens[2].lower()

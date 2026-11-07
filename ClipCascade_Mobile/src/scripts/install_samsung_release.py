@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Build and install ClipCascade on Samsung without changing signing identity.
+"""Build and install ClipCascade on Android handset without changing signing identity.
 
 Never uninstalls, clears app data, installs debug variants or bypasses signature
-checks. Glass's global Gradle init script uses a different signing certificate:
+checks. desktop host's global Gradle init script uses a different signing certificate:
 this project must use its existing Android certificate until explicitly migrated.
 """
 from __future__ import annotations
@@ -18,7 +18,6 @@ ROOT = Path(__file__).resolve().parents[1]
 ANDROID = ROOT / "android"
 APK = ANDROID / "app/build/outputs/apk/release/app-release.apk"
 GRADLE_HOME = Path.home() / ".cache/clipcascade-gradle-home"
-DEVICE = "10.66.66.3:5555"
 EXPECTED_SHA256 = "fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c"
 
 
@@ -89,28 +88,31 @@ def build() -> None:
     verify_apk()
 
 
-def install() -> None:
-    execute(["adb", "-s", DEVICE, "get-state"], timeout=15)
-    result = execute(["adb", "-s", DEVICE, "install", "-r", str(APK)], timeout=180)
+def install(device: str) -> None:
+    execute(["adb", "-s", device, "get-state"], timeout=15)
+    result = execute(["adb", "-s", device, "install", "-r", str(APK)], timeout=180)
     if "Success" not in result:
         raise RuntimeError("Android did not confirm a successful data-preserving upgrade")
-    pkg = execute(["adb", "-s", DEVICE, "shell", "dumpsys", "package", "com.clipcascade"], timeout=18)
+    pkg = execute(["adb", "-s", device, "shell", "dumpsys", "package", "com.clipcascade"], timeout=18)
     if "DEBUGGABLE" in pkg:
         raise RuntimeError("Installed APK is debuggable; deployment regressed")
-    print("Samsung release upgraded in place; app credentials and data preserved")
+    print("Android handset release upgraded in place; app credentials and data preserved")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check-only", action="store_true", help="Verify previously built release APK")
     parser.add_argument("--build-only", action="store_true", help="Build and verify, but do not install")
+    parser.add_argument("--device", default=os.environ.get("ANDROID_SERIAL"))
     args = parser.parse_args()
     if args.check_only:
         verify_apk()
         return
     build()
     if not args.build_only:
-        install()
+        if not args.device:
+            parser.error("--device or ANDROID_SERIAL is required for installation")
+        install(args.device)
 
 
 if __name__ == "__main__":
