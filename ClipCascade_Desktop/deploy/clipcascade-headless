@@ -1,5 +1,6 @@
 #!/home/brandon/.local/share/clipcascade-venv/bin/python
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import signal
 import sys
@@ -25,8 +26,8 @@ from p2p.p2p_manager import P2PManager
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    filename=LOG_FILE,
-    filemode="a",
+    handlers=[RotatingFileHandler(LOG_FILE, maxBytes=2 * 1024 * 1024,
+                                  backupCount=8, encoding="utf-8")],
 )
 
 stop_requested = False
