@@ -35,14 +35,40 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
+import android.util.Base64OutputStream
 
 
 class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
     private val asyncBridge = AsyncStorageBridge(reactContext)
+    private val stompSockets = NativeStompSocket(reactContext)
+    private val clipboardReadGeneration = AtomicLong()
+    @Volatile private var ownClipboardImageUri: String? = null
+    // File/image reads must not occupy React Native's shared module queue.
+    // One worker also avoids concurrently loading multiple large attachments.
+    private val clipboardReads = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "ClipboardPreparation").apply { isDaemon = true }
+    }
 
     override fun getName(): String {
         return "NativeBridgeModule"
+    }
+
+    @ReactMethod
+    fun connectStompSocket(id: Double, url: String, protocols: ReadableArray) {
+        stompSockets.connect(id.toInt(), url, protocols)
+    }
+
+    @ReactMethod
+    fun sendStompFrame(id: Double, frame: String, terminated: Boolean, promise: Promise) {
+        stompSockets.send(id.toInt(), frame, terminated, promise)
+    }
+
+    @ReactMethod
+    fun closeStompSocket(id: Double, code: Double, reason: String, force: Boolean) {
+        stompSockets.close(id.toInt(), code.toInt(), reason, force)
     }
 
     @ReactMethod
@@ -286,16 +312,49 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
     @ReactMethod
     fun getFileAsBase64(contentUri: String, promise: Promise) {
+        val generation = clipboardReadGeneration.get()
         try {
+            clipboardReads.execute { readFileAsBase64(contentUri, generation, promise) }
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            promise.reject("ERROR", "Clipboard preparation has stopped", e)
+        }
+    }
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun cancelClipboardReadsSync(): Double = clipboardReadGeneration.incrementAndGet().toDouble()
+
+    @ReactMethod(isBlockingSynchronousMethod = true)
+    fun isOwnClipboardImageSync(uri: String): Boolean = uri == ownClipboardImageUri
+
+    private fun readFileAsBase64(contentUri: String, generation: Long, promise: Promise) {
+        try {
+            fun checkCurrent() {
+                if (generation != clipboardReadGeneration.get() || Thread.currentThread().isInterrupted) {
+                    throw java.io.InterruptedIOException("Clipboard superseded")
+                }
+            }
+            checkCurrent()
             val trimmedUri = contentUri.trim()
             val uri = Uri.parse(trimmedUri)
             reactApplicationContext.contentResolver.openInputStream(uri)?.use { inputStream ->
-                val bytes = inputStream.readBytes()
-                val base64String = Base64.encodeToString(bytes, Base64.DEFAULT)
-                promise.resolve(base64String)
+                val output = ByteArrayOutputStream()
+                Base64OutputStream(output, Base64.DEFAULT).use { encoder ->
+                    val buffer = ByteArray(256 * 1024)
+                    while (true) {
+                        checkCurrent()
+                        val count = inputStream.read(buffer)
+                        if (count < 0) break
+                        encoder.write(buffer, 0, count)
+                    }
+                    checkCurrent()
+                }
+                checkCurrent()
+                promise.resolve(output.toString(Charsets.US_ASCII.name()))
             } ?: run {
                 promise.reject("ERROR", "Failed to open file stream. Invalid URI or file access denied. ${trimmedUri}")
             }
+        } catch (e: java.io.InterruptedIOException) {
+            promise.reject("CLIPBOARD_SUPERSEDED", "Clipboard superseded", e)
         } catch (e: Exception) {
             promise.reject("ERROR", "Failed to get file bytes: ${e.message}")
         }
@@ -319,11 +378,18 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     }
 
     private fun writeAndroidClipboard(clipData: ClipData, contentType: String, promise: Promise) {
+        val writeId = java.util.UUID.randomUUID().toString()
         try {
+            val extras = clipData.description.extras?.let { android.os.PersistableBundle(it) }
+                ?: android.os.PersistableBundle()
+            extras.putString(ClipboardObservations.OWN_WRITE_KEY, writeId)
+            clipData.description.extras = extras
+            ClipboardObservations.expectOwnWrite(writeId)
             val clipboard = reactApplicationContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(clipData)
             promise.resolve("$contentType copied to clipboard.")
         } catch (error: Exception) {
+            ClipboardObservations.forgetOwnWrite(writeId)
             // Android can wrap Binder failures inside RuntimeException.
             val causes = generateSequence(error as Throwable) { it.cause }.toList()
             val sizeError = causes.firstOrNull { it is TransactionTooLargeException }
@@ -366,6 +432,7 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
     @ReactMethod
     fun copyBase64ImageToClipboardUsingCache(base64String: String, promise: Promise) {
+        val generation = clipboardReadGeneration.get()
         try {
             // Clear existing cached images to prevent accumulation
             clearImageCacheInternal()
@@ -374,6 +441,10 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
             val imageBytes = convertAnySupportedImageToPng(Base64.decode(base64String, Base64.DEFAULT))
             if (imageBytes == null) {
                 promise.reject("INVALID_IMAGE", "The provided bytes do not represent a valid image.")
+                return
+            }
+            if (generation != clipboardReadGeneration.get()) {
+                promise.reject("CLIPBOARD_SUPERSEDED", "Clipboard superseded")
                 return
             }
 
@@ -392,6 +463,12 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
             // Copy the URI to clipboard
             val clipData = ClipData.newUri(reactApplicationContext.contentResolver, "Image", imageUri)
+            if (generation != clipboardReadGeneration.get()) {
+                cacheFile.delete()
+                promise.reject("CLIPBOARD_SUPERSEDED", "Clipboard superseded")
+                return
+            }
+            ownClipboardImageUri = imageUri.toString()
             writeAndroidClipboard(clipData, "image", promise)
 
         } catch (e: Exception) {
@@ -557,6 +634,10 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
 
 
     override fun onCatalystInstanceDestroy() {
+        stompSockets.shutdown()
+        clipboardReadGeneration.incrementAndGet()
+        // Queued jobs must run their cancellation checks and settle promises.
+        clipboardReads.shutdown()
         asyncBridge.disconnect()
     }
 }

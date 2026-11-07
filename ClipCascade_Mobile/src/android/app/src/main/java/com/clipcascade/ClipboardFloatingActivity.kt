@@ -68,13 +68,11 @@ class ClipboardFloatingActivity : AppCompatActivity() {
     }
 
     private fun getClipboardContent() {
-        clipboardManager.primaryClip?.let { clip ->
-            ClipboardContent.fromClipboard(clip, contentResolver)?.let { content ->
-                PendingShares.clear()
-                reactContext
-                    ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                    ?.emit("onClipboardChange", content.toMap())
-            }
+        ClipboardObservations.observe(clipboardManager.primaryClip, contentResolver)?.let { update ->
+            if (!update.isEcho) PendingShares.clear()
+            reactContext
+                ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                ?.emit("onClipboardChange", update.toMap())
         }
     }
 
@@ -120,8 +118,11 @@ class ClipboardFloatingActivity : AppCompatActivity() {
     companion object {
         fun getIntent(context: Context): Intent {
             return Intent(context.applicationContext, ClipboardFloatingActivity::class.java).apply {
+                // The share activity owns temporary attachment URI grants.
+                // Never clear or reuse its task while background reads run.
+                // This short-lived helper finishes its own separate task.
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TASK or
+                        Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
                         Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
             }
         }

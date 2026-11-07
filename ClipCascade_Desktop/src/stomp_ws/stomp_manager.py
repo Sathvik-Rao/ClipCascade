@@ -8,6 +8,9 @@ from stomp_ws.client import Client
 from core.config import Config
 from utils.cipher_manager import CipherManager
 from clipboard.clipboard_manager import ClipboardManager
+from utils.clipboard_echoes import ClipboardEchoes
+from utils.transfer_limits import (LIMIT_HEADER, SIZE_FIELD, receive_limit_header, valid_size,
+                                  metadata_size, allows_content, receive_limit, content_size)
 from utils.notification_manager import NotificationManager
 from utils.request_manager import RequestManager
 from utils.ssl_helper import websocket_sslopt_for_config
@@ -22,6 +25,8 @@ else:
 class STOMPManager(ReconnectMixin, WSInterface):
     def __init__(self, config: Config, is_login_phase=True):
         self.config = config
+        self._transfer_generation = 0
+        self._sent_echoes = ClipboardEchoes()
         self.clipboard_manager = ClipboardManager(self.config)
         self.cipher_manager = CipherManager(self.config)
         self.notification_manager = NotificationManager(self.config)
@@ -47,7 +52,12 @@ class STOMPManager(ReconnectMixin, WSInterface):
         return (RECONNECT_WS_TIMER * 1000) + WEBSOCKET_TIMEOUT
 
     def get_stats(self):
-        return "Connected" if self.is_connected else ("Disconnected" if self.disconnected else "Reconnecting…")
+        if not self.is_connected:
+            return "Disconnected" if self.disconnected else "Reconnecting…"
+        loading = self.clipboard_manager.get_loading_status()
+        if loading:
+            return f"Connected | {loading}"
+        return "Connected"
 
     def _connect_once(self) -> tuple[bool, str]:
         try:
@@ -67,6 +77,7 @@ class STOMPManager(ReconnectMixin, WSInterface):
             )
             self.client = client
             client.connect(
+                headers={"x-clipcascade-no-self-echo": "true", LIMIT_HEADER: receive_limit_header(self.config)},
                 timeout=WEBSOCKET_TIMEOUT,
                 connectCallback=lambda _: client.subscribe(  # receive event
                     destination=SUBSCRIPTION_DESTINATION,
@@ -91,7 +102,7 @@ class STOMPManager(ReconnectMixin, WSInterface):
                 )
 
             # send event
-            self.clipboard_manager.on_copy(self.send)
+            self.clipboard_manager.on_copy(self.send, self._on_local_change)
             return True, "Websocket connected"
         except Exception as e:
             self.is_connected = False
@@ -119,37 +130,75 @@ class STOMPManager(ReconnectMixin, WSInterface):
                 self.first_conn_lost = False
             self._start_reconnect()
 
-    def send(self, payload: str, payload_type: str = "text"):
-        if not self.config.data.get("send_clipboard", True):
+    def _on_local_change(self):
+        self._transfer_generation += 1
+
+    def send(self, payload: str, payload_type: str = "text", is_current=lambda: True, content_size_bytes=None):
+        generation = self._transfer_generation
+        if not is_current() or not self.config.data.get("send_clipboard", True):
             return
         try:
             if self.is_connected:
-                if self.clipboard_manager.has_clipboard_changed(payload):
+                payload_hash = self.clipboard_manager.hash_clipboard(payload)
+                if payload_hash != self.clipboard_manager.previous_clipboard_hash:
+                    if not valid_size(content_size_bytes):
+                        content_size_bytes = content_size(payload, payload_type)
+                    # Older servers ignore our CONNECT opt-in. Only encrypted
+                    # echoes have an unambiguous identity on that legacy path.
+                    echo_key = None
                     if self.config.data["cipher_enabled"]:
-                        payload = CipherManager.encode_to_json_string(
-                            **self.cipher_manager.encrypt(payload)
-                        )
-                    body = json.dumps({"payload": payload, "type": payload_type})
-                    self.client.send(destination=SEND_DESTINATION, body=body)
+                        envelope = self.cipher_manager.encrypt(payload)
+                        echo_key = (payload_type, "encrypted", envelope["nonce"], envelope["tag"])
+                        payload = CipherManager.encode_to_json_string(**envelope)
+                        del envelope
+                    message = {"payload": payload, "type": payload_type}
+                    if valid_size(content_size_bytes):
+                        message["metadata"] = {SIZE_FIELD: content_size_bytes}
+                    body = json.dumps(message)
+                    if (not is_current() or generation != self._transfer_generation or not self.is_connected
+                            or not self.config.data.get("send_clipboard", True)):
+                        return
+                    if echo_key is not None:
+                        self._sent_echoes.remember(echo_key)
+                    try:
+                        self.client.send(destination=SEND_DESTINATION, body=body)
+                    except Exception:
+                        if echo_key is not None:
+                            self._sent_echoes.consume(echo_key)
+                        raise
+                    if generation == self._transfer_generation:
+                        self.clipboard_manager.previous_clipboard_hash = payload_hash
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
 
     def _receive(self, frame: any) -> str:
+        generation = self._transfer_generation
         if not self.config.data.get("receive_clipboard", True):
             return
         try:
             if self.is_connected:
                 body = json.loads(frame.body)
+                if not allows_content(receive_limit(self.config), metadata_size(body.get("metadata"))):
+                    logging.info("Incoming clipboard content exceeds the local size limit")
+                    return
                 payload = body["payload"]
                 payload_type = body.get("type", "text")
                 if self.config.data["cipher_enabled"]:
-                    payload = self.cipher_manager.decrypt(
-                        **CipherManager.decode_from_json_string(payload)
-                    )
+                    envelope = CipherManager.decode_from_json_string(payload)
+                    if self._sent_echoes.consume((payload_type, "encrypted", envelope["nonce"], envelope["tag"])):
+                        return
+                    payload = self.cipher_manager.decrypt(**envelope)
+                    del envelope
 
+                if generation != self._transfer_generation:
+                    return
                 if self.clipboard_manager.has_clipboard_changed(payload):
+                    self._on_local_change()
+                    generation = self._transfer_generation
+                    self.clipboard_manager.cancel_preparation()
                     self.clipboard_manager.base64_to_clipboard(
-                        base64_string=payload, type_=payload_type
+                        base64_string=payload, type_=payload_type,
+                        is_current=lambda: generation == self._transfer_generation
                     )
         except json.decoder.JSONDecodeError:
             logging.error(
@@ -159,6 +208,7 @@ class STOMPManager(ReconnectMixin, WSInterface):
             logging.error(f"Failed to receive data: {e}")
 
     def disconnect(self):
+        self._on_local_change()
         self._stop_reconnect()
         self.is_connected = False
         try:

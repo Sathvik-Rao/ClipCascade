@@ -12,7 +12,7 @@ import javax.imageio.ImageIO;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -37,6 +37,7 @@ import com.acme.clipcascade.service.SessionService;
 import com.acme.clipcascade.service.UserInfoService;
 import com.acme.clipcascade.service.UserService;
 import com.acme.clipcascade.service.OnlineUsersService;
+import com.acme.clipcascade.service.P2SDeliveryService;
 import com.acme.clipcascade.service.WebSocketStatsService;
 import com.acme.clipcascade.utils.ResponseEntityUtil;
 import com.acme.clipcascade.utils.TimeUtility;
@@ -66,7 +67,7 @@ public class ClipCascadeController {
     private final UserInfoService userInfoService;
     private final SessionService sessionService;
     private final FacadeUserService facadeUserService;
-    private final SimpMessagingTemplate simpMessagingTemplate;
+    private final P2SDeliveryService p2sDelivery;
     private final CaptchaService captchaService;
     private final BruteForceProtectionService bruteForceProtectionService;
     private final WebSocketStatsService webSocketStatsService;
@@ -77,7 +78,7 @@ public class ClipCascadeController {
             ClipCascadeProperties clipCascadeProperties,
             FacadeUserService facadeUserService,
             UserService userService,
-            @Nullable SimpMessagingTemplate simpMessagingTemplate,
+            @Nullable P2SDeliveryService p2sDelivery,
             CaptchaService captchaService,
             UserInfoService userInfoService,
             SessionService sessionService,
@@ -89,7 +90,7 @@ public class ClipCascadeController {
         this.clipCascadeProperties = clipCascadeProperties;
         this.facadeUserService = facadeUserService;
         this.userService = userService;
-        this.simpMessagingTemplate = simpMessagingTemplate;
+        this.p2sDelivery = p2sDelivery;
         this.captchaService = captchaService;
         this.userInfoService = userInfoService;
         this.sessionService = sessionService;
@@ -180,7 +181,8 @@ public class ClipCascadeController {
     @MessageMapping("/cliptext")
     public void sendPrivateMessage(
             Principal principal,
-            ClipboardData clipboardData) {
+            ClipboardData clipboardData,
+            SimpMessageHeaderAccessor headers) {
 
         if (clipCascadeProperties.isP2pEnabled()) {
             return;
@@ -197,19 +199,7 @@ public class ClipCascadeController {
                 (clipboardData.getType() == null) ? "text" : clipboardData.getType(),
                 clipboardData.getMetadata());
 
-        /**
-         * Send the message to the user's specific queue:
-         * - Destination: "/user/{username}/queue/cliptext"
-         * - Spring resolves the username using the Principal associated with the
-         * session.
-         * - Internally, Spring maps the WebSocket session ID to the username and routes
-         * messages accordingly.
-         * - By default username is the unique identifier for the user.
-         */
-        simpMessagingTemplate.convertAndSendToUser(
-                userPrincipal.getUsername(),
-                "/queue/cliptext",
-                messageToSend);
+        p2sDelivery.send(userPrincipal.getUsername(), messageToSend, headers);
     }
 
     @GetMapping("/captcha")

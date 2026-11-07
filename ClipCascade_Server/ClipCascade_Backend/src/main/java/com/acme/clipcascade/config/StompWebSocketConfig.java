@@ -18,15 +18,25 @@ import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBr
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketTransportRegistration;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.adapter.NativeWebSocketSession;
+import org.springframework.web.socket.handler.WebSocketHandlerDecorator;
+import org.springframework.web.socket.handler.WebSocketSessionDecorator;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
+
+import jakarta.websocket.Session;
+import org.apache.tomcat.websocket.Constants;
 
 import com.acme.clipcascade.constants.ServerConstants;
 import com.acme.clipcascade.service.LiveWebSocketService;
+import com.acme.clipcascade.service.P2SDeliveryService;
 
 @Configuration
 @EnableWebSocketMessageBroker
 @ConditionalOnProperty(prefix = "app.p2p", name = "enabled", havingValue = "false", matchIfMissing = false)
 public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
+
+    private static final long SEND_STALL_TIMEOUT_MS = 60_000L;
 
     private final ClipCascadeProperties clipCascadeProperties;
 
@@ -62,6 +72,7 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 if (!allowed) {
                     throw new AccessDeniedException("STOMP frame not allowed");
                 }
+                P2SDeliveryService.recordCapabilities(headers);
                 return message;
             }
         });
@@ -149,6 +160,22 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureWebSocketTransport(@SuppressWarnings("null") WebSocketTransportRegistration registration) {
         registration.addDecoratorFactory(liveWebSockets::decorate);
+        registration.addDecoratorFactory(handler -> new WebSocketHandlerDecorator(handler) {
+            @Override
+            public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+                WebSocketSession transport = WebSocketSessionDecorator.unwrap(session);
+                if (!(transport instanceof NativeWebSocketSession nativeSession)
+                        || !(nativeSession.getNativeSession() instanceof Session jakartaSession)) {
+                    throw new IllegalStateException("P2S requires a native Jakarta WebSocket session");
+                }
+                // Tomcat encodes outbound STOMP text in small buffer-sized writes.
+                // Each successful piece gets a fresh blocking-write deadline, so
+                // a slow transfer may continue without a whole-message deadline.
+                jakartaSession.getUserProperties().put(
+                        Constants.BLOCKING_SEND_TIMEOUT_PROPERTY, SEND_STALL_TIMEOUT_MS);
+                super.afterConnectionEstablished(session);
+            }
+        });
         int maxMessageSizeInBytes = (int) clipCascadeProperties.getOverheadMaxMessageSizeInBytes();
 
         /*
@@ -162,16 +189,17 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
         /*
          * [SEND][EACH CONNECTION]
-         * Sets the timeout for sending messages. If an outgoing message exceeds this
-         * time while a new message arrives, the connection is terminated, and a warning
-         * is logged.
+         * Spring measures the whole send, not transport progress, and zero does NOT
+         * disable this check. Use its largest supported value (about 24.8 days);
+         * the native 60-second write-stall deadline above handles normal failures.
+         * This leaves Spring's per-session queue/buffer protection in place.
          */
-        registration.setSendTimeLimit(200 * 1000); // default : 10 * 1000
+        registration.setSendTimeLimit(Integer.MAX_VALUE);
 
         /*
          * [SEND][EACH CONNECTION]
          * Configures the buffer size (in bytes) used for sending queued messages. If
-         * the buffer is full and the timeout expires, the connection is terminated, and
+         * the buffer exceeds this limit, the connection is terminated, and
          * a warning is logged.
          * This occurs again when a new message arrives.
          */

@@ -81,15 +81,18 @@ const isCancel = error =>
  * (file) android\app\src\main\java\com\clipcascade\ClipboardFloatingActivity.kt
  * (file) android\app\src\main\java\com\clipcascade\ClipboardListenerModule.kt
  * (file) android\app\src\main\java\com\clipcascade\ClipboardListenerPackage.kt
+ * (file) android\app\src\main\java\com\clipcascade\ClipboardObservations.kt
  * (file) android\app\src\main\java\com\clipcascade\HeadlessTaskService.kt
  * (file) android\app\src\main\java\com\clipcascade\MainActivity.kt
  * (file) android\app\src\main\java\com\clipcascade\MainApplication.kt
  * (file) android\app\src\main\java\com\clipcascade\NativeBridgeModule.kt
  * (file) android\app\src\main\java\com\clipcascade\NativeBridgePackage.kt
+ * (file) android\app\src\main\java\com\clipcascade\NativeStompSocket.kt
  * (file) android\app\src\main\java\com\clipcascade\PermissionGrantService.kt
  * (file) android\app\src\main\java\com\clipcascade\ShizukuPermissionsModule.kt
  * (file) android\app\src\main\aidl\com\clipcascade\IPermissionGrantService.aidl
  * (file) android\app\src\main\java\com\clipcascade\PendingShares.kt
+ * (file) android\app\src\main\java\com\clipcascade\ProtectedStorage.kt
  * (file) android\app\src\main\java\com\clipcascade\ScheduleService.kt
  * (file) android\app\src\main\java\com\clipcascade\ServiceRunRegistry.kt
  * (file) android/app/src/main/java/com/clipcascade/ServerTls.kt
@@ -108,12 +111,15 @@ const isCancel = error =>
  * (file) ServiceLifecycle.js
  * (file) ServiceStatus.js
  * (file) StompShutdown.js
+ * (file) StompSocket.js
  * (file) WebSocketStatus.js
  * (file) DevicePreferences.js
  * (file) DownloadDirectory.js
  * (file) DownloadNotifications.js
  * (file) ClipboardLimit.js
+ * (file) ClipboardPreparation.js
  * (file) FileTransfer.js
+ * (file) TransferLimits.js
  * (file) AppVersion.js
  * (file) UpdateChecker.js
  */
@@ -1161,6 +1167,9 @@ export default function App() {
 
   // State to manage websocket page message
   const [wsPageMessage, setWsPageMessage] = useState('');
+  const wsDetailMessage = wsPageMessage.startsWith('✅ Connected - ⏳ Loading ')
+    ? wsPageMessage.slice('✅ Connected - '.length)
+    : wsPageMessage === '✅ Connected' ? '' : wsPageMessage;
   const syncConnected = wsIsRunning === 'true' && wsPageMessage.includes('✅ Connected');
   const syncStatusColor = isChangingSync
     ? (isDark ? '#fbbf24' : '#b45309')
@@ -1708,8 +1717,8 @@ export default function App() {
                   ? 'Clipboard sync is running in the background.'
                   : 'Start sync to share clipboard content with your devices.'}
               </Text>
-              {wsPageMessage !== '' && wsPageMessage !== '✅ Connected' && (
-                <Text style={[styles.statusMessage, secondaryText]} accessibilityLiveRegion="polite">{wsPageMessage}</Text>
+              {wsDetailMessage !== '' && (
+                <Text style={[styles.statusMessage, secondaryText]} accessibilityLiveRegion="polite">{wsDetailMessage}</Text>
               )}
               {wsPageP2PMessage !== '' && (
                 <Text style={[styles.statusMessage, secondaryText]}>{wsPageP2PMessage}</Text>

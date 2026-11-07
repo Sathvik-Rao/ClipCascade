@@ -3,14 +3,17 @@ import io
 import json
 import logging
 import os
+from contextlib import contextmanager
 import xxhash
 
 
 from PIL import Image
 from clipboard.file_utils import encode_files, local_file_paths
+from clipboard.update_worker import ClipboardUpdateWorker, ClipboardSuperseded
 from core.constants import *
 from core.config import Config
 from utils.notification_manager import NotificationManager
+from utils.transfer_limits import content_size
 
 if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     from cli.tray import TaskbarPanel
@@ -39,6 +42,10 @@ class ClipboardManager:
         self.previous_clipboard_hash = 0
         self.sys_tray: TaskbarPanel = None
         self.is_files_download_enabled = False
+        self._update_worker = None
+        self._remote_text = None
+        self._can_send_content = None
+        self._attachment_loading = None
 
         if PLATFORM.startswith(LINUX) and XMODE:
             self.is_x_clipboard_owner = clipboard_monitor.is_x_clipboard_owner()
@@ -79,6 +86,9 @@ class ClipboardManager:
                 files=clipboard_content
             )
 
+        return self.is_content_size_within_limit(content_size_in_bytes)
+
+    def is_content_size_within_limit(self, content_size_in_bytes):
         # Check if the content size exceeds the server limit
         max_allowed_size = self.config.data["maxsize"]
         if (
@@ -123,25 +133,67 @@ class ClipboardManager:
             return True
         return False
 
-    def on_copy(self, copy_callback):
+    def on_copy(self, copy_callback, on_change=None, can_send_content=None):
+        self._can_send_content = can_send_content
+        if self._update_worker is not None:
+            self._update_worker.stop()
+        worker = ClipboardUpdateWorker(
+            self.clipboard_to_base64,
+            lambda payload, kind, current, size: copy_callback(
+                payload, kind, is_current=current, content_size_bytes=size),
+        )
+        self._update_worker = worker
+
+        def enqueue(kind, content):
+            if kind == "text" and content == self._remote_text:
+                self._remote_text = None
+                return  # An OS notification for our own received text write.
+            self._remote_text = None
+            worker.invalidate()
+            if on_change:
+                on_change()
+            self.reset_files_download()
+            if self.config.data.get("send_clipboard", True):
+                worker.submit(kind, content)
+
         clipboard_monitor.on_update(
-            callback=lambda type_, content: self.clipboard_to_base64(
-                copy_callback, content, type_
-            ),
+            callback=enqueue,
             enable_image_monitoring=self.config.data["enable_image_sharing"],
             enable_file_monitoring=self.config.data["enable_file_sharing"],
         )
+
+    def get_loading_status(self):
+        loading = self._attachment_loading
+        if loading is not None:
+            message, check_current = loading
+            try:
+                check_current()
+                return message
+            except ClipboardSuperseded:
+                pass
+        return None
+
+    @contextmanager
+    def _loading_attachment(self, message, check_current):
+        check_current()
+        loading = (message, check_current)
+        self._attachment_loading = loading
+        try:
+            yield
+        finally:
+            if self._attachment_loading is loading:
+                self._attachment_loading = None
 
     def clipboard_to_base64(self, callback, content: any, type_: str = "text"):
         if not self.config.data.get("send_clipboard", True):
             return
         try:
-            self.reset_files_download()
-
+            check_current = getattr(callback, "check_current", lambda: None)
+            check_current()
             type_ = type_.lower()
             if type_ == "text":
                 if self.is_clipboard_size_within_limit(content, type_):
-                    callback(content, type_)
+                    callback(content, type_, content_size_bytes=content_size(content, type_))
 
             elif type_ == "image":
                 if isinstance(content, list):
@@ -152,42 +204,55 @@ class ClipboardManager:
 
                     content = Image.open(content[0])
                 if self.is_clipboard_size_within_limit(content, type_):
-                    content_str = ClipboardManager.convert_image_to_base64(img=content)
-                    callback(content_str, type_)
+                    with self._loading_attachment("Loading image…", check_current):
+                        content_str = ClipboardManager.convert_image_to_base64(img=content)
+                    check_current()
+                    callback(content_str, type_, content_size_bytes=content_size(content_str, type_))
 
             elif type_ == "files":
                 if PLATFORM.startswith(LINUX):
                     content = local_file_paths(content or [])
 
                 if self.is_clipboard_size_within_limit(content, type_):
-                    content_str = ClipboardManager.convert_files_to_base64(
-                        file_paths=content
-                    )
-                    if content_str != "{}":  # Check if the JSON string is empty
-                        callback(content_str, type_)
+                    size = self.calculate_cumulative_file_size(content)
+                    if self._can_send_content and not self._can_send_content(size):
+                        logging.info("No connected peer accepts this file's content size")
+                        return
+                    with self._loading_attachment("Loading files…", check_current):
+                        content_str, size = encode_files(content, check_current, with_size=True)
+                    check_current()
+                    # Recheck actual bytes read in case a file grew during preparation.
+                    if content_str != "{}" and self.is_content_size_within_limit(size):
+                        callback(content_str, type_, content_size_bytes=size)
+        except ClipboardSuperseded:
+            pass
         except Exception as e:
             logging.error(f"Failed to convert clipboard data to base64: {e}")
 
-    def base64_to_clipboard(self, base64_string: str, type_: str = "text"):
+    def cancel_preparation(self):
+        if self._update_worker is not None:
+            self._update_worker.invalidate()
+
+    def base64_to_clipboard(self, base64_string: str, type_: str = "text", is_current=lambda: True):
         if not self.config.data.get("receive_clipboard", True):
             return
         try:
             if type_ == "text":
                 txt = base64_string
                 if self.is_clipboard_size_within_limit(txt, type_):
-                    if self.paste(txt, type_):
+                    if is_current() and self.paste(txt, type_):
                         self.notification_manager.notify_clipboard_received(txt, type_)
             elif type_ == "image":
                 img = ClipboardManager.convert_base64_to_image(base64_img=base64_string)
                 if self.is_clipboard_size_within_limit(img, type_):
-                    if self.paste(img, type_):
+                    if is_current() and self.paste(img, type_):
                         self.notification_manager.notify_clipboard_received(img, type_)
             elif type_ == "files":
                 file_objects = ClipboardManager.convert_base64_to_files(
                     base64_json=base64_string
                 )
                 if self.is_clipboard_size_within_limit(file_objects, type_):
-                    if self.paste(file_objects, type_):
+                    if is_current() and self.paste(file_objects, type_):
                         self.notification_manager.notify_clipboard_received(file_objects, type_)
         except Exception as e:
             logging.error(f"Failed to convert base64 data to clipboard: {e}")
@@ -217,9 +282,12 @@ class ClipboardManager:
         if not self.config.data.get("receive_clipboard", True):
             return False
         try:
+            if payload_type != "text":
+                self._remote_text = None
             self.reset_files_download()
 
             if payload_type == "text":
+                self._remote_text = payload
                 if PLATFORM == MACOS:
                     clipboard_monitor.write_to_pasteboard(payload, pasteboard.String)
                 elif PLATFORM == WINDOWS:
@@ -303,6 +371,9 @@ class ClipboardManager:
             raise
 
     def stop(self):
+        if self._update_worker is not None:
+            self._update_worker.stop()
+            self._update_worker = None
         self.reset_files_download()
         clipboard_monitor.stop()
 

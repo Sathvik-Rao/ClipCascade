@@ -89,6 +89,12 @@ let p2pSignalingWebSocket = null;
 let myPeerId = null;
 let peerConnections = {}; // key = peerId, value = RTCPeerConnection
 let dataChannels = {}; // key = peerId, value = RTCDataChannel
+const peerReceiveLimits = new Map();
+// The web client monitors raw messages and has no local receive limit.
+const P2P_MONITOR_CAPABILITIES = JSON.stringify({
+  _cc_keepalive: true,
+  capabilities: { version: 1, receiveLimitBytes: null },
+});
 let heartbeatIntervalId = null; // for 20s keep-alive on P2P
 let stunConfig = { iceServers: [] }; // will be loaded from /stun-url
 const P2P_CONNECTION_TIMEOUT_MS = 90000;
@@ -652,6 +658,10 @@ function fetchDonationStatus() {
 function connectStomp(generation) {
   const client = new StompJs.Client({
     brokerURL: $(SELECTORS.brokerUrlInput).val(),
+    connectHeaders: {
+      "x-clipcascade-receive-limit": "unlimited",
+      "x-clipcascade-no-self-echo": "true", // Sent text is already logged locally.
+    },
     heartbeatIncoming: 20000,
     heartbeatOutgoing: 0,
     connectionTimeout: 15000,
@@ -697,7 +707,7 @@ function sendTextToServerStomp(textVal) {
   if (!stompClient || !stompClient.connected) return;
   stompClient.publish({
     destination: ENDPOINTS.websocketSend,
-    body: JSON.stringify({ payload: textVal, type: "text" }),
+    body: JSON.stringify(textClipboardMessage(textVal)),
   });
 }
 
@@ -738,6 +748,9 @@ async function connectP2P(generation) {
 }
 
 function closePeerConnections() {
+  if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
+  heartbeatIntervalId = null;
+  peerReceiveLimits.clear();
   roomPeers.clear();
   pendingPeerList = null;
   for (const peerId in peerConnections) disposePeerConnection(peerId);
@@ -816,6 +829,7 @@ function cancelPeerConnectionDeadline(peerId) {
 }
 
 function disposePeerConnection(peerId) {
+  peerReceiveLimits.delete(peerId);
   cancelPeerConnectionDeadline(peerId);
   clearTimeout(peerRetryTimers.get(peerId));
   peerRetryTimers.delete(peerId);
@@ -930,6 +944,7 @@ function createPeerConnection(peerId, initiator) {
 }
 
 function setupDataChannel(peerId, channel) {
+  if (dataChannels[peerId] !== channel) peerReceiveLimits.delete(peerId);
   dataChannels[peerId] = channel;
   channel.onopen = () => {
     if (dataChannels[peerId] !== channel) return;
@@ -937,19 +952,49 @@ function setupDataChannel(peerId, channel) {
     clearTimeout(peerRetryTimers.get(peerId));
     peerRetryTimers.delete(peerId);
     peerRetryAttempts.delete(peerId);
+    try {
+      channel.send(P2P_MONITOR_CAPABILITIES);
+    } catch (error) {
+      console.warn("Could not send monitor capabilities:", error);
+    }
+    if (heartbeatIntervalId === null) {
+      heartbeatIntervalId = setInterval(() => {
+        for (const currentChannel of Object.values(dataChannels)) {
+          if (currentChannel.readyState !== "open") continue;
+          try {
+            currentChannel.send(P2P_MONITOR_CAPABILITIES);
+          } catch (error) {
+            console.warn("Could not send monitor capabilities:", error);
+          }
+        }
+      }, 20000);
+    }
     console.log("Data channel open with peer:", peerId);
   };
   channel.onclose = () => {
     if (dataChannels[peerId] !== channel) return;
+    peerReceiveLimits.delete(peerId);
     console.log("Data channel closed with peer:", peerId);
     recoverPeerTransport(peerId, peerConnections[peerId]);
   };
   channel.onmessage = (event) => {
+    if (dataChannels[peerId] !== channel) return;
     let msgObj;
     try {
       msgObj = JSON.parse(event.data);
     } catch (e) {
       console.warn("Received non-JSON or invalid data from peer:", event.data);
+      return;
+    }
+    if (msgObj && msgObj._cc_keepalive === true) {
+      const capabilities = msgObj.capabilities;
+      if (capabilities?.version === 1 &&
+          Object.prototype.hasOwnProperty.call(capabilities, "receiveLimitBytes")) {
+        const limit = capabilities.receiveLimitBytes;
+        if (limit === null || (Number.isSafeInteger(limit) && limit >= 0)) {
+          peerReceiveLimits.set(peerId, limit);
+        }
+      }
       return;
     }
     displayIncomingMessage(msgObj);
@@ -1033,14 +1078,47 @@ function sendSignalingMessage(payload) {
   }
 }
 
+function textClipboardMessage(textVal) {
+  return {
+    payload: textVal,
+    type: "text",
+    metadata: { contentSizeBytes: new TextEncoder().encode(textVal).length },
+  };
+}
+
 function sendTextToPeers(textVal) {
-  const msg = { payload: textVal, type: "text" };
+  const msg = textClipboardMessage(textVal);
+  // Preserve the legacy P2P metadata contract as well as the new size field.
+  Object.assign(msg.metadata, {
+    id: typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() :
+      "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+        const r = Math.floor(Math.random() * 16);
+        return (c === "x" ? r : (r & 3) | 8).toString(16);
+      }),
+    isFragmented: false,
+    index: 0,
+    totalFragments: 1,
+    combinedRawPayloadSizeInBytes: msg.metadata.contentSizeBytes,
+  });
   const strMsg = JSON.stringify(msg);
+  let skipped = 0;
   for (const pid in dataChannels) {
     const ch = dataChannels[pid];
     if (ch && ch.readyState === "open") {
-      ch.send(strMsg);
+      const limit = peerReceiveLimits.get(pid);
+      if (Number.isSafeInteger(limit) && msg.metadata.contentSizeBytes > limit) {
+        skipped++;
+        continue;
+      }
+      try {
+        ch.send(strMsg);
+      } catch (error) {
+        console.error("Could not send text to peer:", pid, error);
+      }
     }
+  }
+  if (skipped) {
+    showStatusMessage(`Text skipped for ${skipped} peer(s): exceeds their receive limit.`, "warning");
   }
 }
 

@@ -97,7 +97,15 @@ class MainActivity : ReactActivity() {
             clearShareIntent(intent)
         }
         ClipboardContent.fromIntent(intent, contentResolver)?.let { content ->
-            PendingShares.add(content)
+            // A delayed clipboard reread must not supersede this explicit
+            // share merely because the clipboard still contains older text.
+            val baseline = try {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                ClipboardObservations.beginShare(clipboard.primaryClip, contentResolver)
+            } catch (_: SecurityException) {
+                ClipboardObservations.beginShare(null, contentResolver)
+            }
+            PendingShares.add(content, baseline)
             // Buffer first, then consume before notifying JavaScript. Keep URI
             // grant flags so the buffered attachments remain readable.
             clearShareIntent(intent)

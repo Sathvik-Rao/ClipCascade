@@ -4,12 +4,16 @@ import time
 import websocket
 import asyncio
 import uuid
+from collections import OrderedDict
 
 from threading import Lock, Thread
 from typing import Dict, List, Optional
 from core.config import Config
 from interfaces.ws_interface import WSInterface
 from utils.reconnect import ReconnectMixin
+from utils.transfer_flow import send_shared_fragments, TransferSuperseded
+from utils.transfer_limits import (SIZE_FIELD, valid_size, receive_limit, capability_message,
+                                  read_capability, allows_content, metadata_size, content_size)
 from utils.cipher_manager import CipherManager
 from clipboard.clipboard_manager import ClipboardManager
 from utils.notification_manager import NotificationManager
@@ -50,6 +54,10 @@ class P2PManager(ReconnectMixin, WSInterface):
         self._disconnect_future = None
 
         # Fragment variables
+        self._send_generation = 0
+        self._preparation_lock = asyncio.Lock()
+        self._discarded_fragments = OrderedDict()
+        self._peer_receive_limits = {}
         self.sending_fragment_id = ""  # The id of the fragment currently being sent
         # Mapping: fragment_id:str -> {"last_received_at": float, "fragments": list[str]}
         # Refresh the timestamp on each fragment so a dropped final
@@ -100,7 +108,7 @@ class P2PManager(ReconnectMixin, WSInterface):
         if self.disconnected or self._p2p_shutting_down or not self.is_connected:
             return
         self._prune_stale_receiving_fragments()
-        ping = json.dumps({"_cc_keepalive": True})
+        ping = capability_message(self.config)
         for ch in list(self.data_channels.values()):
             try:
                 if getattr(ch, "readyState", "") == "open":
@@ -145,6 +153,9 @@ class P2PManager(ReconnectMixin, WSInterface):
         stats = f"📊 Peers: {n}"
         if not self.is_connected:
             stats += " | Signaling: Reconnecting…"
+        loading = self.clipboard_manager.get_loading_status()
+        if loading:
+            stats += f" | {loading}"
         if self.sending_fragment_stats is not None:
             stats += f" | Sending: {self.sending_fragment_stats}"
         if self.receiving_fragment_stats is not None:
@@ -199,7 +210,7 @@ class P2PManager(ReconnectMixin, WSInterface):
             if not self.is_clipboard_monitoring_on:
                 # Start clipboard monitoring
                 self.is_clipboard_monitoring_on = True
-                self.clipboard_manager.on_copy(self.send)
+                self.clipboard_manager.on_copy(self.send, self._on_local_change, self.can_send_content)
 
             total_ms = 0
             while self.is_connected is False:
@@ -393,7 +404,10 @@ class P2PManager(ReconnectMixin, WSInterface):
         for peer_id in list(self._peer_connection_deadlines):
             self._cancel_peer_connection_deadline(peer_id)
         self._cancel_dc_heartbeat()
+        self.reset_sending_fragment_id()
+        self.clipboard_manager.cancel_preparation()
         self.reset_receiving_fragments()
+        self._peer_receive_limits.clear()
         try:
             try:
                 for dc in list(self.data_channels.values()):
@@ -473,6 +487,7 @@ class P2PManager(ReconnectMixin, WSInterface):
             self._peer_retry_attempts.pop(old_pid, None)
             self._pending_ice.pop(old_pid, None)
             # Close data channel
+            self._drop_peer_fragments(old_pid)
             dc = self.data_channels.pop(old_pid, None)
             if dc is not None:
                 try:
@@ -522,6 +537,7 @@ class P2PManager(ReconnectMixin, WSInterface):
         self._pending_ice.pop(peer_id, None)
         # Invalidate both objects before close callbacks can request recovery.
         pc = self.peer_connections.pop(peer_id, None)
+        self._drop_peer_fragments(peer_id)
         dc = self.data_channels.pop(peer_id, None)
         if dc is not None:
             try:
@@ -833,18 +849,22 @@ class P2PManager(ReconnectMixin, WSInterface):
             self._cancel_peer_connection_deadline(remote_peer_id)
             self._peer_retry_attempts.pop(remote_peer_id, None)
             self._sync_live_connections_count()
+            channel.send(capability_message(self.config))
 
         if channel.readyState == "open":
             on_open()
 
         @channel.on("message")
         def on_message(message):
-            self._receive(message)
+            if self.data_channels.get(remote_peer_id) is not channel:
+                return
+            self._receive(message, remote_peer_id)
 
         @channel.on("close")
         def on_close():
             if self.data_channels.get(remote_peer_id) is not channel:
                 return
+            self._drop_peer_fragments(remote_peer_id)
             pc = self.peer_connections.get(remote_peer_id)
             self._sync_live_connections_count()
             self.schedule_task(self._recover_peer_transport(remote_peer_id, pc))
@@ -854,72 +874,122 @@ class P2PManager(ReconnectMixin, WSInterface):
             logging.error(f"[data] Data channel error with {remote_peer_id}: {e}")
             self._sync_live_connections_count()
 
-    def send(self, payload: str, payload_type: str = "text"):
-        self.schedule_task(self._send(payload, payload_type))
+    def _on_local_change(self):
+        # Called on the clipboard monitor thread. Invalidate sends immediately;
+        # mutate receive buffers on their owning asyncio loop.
+        self.reset_sending_fragment_id()
+        self.loop.call_soon_threadsafe(self.reset_receiving_fragments)
+
+    def can_send_content(self, size):
+        return any(channel.readyState == "open" and allows_content(self._peer_receive_limits.get(peer), size)
+                   for peer, channel in self.data_channels.copy().items())
+
+    def send(self, payload: str, payload_type: str = "text", is_current=lambda: True, content_size_bytes=None):
+        self.schedule_task(self._send(payload, payload_type, self._send_generation, is_current, content_size_bytes))
 
     def reset_sending_fragment_id(self):
+        self._send_generation += 1
         self.sending_fragment_id = ""
         self.sending_fragment_stats = None
 
-    async def _send(self, payload: str, payload_type: str = "text"):
-        if not self.config.data.get("send_clipboard", True):
-            return
+    async def _send(self, payload: str, payload_type: str = "text", generation=None, is_current=lambda: True,
+                    content_size_bytes=None):
+        if generation is None:
+            generation = self._send_generation
+
+        def check_current():
+            if (not is_current() or generation != self._send_generation or self.disconnected
+                    or not self.config.data.get("send_clipboard", True)):
+                raise TransferSuperseded()
+
+        transfer_id = str(uuid.uuid4())
         try:
-            if self.clipboard_manager.has_clipboard_changed(payload):
-                self.reset_sending_fragment_id()
-                self.reset_receiving_fragments()
+            check_current()
+            if not valid_size(content_size_bytes):
+                content_size_bytes = await asyncio.to_thread(content_size, payload, payload_type)
+            check_current()
+            if not self.can_send_content(content_size_bytes):
+                logging.info("No connected peer accepts this clipboard content size")
+                return
+            # Hash/encode/encrypt can be large. Keep the receive loop available.
+            payload_hash = await asyncio.to_thread(self.clipboard_manager.hash_clipboard, payload)
+            check_current()
+            if payload_hash == self.clipboard_manager.previous_clipboard_hash:
+                return
+            self.reset_receiving_fragments()
 
-                raw_payload_size_in_bytes = len(payload.encode("utf-8"))
-
+            def prepare():
+                check_current()
+                raw_size = len(payload.encode("utf-8"))
+                prepared = payload
                 if self.config.data["cipher_enabled"]:
-                    payload = CipherManager.encode_to_json_string(
-                        **self.cipher_manager.encrypt(payload)
+                    prepared = CipherManager.encode_to_json_string(
+                        **self.cipher_manager.encrypt(prepared)
                     )
+                check_current()
+                fragments = self.fragment_string(prepared, check_current=check_current)
+                return raw_size, fragments
 
-                fragments = P2PManager.fragment_string(payload)
-                metadata = {
-                    "id": str(uuid.uuid4()),
-                    "isFragmented": len(fragments) > 1,
-                    "index": 0,
-                    "totalFragments": len(fragments),
-                    "combinedRawPayloadSizeInBytes": raw_payload_size_in_bytes,
-                }
+            if payload_type == "text" and len(payload) <= 65536:
+                # Small text must not wait for an obsolete large encryption
+                # call, which cannot be interrupted inside the crypto library.
+                raw_size, fragments = await asyncio.to_thread(prepare)
+            else:
+                async with self._preparation_lock:
+                    check_current()
+                    raw_size, fragments = await asyncio.to_thread(prepare)
+            check_current()
+            payload = None
+            recipients = [ch for peer, ch in self.data_channels.items()
+                          if ch.readyState == "open" and allows_content(self._peer_receive_limits.get(peer), content_size_bytes)]
+            recipient_ids = {id(ch): peer for peer, ch in self.data_channels.items()}
+            self.sending_fragment_id = transfer_id
+            metadata = dict(id=transfer_id, isFragmented=len(fragments) > 1,
+                            index=0, totalFragments=len(fragments),
+                            combinedRawPayloadSizeInBytes=raw_size)
+            if valid_size(content_size_bytes):
+                metadata[SIZE_FIELD] = content_size_bytes
+            def progress(index, total):
+                if self.sending_fragment_id == transfer_id and generation == self._send_generation:
+                    self.sending_fragment_stats = f"{index}/{total}"
 
-                self.sending_fragment_id = metadata["id"]
-                for fragment in fragments:
-                    if not self.config.data.get("send_clipboard", True):
-                        self.reset_sending_fragment_id()
-                        break
-                    if self.sending_fragment_id != metadata["id"]:
-                        break
-
-                    body = json.dumps(
-                        {
-                            "payload": fragment,
-                            "type": payload_type,
-                            "metadata": metadata,
-                        }
-                    )
-                    metadata["index"] += 1
-
-                    # Send to all open DataChannels
-                    for peer_id, channel in self.data_channels.items():
-                        if channel.readyState == "open":
-                            channel.send(body)
-
-                    if metadata["isFragmented"]:
-                        self.sending_fragment_stats = (
-                            f"{metadata['index']}/{metadata['totalFragments']}"
-                        )
-                else:
-                    self.reset_sending_fragment_id()
-
+            completed = await send_shared_fragments(
+                fragments, recipients, metadata, payload_type, check_current, progress,
+                lambda ch: allows_content(self._peer_receive_limits.get(recipient_ids[id(ch)]), content_size_bytes),
+            )
+            if not completed:
+                return
+            check_current()
+            self.clipboard_manager.previous_clipboard_hash = payload_hash
+        except TransferSuperseded:
+            pass
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
+        finally:
+            if self.sending_fragment_id == transfer_id:
+                self.sending_fragment_id = ""
+                self.sending_fragment_stats = None
+
+    def _discard_fragment_id(self, fragment_id):
+        self._discarded_fragments[fragment_id] = None
+        self._discarded_fragments.move_to_end(fragment_id)
+        while len(self._discarded_fragments) > 1024:
+            self._discarded_fragments.popitem(last=False)
 
     def reset_receiving_fragments(self):
-        self.receiving_fragments = {}
+        for fragment_id in self.receiving_fragments:
+            self._discard_fragment_id(fragment_id)
+        self.receiving_fragments.clear()
         self.receiving_fragment_stats = None
+
+    def _drop_peer_fragments(self, peer_id):
+        self._peer_receive_limits.pop(peer_id, None)
+        for fid, entry in list(self.receiving_fragments.items()):
+            if entry.get("peer") == peer_id:
+                self._discard_fragment_id(fid)
+                self.receiving_fragments.pop(fid, None)
+        if not self.receiving_fragments:
+            self.receiving_fragment_stats = None
 
     def _prune_stale_receiving_fragments(self) -> None:
         """Drop partial fragment buffers idle for P2P_FRAGMENT_TTL_SEC.
@@ -938,34 +1008,48 @@ class P2PManager(ReconnectMixin, WSInterface):
         for fid in stale:
             logging.debug("P2P: dropping stale fragment buffer %s", fid)
             self.receiving_fragments.pop(fid, None)
+            self._discard_fragment_id(fid)
         if not self.receiving_fragments:
             self.receiving_fragment_stats = None
 
-    def _receive(self, frame: any) -> str:
-        if not self.config.data.get("receive_clipboard", True):
-            self.reset_receiving_fragments()
-            return
+    def _receive(self, frame: any, peer_id=None) -> str:
+        generation = self._send_generation
         try:
             body = json.loads(frame)
             if isinstance(body, dict) and body.get("_cc_keepalive") is True:
+                read_capability(body, self._peer_receive_limits, peer_id)
                 return
-            self.reset_sending_fragment_id()
+            if not self.config.data.get("receive_clipboard", True):
+                self.reset_receiving_fragments()
+                return
             payload = body["payload"]
             payload_type = body.get("type", "text")
             metadata = body.get("metadata")
-
-            # Check if the payload exceeds the maximum size: first layer protection
-            if (
-                metadata is not None
-                and self.config.data["max_clipboard_size_local_limit_bytes"] is not None
-                and metadata["combinedRawPayloadSizeInBytes"]
-                > self.config.data["max_clipboard_size_local_limit_bytes"]
-            ):
-                self.reset_receiving_fragments()
-                logging.debug(
-                    f"Payload size limit exceeded: {metadata['combinedRawPayloadSizeInBytes']} bytes exceeds {self.config.data['max_clipboard_size_local_limit_bytes']} bytes"
-                )
+            if metadata is not None:
+                fid = metadata["id"]
+                if fid in self._discarded_fragments:
+                    return
+                total, index = metadata["totalFragments"], metadata["index"]
+                if (not isinstance(total, int) or not isinstance(index, int)
+                        or total < 1 or not 0 <= index < total):
+                    raise ValueError("Invalid fragment metadata")
+                if fid not in self.receiving_fragments and index != 0:
+                    return  # Canceled/expired tails cannot resurrect a transfer.
+            # Legacy raw sizes include Base64/JSON overhead. Without an
+            # original-content size, defer to decoded-content validation.
+            if not allows_content(receive_limit(self.config), metadata_size(metadata)):
+                if metadata:
+                    self.receiving_fragments.pop(metadata["id"], None)
+                    self._discard_fragment_id(metadata["id"])
+                if not self.receiving_fragments:
+                    self.receiving_fragment_stats = None
+                logging.debug("Incoming clipboard content exceeds the local size limit")
                 return
+
+            if metadata is None or metadata["index"] == 0:
+                self.reset_sending_fragment_id()
+                self.clipboard_manager.cancel_preparation()
+                generation = self._send_generation
 
             # Fragmented message handling
             if metadata is not None and metadata["isFragmented"]:
@@ -975,12 +1059,21 @@ class P2PManager(ReconnectMixin, WSInterface):
                 )
                 if metadata["id"] in self.receiving_fragments:
                     entry = self.receiving_fragments[metadata["id"]]
+                    if (entry["peer"] != peer_id or len(entry["fragments"]) != metadata["totalFragments"]
+                            or entry["type"] != payload_type):
+                        self.reset_receiving_fragments()
+                        return
+                    if entry["generation"] != self._send_generation:
+                        self.reset_receiving_fragments()
+                        return
+                    generation = entry["generation"]
                     entry["fragments"][metadata["index"]] = payload
                     entry["last_received_at"] = time.monotonic()
                     if metadata["index"] == metadata["totalFragments"] - 1:
                         if all(s != "" for s in entry["fragments"]):
                             payload = "".join(entry["fragments"])
                             self.receiving_fragments.pop(metadata["id"], None)
+                            self._discard_fragment_id(metadata["id"])
                         else:
                             self.reset_receiving_fragments()
                             logging.error(
@@ -993,6 +1086,7 @@ class P2PManager(ReconnectMixin, WSInterface):
                     self.reset_receiving_fragments()
                     self.receiving_fragments[metadata["id"]] = {
                         "last_received_at": time.monotonic(),
+                        "peer": peer_id, "type": payload_type, "generation": generation,
                         "fragments": [""] * metadata["totalFragments"],
                     }
                     self.receiving_fragments[metadata["id"]]["fragments"][
@@ -1000,23 +1094,31 @@ class P2PManager(ReconnectMixin, WSInterface):
                     ] = payload
                     return
 
+            if generation != self._send_generation:
+                return
+            self.reset_receiving_fragments()
             if self.config.data["cipher_enabled"]:
                 payload = self.cipher_manager.decrypt(
                     **CipherManager.decode_from_json_string(payload)
                 )
 
+            if generation != self._send_generation:
+                return
             if self.clipboard_manager.has_clipboard_changed(payload):
                 self.reset_receiving_fragments()
                 self.clipboard_manager.base64_to_clipboard(
-                    base64_string=payload, type_=payload_type
+                    base64_string=payload, type_=payload_type,
+                    is_current=lambda: generation == self._send_generation
                 )
         except json.decoder.JSONDecodeError:
+            self.reset_receiving_fragments()
             logging.error("If cipher is enabled, please make sure it is enabled on all devices")
         except Exception as e:
+            self.reset_receiving_fragments()
             logging.error(f"Failed to receive data: {e}")
 
     @staticmethod
-    def fragment_string(s: str, fragment_size: int = FRAGMENT_SIZE) -> list[str]:
+    def fragment_string(s: str, fragment_size: int = FRAGMENT_SIZE, check_current=lambda: None) -> list[str]:
         """
         Splits a string into a list of fragments, each with a maximum size of `fragment_size` bytes.
 
@@ -1033,6 +1135,7 @@ class P2PManager(ReconnectMixin, WSInterface):
         fragments = []
         start = 0
         while start < len(encoded):
+            check_current()
             end = min(start + fragment_size, len(encoded))
             while end < len(encoded) and encoded[end] & 0xC0 == 0x80:
                 end -= 1
