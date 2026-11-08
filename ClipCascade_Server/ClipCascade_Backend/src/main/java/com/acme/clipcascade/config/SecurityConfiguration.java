@@ -15,13 +15,16 @@ import org.springframework.security.core.session.SessionRegistryImpl;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.logout.SimpleUrlLogoutSuccessHandler;
 import org.springframework.security.web.session.HttpSessionEventPublisher;
 import com.acme.clipcascade.service.BruteForceProtectionService;
 import com.acme.clipcascade.service.FacadeUserService;
+import com.acme.clipcascade.service.LiveWebSocketService;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfiguration {
+	private static final String LOGOUT_LOGIN_ID = SecurityConfiguration.class.getName() + ".logoutLoginId";
 
 	private final UserDetailsService userDetailsService; // <- Spring Security UserDetailsService
 	private final BCryptPasswordEncoder bCryptPasswordEncoder;
@@ -55,7 +58,10 @@ public class SecurityConfiguration {
 	}
 
 	@Bean
-	public SecurityFilterChain securityFilterChain(HttpSecurity http, SessionRegistry sessionRegistry) throws Exception {
+	public SecurityFilterChain securityFilterChain(HttpSecurity http, SessionRegistry sessionRegistry,
+			LiveWebSocketService liveWebSockets) throws Exception {
+		var logoutRedirect = new SimpleUrlLogoutSuccessHandler();
+		logoutRedirect.setDefaultTargetUrl("/login?logout");
 		return http
 				.authorizeHttpRequests((authorize) -> authorize
 						.requestMatchers(
@@ -79,7 +85,19 @@ public class SecurityConfiguration {
 										facadeUserService))) // <- Custom authentication success handler
 				.logout(logout -> logout
 						.logoutUrl("/logout") // The URL to submit a logout request
-						.logoutSuccessUrl("/login?logout")) // Where to go after successful logout
+						.addLogoutHandler((request, response, authentication) -> {
+							var session = request.getSession(false);
+							if (session != null) {
+								request.setAttribute(LOGOUT_LOGIN_ID, session.getId());
+							}
+						})
+						.logoutSuccessHandler((request, response, authentication) -> {
+							// Spring Security has invalidated the HTTP session by this point.
+							if (request.getAttribute(LOGOUT_LOGIN_ID) instanceof String loginId) {
+								liveWebSockets.disconnectLogin(loginId);
+							}
+							logoutRedirect.onLogoutSuccess(request, response, authentication);
+						}))
 				.sessionManagement(session -> session
 						.sessionCreationPolicy(SessionCreationPolicy.ALWAYS) // Always create a new session
 						.maximumSessions(-1) // Allow unlimited sessions

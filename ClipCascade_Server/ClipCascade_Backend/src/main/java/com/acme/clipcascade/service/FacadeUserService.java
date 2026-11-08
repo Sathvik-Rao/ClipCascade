@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import com.acme.clipcascade.config.ClipCascadeProperties;
 import com.acme.clipcascade.constants.RoleConstants;
+import com.acme.clipcascade.constants.ServerConstants;
 import com.acme.clipcascade.model.IpAttemptDetails;
 import com.acme.clipcascade.model.PageResponse;
 import com.acme.clipcascade.model.UserDetailsView;
@@ -42,7 +43,7 @@ public class FacadeUserService {
         if (userService.isTableEmpty()) {
             userService.doubleHashAndCreateUser(
                     "admin",
-                    "admin123",
+                    ServerConstants.DEFAULT_ADMIN_PASSWORD,
                     RoleConstants.ADMIN,
                     true);
 

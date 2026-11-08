@@ -10,13 +10,15 @@ from core.constants import *
 
 
 class CustomDialog(GuiWindow):
-    def __init__(self, message, msg_type="info", timeout=None, on_dont_show_again=None):
+    def __init__(self, message, msg_type="info", timeout=None, on_dont_show_again=None, actions=None):
         super().__init__()
         self.message = message
         self.msg_type = msg_type.lower()
         self.timeout = timeout
         self.after_id = None
         self.on_dont_show_again = on_dont_show_again
+        self.actions = actions
+        self.result = None
         self.dont_show_again = tk.BooleanVar(master=self, value=False)
 
         self.style = ttk.Style(self)
@@ -39,7 +41,7 @@ class CustomDialog(GuiWindow):
             self.after_id = self.after(self.timeout, self.close)
 
         # Allow closing with keyboard shortcuts
-        self.bind("<Return>", lambda e: self.close())
+        self.bind("<Return>", self._on_return)
         self.bind("<Escape>", lambda e: self.close())
         self.protocol("WM_DELETE_WINDOW", self.close)
 
@@ -122,11 +124,28 @@ class CustomDialog(GuiWindow):
         button_frame = ttk.Frame(main_frame, style="Dialog.TFrame")
         button_frame.grid(row=3, column=0, pady=(10, 0))
 
-        ok_button = ttk.Button(
-            button_frame, text="OK", command=self.close, width=10, style="Dialog.TButton"
-        )
-        ok_button.pack()
-        ok_button.focus_set()
+        for index, (label, value) in enumerate(self.actions or [("OK", None)]):
+            button = ttk.Button(
+                button_frame, text=label, command=lambda choice=value: self._choose(choice),
+                width=12, style="Dialog.TButton",
+            )
+            button.pack(side="left", padx=4)
+            if index == 0:
+                button.focus_set()
+
+    def _choose(self, value):
+        self.result = value
+        self.close()
+
+    def _on_return(self, event):
+        focused = self.focus_get()
+        if isinstance(focused, ttk.Button):
+            focused.invoke()
+        elif self.actions:
+            self._choose(self.actions[0][1])
+        else:
+            self.close()
+        return "break"
 
     def _macos_restore_focus(self):
         """Force macOS to properly activate and focus the dialog."""

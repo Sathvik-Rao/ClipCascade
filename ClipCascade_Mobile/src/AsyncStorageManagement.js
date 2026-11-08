@@ -1,7 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'; // persistent storage
+import {NativeModules} from 'react-native';
+
+const protectedKeys = new Set(['password', 'hashed_password', 'csrf_token']);
 
 // Save data in async storage
 export const setDataInAsyncStorage = async (key, value) => {
+  if (protectedKeys.has(key)) {
+    await NativeModules.NativeBridgeModule.writeProtectedValue(key, value ?? '');
+    return;
+  }
   try {
     await AsyncStorage.setItem(key, JSON.stringify(value));
   } catch (e) {
@@ -11,6 +18,9 @@ export const setDataInAsyncStorage = async (key, value) => {
 
 // Retrieve data from async storage
 export const getDataFromAsyncStorage = async key => {
+  if (protectedKeys.has(key)) {
+    return NativeModules.NativeBridgeModule.readProtectedValue(key);
+  }
   try {
     const value = await AsyncStorage.getItem(key);
     return value === null ? null : JSON.parse(value);
@@ -26,11 +36,14 @@ export const getDataFromAsyncStorage = async key => {
  */
 export const getMultipleDataFromAsyncStorage = async keys => {
   try {
-    const stores = await AsyncStorage.multiGet(keys);
+    const stores = await AsyncStorage.multiGet(keys.filter(key => !protectedKeys.has(key)));
     const result = {};
     stores.forEach(([key, raw]) => {
       result[key] = raw != null ? JSON.parse(raw) : null;
     });
+    for (const key of keys.filter(key => protectedKeys.has(key))) {
+      result[key] = await getDataFromAsyncStorage(key);
+    }
     return result;
   } catch (e) {
     throw e;

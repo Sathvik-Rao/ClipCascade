@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {setDataInAsyncStorage} from './AsyncStorageManagement';
 
 export const DEVICE_PREFERENCE_FIELDS = new Set([
   'save_password',
-  'max_clipboard_size_local_limit_bytes',
   'relaunch_on_boot',
   'enable_websocket_status_notification',
   'update_notifications',
@@ -24,31 +24,36 @@ export const isValidClipboardLimit = value =>
 // Serialize changes so a slower earlier write cannot overwrite a newer toggle.
 let pendingWrites = Promise.resolve();
 
+const queuePreferenceWrite = write => {
+  pendingWrites = pendingWrites.catch(() => {}).then(write);
+  return pendingWrites;
+};
+
 export const saveDevicePreference = (field, value) => {
   if (!DEVICE_PREFERENCE_FIELDS.has(field)) {
     return Promise.reject(
       new Error('Only device preferences can be autosaved'),
     );
   }
-  if (
-    field === 'max_clipboard_size_local_limit_bytes'
-      ? !isValidClipboardLimit(value)
-      : value !== 'true' && value !== 'false'
-  ) {
+  if (value !== 'true' && value !== 'false') {
     return Promise.reject(new Error('Invalid device preference'));
   }
 
-  pendingWrites = pendingWrites
-    .catch(() => {})
-    .then(async () => {
-      const entries = [[field, JSON.stringify(value)]];
-      if (field === 'save_password' && value === 'false') {
-        entries.push(['password', JSON.stringify('')]);
-      }
-      await AsyncStorage.multiSet(entries);
-    });
-  return pendingWrites;
+  return queuePreferenceWrite(async () => {
+    if (field === 'save_password' && value === 'false') {
+      await setDataInAsyncStorage('password', '');
+    }
+    await AsyncStorage.setItem(field, JSON.stringify(value));
+  });
 };
+
+export const saveClipboardLimit = (bytes, display) =>
+  queuePreferenceWrite(() =>
+    AsyncStorage.multiSet([
+      ['max_clipboard_size_local_limit_bytes', JSON.stringify(bytes)],
+      ['clipboard_limit_display', JSON.stringify(display)],
+    ]),
+  );
 
 export const waitForPreferenceWrites = () => pendingWrites;
 

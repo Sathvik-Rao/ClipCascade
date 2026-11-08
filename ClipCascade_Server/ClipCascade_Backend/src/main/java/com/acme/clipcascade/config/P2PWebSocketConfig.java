@@ -31,6 +31,7 @@ public class P2PWebSocketConfig implements WebSocketConfigurer {
     @Override
     public void registerWebSocketHandlers(@NonNull WebSocketHandlerRegistry registry) {
         registry.addHandler(liveWebSockets.decorate(p2pWebSocketHandler), "/p2psignaling")
+                .addInterceptors(liveWebSockets.sessionHandshakeInterceptor())
                 .setAllowedOrigins(clipCascadeProperties.getAllowedOrigins());
     }
 }

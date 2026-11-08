@@ -45,12 +45,14 @@ def local_file_paths(paths):
     return result
 
 
-def encode_files(file_paths):
+def encode_files(file_paths, check_current=lambda: None, with_size=False, raw=False):
     paths = [path for path in file_paths if os.path.isfile(path)]
     reserved = {os.path.basename(path).casefold() for path in paths}
     used = set()
     encoded = {}
+    total_size = 0
     for path in paths:
+        check_current()
         name = os.path.basename(path)
         stem, extension = os.path.splitext(name)
         candidate = name
@@ -63,5 +65,18 @@ def encode_files(file_paths):
                     break
         used.add(candidate.casefold())
         with open(path, "rb") as stream:
-            encoded[candidate] = base64.b64encode(stream.read()).decode("ascii")
-    return json.dumps(encoded)
+            parts = []
+            # Multiples of three keep concatenated Base64 identical to the
+            # legacy whole-file encoding, with no padding between reads.
+            while True:
+                check_current()
+                block = stream.read(3 * 256 * 1024)
+                if not block:
+                    break
+                total_size += len(block)
+                parts.append(block if raw else base64.b64encode(block).decode("ascii"))
+            encoded[candidate] = b"".join(parts) if raw else "".join(parts)
+            del parts
+    check_current()
+    payload = encoded if raw else json.dumps(encoded)
+    return (payload, total_size) if with_size else payload

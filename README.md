@@ -476,17 +476,17 @@ If you encounter the `error: externally-managed-environment`, install the requir
 
 ##### Debian/Ubuntu:
 ```
-sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pystray python3-pyfiglet python3-bs4 python3-plyer python3-aiortc python3-prompt-toolkit
+sudo apt install -y python3-xxhash python3-pyperclip python3-requests python3-websocket python3-pycryptodome python3-tk python3-pystray python3-pyfiglet python3-bs4 python3-plyer python3-aiortc python3-prompt-toolkit python3-keyring python3-secretstorage
 ```
 
 ##### Fedora:
 ```
-sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodomex python3-tkinter python3-pystray python3-pyfiglet python3-beautifulsoup4 python3-plyer python3-aiortc python3-prompt-toolkit
+sudo dnf install -y python3-xxhash python3-pyperclip python3-requests python3-websocket-client python3-pycryptodomex python3-tkinter python3-pystray python3-pyfiglet python3-beautifulsoup4 python3-plyer python3-aiortc python3-prompt-toolkit python3-keyring python3-secretstorage
 ```
 
 ##### Arch:
 ```
-sudo pacman -S --noconfirm python-xxhash python-pyperclip python-requests python-websocket-client python-pycryptodome tk python-pystray python-pyfiglet python-beautifulsoup4 python-plyer python-aiortc python-prompt_toolkit
+sudo pacman -S --noconfirm python-xxhash python-pyperclip python-requests python-websocket-client python-pycryptodome tk python-pystray python-pyfiglet python-beautifulsoup4 python-plyer python-aiortc python-prompt_toolkit python-keyring
 ```
   - If you encounter the `error: target not found: python-plyer`, install via `yay -S --noconfirm python-plyer`
   - If you encounter the `error: target not found: python-aiortc`, install via `yay -S --noconfirm python-aiortc`
@@ -664,7 +664,7 @@ cd /path/to/clipcascade/src/ && sudo python3 main.py
 
 - Web pages follow your system's light/dark theme until you use the theme toggle. Your manual choice is saved in browser local storage and restored across page loads when storage is available.
 - Use your browser's install or **Add to Home Screen** option, where supported, to open the web dashboard as an app.
-- The Admin Panel user list and the Advanced page's User Details, Online Users, and BFA tracker tables support searching, sorting, and pagination. Advanced tables also have resizable columns. Online Users shows active WebSocket connections in both P2S and P2P modes.
+- The Admin Panel user list and the Advanced section's User Details, Online Users, and BFA tracker tables support searching, sorting, and pagination. Select **Advanced** to open these tools within the dashboard. Advanced tables also have resizable columns. Online Users shows active WebSocket connections in both P2S and P2P modes.
 - Administrators can revoke sessions for an individual user or use **Revoke All Sessions**. Editing or deleting an account, or changing its password, also revokes its sessions and disconnects its active WebSocket connections on this server without a restart. Deleted or renamed usernames remain reserved until the server restarts.
 
 #### Environment Variables:
@@ -1128,7 +1128,7 @@ Connection status notifications appear on the main login screen, outside advance
 
 Device preferences save as you change them, without requiring a successful login: notification settings, local clipboard size limit, send/receive clipboard, image/file sharing, password-storage preference, the default download folder on desktop and Android, and Android startup/periodic checks. Server address, credentials, encryption settings, and custom CA configuration are saved after successful login.
 
-- **Local clipboard size limit**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. Set a local limit to test a suitable threshold for your device; it applies to incoming and outgoing clipboard content alongside server and platform limits. On the desktop login window and Android, choose **Bytes**, **KiB**, **MiB**, or **GiB**. Decimal values such as `1.5 MiB` are supported and rounded to the nearest byte; 1 KiB = 1024 bytes. Leave the value blank or select **No local limit** to remove the local limit. The Linux CLI accepts an integer byte count, or a blank value for no local limit. The server's `CC_MAX_MESSAGE_SIZE_IN_BYTES` setting can also set a limit below 1 MiB.
+- **Local clipboard size limit**: If the app crashes or stops unexpectedly, it may be due to receiving clipboard content exceeding the platform's maximum size limit. Set a local limit to test a suitable threshold for your device; it applies to incoming and outgoing clipboard content alongside server and platform limits. The local limit measures the original content size, excluding encoding and encryption overhead. On the desktop login window and Android, choose **Bytes**, **KiB**, **MiB**, or **GiB**. Decimal values such as `1.5 MiB` are supported and rounded to the nearest byte; 1 KiB = 1024 bytes. Leave the value blank or select **No local limit** to remove the local limit. The Linux CLI accepts an integer byte count, or a blank value for no local limit. The server's `CC_MAX_MESSAGE_SIZE_IN_BYTES` setting can also set a limit below 1 MiB.
 - **Store Password Locally (not recommended)**: Enable this option if you frequently encounter session logouts. While the app stores session cookies for an extended period, a server restart may prompt a re-login unless the server enables session persistence. If re-entering the password becomes tedious, you can use this option to store your password locally for convenience. Disabling this option immediately clears the saved password.
    > Note: This option will only work if encryption is disabled, as encryption requires the raw password to generate a password hash.
 - **Send Clipboard**: Share clipboard changes from this device. Enabled by default. Disable it to stop sending while still receiving updates if **Receive Clipboard** is enabled.
@@ -1153,6 +1153,11 @@ Device preferences save as you change them, without requiring a successful login
   **Android:** If the saved folder is no longer writable or accessible, the app asks you to select a replacement and saves it as the new default.
 
 #### Desktop (Specific):
+
+- **Use OS credential storage**: Disabled by default. Enable it under **Show advanced settings → Security** to save login credentials in Windows Credential Manager, macOS Keychain, or a Linux Secret Service keyring instead of the local `DATA` file. When disabled, credentials use the existing `DATA` format without OS credential-store protection. The preference saves immediately, but the storage change takes effect only after successful manual login. Closing the login form or a failed login/save preserves the existing saved credentials. This option is independent of **Store Password Locally**.
+   > Note: On Linux, starting before OS login may leave the credential service unavailable, and a locked keyring may require an unlock popup after login. On macOS, an updated app may ask you to allow Keychain access again.
+
+  If saved login data cannot be accessed at startup, choose **Retry** to try again, **Sign in** to log in manually, or **Exit** to close the app. Retrying OS credential storage may show an unlock or permission prompt.
 
 - **Notify when clipboard content is received**: Disabled by default. Enable it in advanced settings to show notifications for content received from another device, including a text preview, image dimensions, or file names with a file icon. Previews may be visible on your lock screen. This setting is independent of connection status and update notifications.
 
@@ -1192,7 +1197,7 @@ You can adjust these settings in the **advanced settings** section on the login 
 
   **Android:** Content can exceed Android's system clipboard transaction limit even when ClipCascade's local limit is disabled. If copying fails with a system-limit message, use a smaller image or text selection, or transfer large text as a file. Increasing ClipCascade's limit cannot bypass Android's restriction.
 
-- **Files**: When files are received, a notification icon appears in the system tray (on desktop platforms). Since the clipboard does not store files, only their file paths are retained.  
+- **Files**: When files are received, a notification icon appears in the system tray (on desktop platforms). Received file contents are held in memory. Use the download action to save them to your device; newer clipboard updates can replace files waiting to be saved.
   
    <table>
     <tr>

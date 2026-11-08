@@ -9,6 +9,7 @@ import os
 
 from utils.window_manager import center_window
 from utils.notification_manager import NotificationManager
+from utils.secret_storage import STORAGE_HELP
 from core.config import Config
 from core.clipboard_limit import (
     LIMIT_UNITS, NO_LOCAL_LIMIT, format_clipboard_limit, parse_clipboard_limit,
@@ -56,6 +57,11 @@ class HoverTooltip:
             pady=6,
         )
         label.pack()
+        tw.update_idletasks()
+        # Long storage help must remain visible near the bottom/right edge.
+        x = max(0, min(x, tw.winfo_screenwidth() - tw.winfo_reqwidth()))
+        y = max(0, min(y, tw.winfo_screenheight() - tw.winfo_reqheight()))
+        tw.wm_geometry(f"+{x}+{y}")
 
     def _hide(self, _event=None):
         if self.tooltip_window:
@@ -376,6 +382,15 @@ class LoginForm(GuiWindow):
             "Note: only works when encryption is disabled. Not recommended on shared or untrusted devices.",
         )
 
+        keyring_label = ttk.Label(self.security_settings_frame, text="Use OS credential storage:")
+        keyring_label.grid(row=3, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.use_keyring_var = tk.BooleanVar(value=self.config.data["use_keyring"])
+        self.use_keyring_checkbox = ttk.Checkbutton(
+            self.security_settings_frame, variable=self.use_keyring_var, takefocus=False,
+        )
+        self.use_keyring_checkbox.grid(row=3, column=1, padx=10, pady=5, sticky=tk.W)
+        self._add_tooltip([keyring_label, self.use_keyring_checkbox], STORAGE_HELP)
+
         # Keep the saved preference in bytes while editing in readable units.
         local_clipboard_size_label = ttk.Label(
             self.clipboard_settings_frame, text="Local clipboard size limit:"
@@ -384,7 +399,10 @@ class LoginForm(GuiWindow):
         limit_frame = ttk.Frame(self.clipboard_settings_frame)
         limit_frame.grid(row=0, column=1, padx=10, pady=5, sticky=tk.EW)
         limit_frame.columnconfigure(0, weight=1)
-        amount, unit = format_clipboard_limit(self.config.data["max_clipboard_size_local_limit_bytes"])
+        amount, unit = format_clipboard_limit(
+            self.config.data["max_clipboard_size_local_limit_bytes"],
+            self.config.data["clipboard_limit_display"],
+        )
         self.clipboard_limit_amount_var = tk.StringVar(value=amount)
         self.clipboard_limit_unit_var = tk.StringVar(value=unit)
         self.local_clipboard_size_entry = ttk.Entry(
@@ -517,9 +535,9 @@ class LoginForm(GuiWindow):
 
         # SSL CA bundle (private / corporate PKI)
         ssl_ca_label = ttk.Label(self.security_settings_frame, text="Custom CA certificate bundle:")
-        ssl_ca_label.grid(row=3, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        ssl_ca_label.grid(row=4, column=0, padx=(0, 10), pady=5, sticky=tk.W)
         ca_path_frame = ttk.Frame(self.security_settings_frame)
-        ca_path_frame.grid(row=3, column=1, padx=10, pady=5, sticky=tk.EW)
+        ca_path_frame.grid(row=4, column=1, padx=10, pady=5, sticky=tk.EW)
         ca_path_frame.columnconfigure(0, weight=1)
         self.ssl_ca_bundle_entry = ttk.Entry(
             ca_path_frame, width=30, font=("Helvetica", 13)
@@ -618,6 +636,7 @@ class LoginForm(GuiWindow):
             ("download_notifications", self.download_notifications_var),
             ("clipboard_notifications", self.clipboard_notifications_var),
             ("save_password", self.save_password_var),
+            ("use_keyring", self.use_keyring_var),
             ("send_clipboard", self.send_clipboard_var),
             ("receive_clipboard", self.receive_clipboard_var),
             ("enable_image_sharing", self.enable_image_sharing_var),
@@ -841,7 +860,21 @@ class LoginForm(GuiWindow):
         return re.sub(r"/+$", "", entry)
 
     def _save_preference(self, field, value):
+        if getattr(self, "_restoring_storage_preference", False):
+            return
         if not self.config.save_preferences({field: value}):
+            if field == "use_keyring":
+                self._restoring_storage_preference = True
+                try:
+                    self.use_keyring_var.set(self.config.data["use_keyring"])
+                finally:
+                    self._restoring_storage_preference = False
+                CustomDialog(
+                    "Unable to save the credential storage preference. Existing saved data has been preserved. "
+                    "Check that the DATA file location is writable.",
+                    msg_type="error",
+                ).mainloop()
+                return
             CustomDialog("Unable to save device preferences.", msg_type="error").mainloop()
 
     def _change_clipboard_limit_unit(self, *_):
@@ -853,16 +886,23 @@ class LoginForm(GuiWindow):
             self._save_clipboard_limit()
         self._sync_login_tab_order()
 
+    def _clipboard_limit_preferences(self):
+        amount = self.clipboard_limit_amount_var.get().strip()
+        unit = self.clipboard_limit_unit_var.get()
+        return {
+            "max_clipboard_size_local_limit_bytes": parse_clipboard_limit(amount, unit),
+            "clipboard_limit_display": {"amount": amount, "unit": unit},
+        }
+
     def _save_clipboard_limit(self, *_):
         try:
-            value = parse_clipboard_limit(
-                self.clipboard_limit_amount_var.get(), self.clipboard_limit_unit_var.get()
-            )
+            preferences = self._clipboard_limit_preferences()
         except ValueError as error:
             self.clipboard_limit_error_var.set(str(error))
             return  # Incomplete edits must not overwrite the last saved limit.
         self.clipboard_limit_error_var.set("")
-        self._save_preference("max_clipboard_size_local_limit_bytes", value)
+        if not self.config.save_preferences(preferences):
+            CustomDialog("Unable to save device preferences.", msg_type="error").mainloop()
 
     def _save_preference_entry(self, field, value):
         value = value.strip()
@@ -908,11 +948,10 @@ class LoginForm(GuiWindow):
 
         self.config.data["salt"] = self.salt_entry.get()
         self.config.data["save_password"] = self.save_password_var.get()
+        self.config.data["use_keyring"] = self.use_keyring_var.get()
 
         try:
-            self.config.data["max_clipboard_size_local_limit_bytes"] = parse_clipboard_limit(
-                self.clipboard_limit_amount_var.get(), self.clipboard_limit_unit_var.get()
-            )
+            self.config.data.update(self._clipboard_limit_preferences())
         except ValueError as error:
             CustomDialog(f"Invalid Input\n{error}", msg_type="error").mainloop()
             return

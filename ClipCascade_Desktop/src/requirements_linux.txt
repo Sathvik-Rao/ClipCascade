@@ -1,5 +1,7 @@
-Pillow==10.4.0; python_version < "3.14"
-Pillow==12.0.0; python_version >= "3.14"
+Pillow==10.4.0; python_version < "3.9"
+Pillow==11.3.0; python_version == "3.9"
+Pillow==12.3.0; python_version == "3.10"
+Pillow==13.0.0; python_version >= "3.11"
 plyer==2.1.0
 pycryptodome==3.20.0
 pystray==0.19.5
@@ -12,3 +14,5 @@ beautifulsoup4==4.12.3
 aiortc==1.10.0; python_version < "3.14"
 aiortc==1.14.0; python_version >= "3.14"
 av>=16.0.0,<17; python_version >= "3.14"
+keyring>=25.6,<26; python_version >= "3.9"
+keyring==24.3.1; python_version < "3.9"

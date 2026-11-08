@@ -52,6 +52,7 @@ const SELECTORS = {
 
 const ENDPOINTS = {
   whoami: "/whoami",
+  defaultPasswordStatus: "/admin/default-password-status",
   logout: "/logout",
   logoutAllDevices: "/logout-session",
   csrfToken: "/csrf-token",
@@ -82,12 +83,19 @@ let CURRENT_MODE = "P2S";
 
 // STOMP references for P2S
 let stompClient = null;
+let clipboardSendGeneration = 0;
 
 // P2P references
 let p2pSignalingWebSocket = null;
 let myPeerId = null;
 let peerConnections = {}; // key = peerId, value = RTCPeerConnection
 let dataChannels = {}; // key = peerId, value = RTCDataChannel
+const peerReceiveLimits = new Map();
+// The web client monitors raw messages and has no local receive limit.
+const P2P_MONITOR_CAPABILITIES = JSON.stringify({
+  _cc_keepalive: true,
+  capabilities: { version: 1, transferFormats: ["ccb1"], receiveLimitBytes: null },
+});
 let heartbeatIntervalId = null; // for 20s keep-alive on P2P
 let stunConfig = { iceServers: [] }; // will be loaded from /stun-url
 const P2P_CONNECTION_TIMEOUT_MS = 90000;
@@ -167,6 +175,7 @@ $(function () {
         showSection(SELECTORS.advanceLink);
         showSection(SELECTORS.changeUsernameLink);
         showSection(SELECTORS.adminSection);
+        initAdvancedNavigation();
       }
 
       // Show the read-only server version to every signed-in user.
@@ -191,6 +200,9 @@ $(function () {
 
       // Initialize event handlers
       initEventHandlers();
+      if (userData.role === "ADMIN") {
+        showDefaultPasswordWarning();
+      }
 
       // Auto-populate the default WebSocket/Signaling URL
       autoPopulateWebSocketURL();
@@ -222,6 +234,14 @@ function initEventHandlers() {
   $(SELECTORS.changePasswordLink).click(onChangePasswordClick);
   $(SELECTORS.logoutLink).click(onLogoutClick);
   $(SELECTORS.logoutAllDevicesLink).click(onLogoutAllDevicesClick);
+
+  const defaultPasswordDialog = document.getElementById("default-password-dialog");
+  $("#default-password-warning-change").click(onChangePasswordClick);
+  $("#default-password-change").click(() => {
+    defaultPasswordDialog.close();
+    onChangePasswordClick();
+  });
+  $("#default-password-later").click(() => defaultPasswordDialog.close());
 
   // Admin Section
   $(SELECTORS.loadUsersBtn).click(loadAllUsers);
@@ -353,9 +373,9 @@ function onSendClick() {
 
   // Send to STOMP or P2P
   if (CURRENT_MODE === "P2S") {
-    sendTextToServerStomp(textVal);
+    sendTextToServerStomp(textVal).catch(error => showStatusMessage(`Send failed: ${error.message}`, "danger"));
   } else {
-    sendTextToPeers(textVal);
+    sendTextToPeers(textVal).catch(error => showStatusMessage(`Send failed: ${error.message}`, "danger"));
   }
 
   // Log *locally* in the monitoring
@@ -639,11 +659,18 @@ function fetchDonationStatus() {
 function connectStomp(generation) {
   const client = new StompJs.Client({
     brokerURL: $(SELECTORS.brokerUrlInput).val(),
+    connectHeaders: {
+      "x-clipcascade-recipient-updates": "1",
+      "x-clipcascade-binary": "ccb1",
+      "x-clipcascade-receive-limit": "unlimited",
+      "x-clipcascade-no-self-echo": "true", // Sent text is already logged locally.
+    },
     heartbeatIncoming: 20000,
     heartbeatOutgoing: 0,
     connectionTimeout: 15000,
     reconnectDelay: 0, // Both modes use the authenticated retry loop above.
   });
+  client._ccRecipients = new ClipCascadeRelay.RelayRecipients();
   stompClient = client;
   const current = () => monitoringRequested && generation === monitoringGeneration && stompClient === client;
   client.onConnect = () => {
@@ -652,11 +679,19 @@ function connectStomp(generation) {
     updateMonitoringControls(true);
     showStatusMessage("Connected to WebSocket server (P2S).", "success");
     client.subscribe(ENDPOINTS.websocketReceive, (res) => {
-      if (current()) displayIncomingMessage(JSON.parse(res.body));
+      if (!current()) return;
+      const binary = res.headers["content-type"]?.split(";")[0] === ClipCascadeBinary.CONTENT_TYPE;
+      if (binary) {
+        displayBinaryMessage(ClipCascadeBinary.decodeFrame(res.binaryBody)).catch(error => console.warn("Invalid binary clipboard", error));
+      } else {
+        const message = JSON.parse(res.body);
+        if (!client._ccRecipients.accept(message)) displayIncomingMessage(message);
+      }
     });
   };
   client.onWebSocketClose = () => {
     if (!current()) return;
+    client._ccRecipients.reset();
     stompClient = null;
     client.deactivate();
     scheduleMonitoringReconnect(generation);
@@ -675,17 +710,62 @@ function connectStomp(generation) {
 }
 
 function disconnectStomp() {
+  clipboardSendGeneration++;
   const client = stompClient;
   stompClient = null;
-  if (client) client.deactivate();
+  if (client) { client._ccRecipients.reset(); client.deactivate(); }
 }
 
-function sendTextToServerStomp(textVal) {
-  if (!stompClient || !stompClient.connected) return;
-  stompClient.publish({
+async function binaryRelayRecipients(client) {
+  const cached = client._ccRecipients.get();
+  if (cached) return cached;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
+  try {
+    const response = await fetch('/clipbinary/recipients', {credentials: 'same-origin', cache: 'no-store', signal: controller.signal});
+    const fallback = response.ok ? ClipCascadeBinary.recipients(await response.json()) : null;
+    return client._ccRecipients.get() || fallback;
+  } catch (_) { return null; }
+  finally { clearTimeout(timer); }
+}
+
+async function sendTextToServerStomp(textVal) {
+  const generation = ++clipboardSendGeneration;
+  const client = stompClient;
+  if (!client?.connected) return;
+  const message = textClipboardMessage(textVal);
+  const plan = await binaryRelayRecipients(client);
+  if (generation !== clipboardSendGeneration || client !== stompClient || !client.connected) return;
+  if (plan?.binary.length) {
+    const raw = await ClipCascadeBinary.encodeContent(textVal, 'text');
+    if (generation !== clipboardSendGeneration || client !== stompClient || !client.connected) return;
+    client.publish({destination: '/app/clipbinary',
+      headers: {'content-type': ClipCascadeBinary.CONTENT_TYPE, 'x-clipcascade-recipients': plan.binary.join(',')},
+      binaryBody: ClipCascadeBinary.encodeFrame(raw, 'text', message.metadata)});
+  }
+  if (!plan || plan.legacy.length) client.publish({
     destination: ENDPOINTS.websocketSend,
-    body: JSON.stringify({ payload: textVal, type: "text" }),
+    headers: plan ? {'x-clipcascade-recipients': plan.legacy.join(',')} : {},
+    body: JSON.stringify(message),
   });
+}
+
+async function displayBinaryMessage(message) {
+  let payload;
+  if (message.metadata?.isFragmented === true) {
+    // Log each wire fragment immediately; monitoring does not reassemble transfers.
+    payload = JSON.stringify({format: 'ccb1', encrypted: message.encrypted,
+      encoding: 'base64', data: ClipCascadeBinary.toBase64(message.payload)});
+  } else if (message.encrypted) {
+    const raw = message.payload;
+    const n = raw[0];
+    if (!Number.isInteger(n) || n < 8 || n > 32 || raw.length < 1 + n + 16) throw new Error('Invalid encrypted binary payload');
+    // The web monitor has no encryption key. Preserve its encrypted-envelope view.
+    payload = JSON.stringify({format: 'ccb1', nonce: ClipCascadeBinary.toBase64(raw.subarray(1, 1 + n)),
+      tag: ClipCascadeBinary.toBase64(raw.subarray(1 + n, 1 + n + 16)),
+      ciphertext: ClipCascadeBinary.toBase64(raw.subarray(1 + n + 16))});
+  } else payload = await ClipCascadeBinary.decodeContent(message.payload, message.type);
+  displayIncomingMessage({payload, type: message.type, metadata: message.metadata});
 }
 
 /* -----------------------------------------
@@ -725,6 +805,9 @@ async function connectP2P(generation) {
 }
 
 function closePeerConnections() {
+  if (heartbeatIntervalId) clearInterval(heartbeatIntervalId);
+  heartbeatIntervalId = null;
+  peerReceiveLimits.clear();
   roomPeers.clear();
   pendingPeerList = null;
   for (const peerId in peerConnections) disposePeerConnection(peerId);
@@ -736,6 +819,7 @@ function closePeerConnections() {
 }
 
 function disconnectP2P() {
+  clipboardSendGeneration++;
   const socket = p2pSignalingWebSocket;
   p2pSignalingWebSocket = null;
   if (socket) socket.close();
@@ -803,6 +887,7 @@ function cancelPeerConnectionDeadline(peerId) {
 }
 
 function disposePeerConnection(peerId) {
+  peerReceiveLimits.delete(peerId);
   cancelPeerConnectionDeadline(peerId);
   clearTimeout(peerRetryTimers.get(peerId));
   peerRetryTimers.delete(peerId);
@@ -917,26 +1002,65 @@ function createPeerConnection(peerId, initiator) {
 }
 
 function setupDataChannel(peerId, channel) {
+  if (dataChannels[peerId] !== channel) peerReceiveLimits.delete(peerId);
   dataChannels[peerId] = channel;
+  channel.binaryType = "arraybuffer";
   channel.onopen = () => {
     if (dataChannels[peerId] !== channel) return;
     cancelPeerConnectionDeadline(peerId);
     clearTimeout(peerRetryTimers.get(peerId));
     peerRetryTimers.delete(peerId);
     peerRetryAttempts.delete(peerId);
+    try {
+      channel.send(P2P_MONITOR_CAPABILITIES);
+    } catch (error) {
+      console.warn("Could not send monitor capabilities:", error);
+    }
+    if (heartbeatIntervalId === null) {
+      heartbeatIntervalId = setInterval(() => {
+        for (const currentChannel of Object.values(dataChannels)) {
+          if (currentChannel.readyState !== "open") continue;
+          try {
+            currentChannel.send(P2P_MONITOR_CAPABILITIES);
+          } catch (error) {
+            console.warn("Could not send monitor capabilities:", error);
+          }
+        }
+      }, 20000);
+    }
     console.log("Data channel open with peer:", peerId);
   };
   channel.onclose = () => {
     if (dataChannels[peerId] !== channel) return;
+    peerReceiveLimits.delete(peerId);
     console.log("Data channel closed with peer:", peerId);
     recoverPeerTransport(peerId, peerConnections[peerId]);
   };
   channel.onmessage = (event) => {
+    if (dataChannels[peerId] !== channel) return;
     let msgObj;
     try {
+      if (typeof event.data !== 'string') {
+        displayBinaryMessage(ClipCascadeBinary.decodeFrame(event.data))
+          .catch(error => console.warn('Invalid binary clipboard', error));
+        return;
+      }
       msgObj = JSON.parse(event.data);
     } catch (e) {
-      console.warn("Received non-JSON or invalid data from peer:", event.data);
+      console.warn("Received invalid data from peer:", e);
+      return;
+    }
+    if (msgObj && msgObj._cc_keepalive === true) {
+      const capabilities = msgObj.capabilities;
+      channel._ccBinary = capabilities?.version === 1 && Array.isArray(capabilities.transferFormats)
+        && capabilities.transferFormats.includes("ccb1");
+      if (capabilities?.version === 1 &&
+          Object.prototype.hasOwnProperty.call(capabilities, "receiveLimitBytes")) {
+        const limit = capabilities.receiveLimitBytes;
+        if (limit === null || (Number.isSafeInteger(limit) && limit >= 0)) {
+          peerReceiveLimits.set(peerId, limit);
+        }
+      }
       return;
     }
     displayIncomingMessage(msgObj);
@@ -1020,14 +1144,66 @@ function sendSignalingMessage(payload) {
   }
 }
 
-function sendTextToPeers(textVal) {
-  const msg = { payload: textVal, type: "text" };
+function textClipboardMessage(textVal) {
+  return {
+    payload: textVal,
+    type: "text",
+    metadata: { contentSizeBytes: new TextEncoder().encode(textVal).length },
+  };
+}
+
+async function sendTextToPeers(textVal) {
+  const generation = ++clipboardSendGeneration;
+  const recipients = Object.entries(dataChannels);
+  const msg = textClipboardMessage(textVal);
+  // Preserve the legacy P2P metadata contract as well as the new size field.
+  Object.assign(msg.metadata, {
+    id: typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() :
+      "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+        const r = Math.floor(Math.random() * 16);
+        return (c === "x" ? r : (r & 3) | 8).toString(16);
+      }),
+    isFragmented: false,
+    index: 0,
+    totalFragments: 1,
+    combinedRawPayloadSizeInBytes: msg.metadata.contentSizeBytes,
+  });
   const strMsg = JSON.stringify(msg);
-  for (const pid in dataChannels) {
-    const ch = dataChannels[pid];
-    if (ch && ch.readyState === "open") {
-      ch.send(strMsg);
+  const binaryRaw = await ClipCascadeBinary.encodeContent(textVal, "text");
+  if (generation !== clipboardSendGeneration) return;
+  let skipped = 0;
+  for (const [pid, ch] of recipients) {
+    if (generation !== clipboardSendGeneration) return;
+    if (ch === dataChannels[pid] && ch.readyState === "open") {
+      const limit = peerReceiveLimits.get(pid);
+      if (Number.isSafeInteger(limit) && msg.metadata.contentSizeBytes > limit) {
+        skipped++;
+        continue;
+      }
+      try {
+        if (ch._ccBinary) {
+          const parts = ClipCascadeBinary.fragments(binaryRaw);
+          for (let index = 0; index < parts.length; index++) {
+            const frame = ClipCascadeBinary.encodeFrame(parts[index], 'text', {...msg.metadata,
+              combinedRawPayloadSizeInBytes: binaryRaw.length, index, totalFragments: parts.length, isFragmented: parts.length > 1});
+            const deadline = Date.now() + 30000;
+            while (ch.bufferedAmount + frame.length > 1024 * 1024) {
+              if (generation !== clipboardSendGeneration) return;
+              if (ch.readyState !== 'open' || Date.now() > deadline) throw new Error('Data channel stalled');
+              await new Promise(resolve => setTimeout(resolve, 20));
+            }
+            if (generation !== clipboardSendGeneration) return;
+            if (ch !== dataChannels[pid] || ch.readyState !== 'open') break;
+            ch.send(frame);
+          }
+        } else ch.send(strMsg);
+      } catch (error) {
+        console.error("Could not send text to peer:", pid, error);
+      }
     }
+  }
+  if (skipped) {
+    showStatusMessage(`Text skipped for ${skipped} peer(s): exceeds their receive limit.`, "warning");
   }
 }
 
@@ -1099,8 +1275,22 @@ function onChangeUsernameClick() {
   });
 }
 
+async function showDefaultPasswordWarning() {
+  try {
+    const status = await $.getJSON(ENDPOINTS.defaultPasswordStatus);
+    document.getElementById("default-password-warning").hidden = !status.usingDefaultPassword;
+    const dialog = document.getElementById("default-password-dialog");
+    if (status.showPrompt && typeof dialog.showModal === "function") {
+      dialog.showModal();
+    }
+  } catch (error) {
+    console.error("Failed to check the default admin password:", error);
+  }
+}
+
 function onChangePasswordClick() {
   const newPassword = prompt("Enter your new password:");
+  if (newPassword === null) return;
   if (!newPassword) {
     alert("Password cannot be empty.");
     return;
@@ -1114,6 +1304,7 @@ function onChangePasswordClick() {
     data: JSON.stringify({ newPassword: hashedPassword }),
     success: (res) => {
       alert(res);
+      window.location.href = "/login?expired";
     },
     error: (err) => {
       alert("Failed to update password");

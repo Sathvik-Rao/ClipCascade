@@ -50,16 +50,21 @@ class ClipboardListenerModule(reactContext: ReactApplicationContext) : ReactCont
             return
         }
 
+        // Existing clipboard content is a baseline, not a fresh copy. On newer
+        // Android versions background access may be denied; the foreground
+        // share activity also records a baseline when a share is accepted.
+        try {
+            ClipboardObservations.baseline(clipboardManager.primaryClip, reactApplicationContext.contentResolver)
+        } catch (_: SecurityException) {}
+
         // 1) Clipboard listener
         listener = ClipboardManager.OnPrimaryClipChangedListener {
             try {
-                clipboardManager.primaryClip?.let { clip ->
-                    ClipboardContent.fromClipboard(clip, reactApplicationContext.contentResolver)
-                        ?.let {
-                            PendingShares.clear()
-                            sendEventToJS(it.toMap())
-                        }
-                }
+                ClipboardObservations.observe(clipboardManager.primaryClip, reactApplicationContext.contentResolver)
+                    ?.let {
+                        if (!it.isEcho) PendingShares.clear()
+                        sendEventToJS(it.toMap())
+                    }
             } catch (e: Exception) {
                 android.util.Log.e("ClipCascade", "Failed to read clipboard", e)
             }

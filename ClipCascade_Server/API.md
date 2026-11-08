@@ -7,9 +7,11 @@ There is no `/api` prefix.
 
 This document describes the **checked-in implementation**, including the desktop
 and mobile payload conventions required to communicate with existing clients.
-The server version constant in this tree is `3.1.0`; deployed builds may differ.
-There is no separately versioned API, capability-negotiation endpoint, or generated
-OpenAPI contract. Probe the running server instead of assuming its mode or limits.
+Use `/server-version` to identify the running server; deployed builds may differ
+from this tree. There is no separately versioned API or generated OpenAPI contract.
+Optional transfer capabilities are advertised per connection, and P2S provides a
+recipient-discovery endpoint. Probe capabilities instead of assuming support from
+a version number. Legacy JSON transfers remain supported.
 
 ## Contents
 
@@ -38,8 +40,9 @@ OpenAPI contract. Probe the running server instead of assuming its mode or limit
    In P2P mode, also fetch `/stun-url`.
 4. Establish the selected authenticated WebSocket transport. P2S uses STOMP;
    P2P uses JSON signaling followed by WebRTC data channels.
-5. Serialize text/images/files, optionally encrypt the resulting string, and
-   wrap it in the clipboard envelope. Fragment only for P2P data channels.
+5. Start with the legacy JSON format, or negotiate the optional CCB1 binary format
+   described below. Encode and optionally encrypt the complete content before
+   wrapping it in its transport envelope. Fragment only for P2P data channels.
 6. Receive, reassemble where needed, decrypt, decode, and apply the clipboard
    update. Suppress local clipboard events caused by received updates and suppress
    your own P2S echo.
@@ -52,8 +55,8 @@ OpenAPI contract. Probe the running server instead of assuming its mode or limit
 | Socket endpoint | `/clipsocket` | `/p2psignaling` |
 | Socket application protocol | STOMP | JSON signaling |
 | Clipboard transport | Server relays STOMP messages | WebRTC `cliptext` data channels |
-| Recipient selection | All subscribed sessions of the authenticated username | Client sends to each connected peer of that username |
-| Sender receives own update | Yes, when subscribed | Client does not create a connection to itself |
+| Recipient selection | Same-user sessions; optional recipient selection and receive-size filtering | Client selects connected peers of that username, respecting advertised receive limits |
+| Sender receives own update | Legacy JSON defaults to yes; opt-out supported; binary never echoes | Client does not create a connection to itself |
 | Server sees clipboard envelope | Yes; payload may be encrypted | No; sees signaling |
 | Clipboard persistence / history / replay | None | None |
 
@@ -176,9 +179,9 @@ constraints. Username and password changes require deriving a new clipboard key
 on every client because both inputs participate in key derivation.
 
 - Multiple concurrent login sessions are allowed (no configured maximum).
-- `POST /logout` ends the current HTTP session. Explicitly close your socket and
-  P2P peer connections as part of logout; this route does not call the application's
-  all-session WebSocket revocation service.
+- `POST /logout` ends the current HTTP session and closes its STOMP or P2P
+  signaling WebSockets. Other logins stay connected. Clients should still
+  clean up their local connections, including direct WebRTC peer connections.
 - `DELETE /logout-session` revokes every session for the current username, not
   merely the calling device. Admin per-user/global logout does the analogous
   operation. Account password/status/name changes and deletion also revoke the
@@ -273,6 +276,7 @@ All routes here require a logged-in user, including the configuration endpoints.
 | GET | `/max-message-size` | `{"maxmessagesize":1.0}`; configured message size in MiB (example value). |
 | GET | `/donation-status` | `{"enabled":true}` or `{"enabled":false}`. |
 | GET | `/server-version` | `{"version":"..."}` for the running server. |
+| GET | `/clipbinary/recipients` | P2S only. `{"format":"ccb1","recipients":[{"id":"<STOMP session ID>","binary":true}]}` for the authenticated username; `Cache-Control: no-store`. See [P2S capabilities](#p2s-transfer-capabilities-and-recipient-discovery). |
 | GET | `/latest-server-version` | JSON fetched from the project's version URL; fields follow that upstream document. Can return `400` if fetching/parsing fails. |
 | PUT | `/update-password` | JSON `{"newPassword":"<SHA3-512 digest>"}`. Updates the current user's password and expires their sessions. |
 | DELETE | `/logout-session` | No body. Logs the current user out of all active sessions; returns a plain-text status. |
@@ -284,7 +288,9 @@ All `/admin/*` routes below require an authenticated `ADMIN`. Mutations use
 
 | Method | Path | Input / response |
 | --- | --- | --- |
-| GET | `/admin/advance` | HTML showing server configuration; a non-admin is redirected to `/`. |
+| GET | `/admin/advance` | Redirects admins to `/#advanced`; a non-admin is redirected to `/`. |
+| GET | `/admin/advance/fragment` | Admin-only HTML fragment containing Advanced dashboard tools and server configuration. Non-admins receive `403`. |
+| GET | `/admin/default-password-status` | JSON booleans `usingDefaultPassword` and `showPrompt`. Reading the status consumes the prompt for the current login when the default password is active. Non-admins receive `403`. |
 | GET | `/admin/server-version` | Same response as `/server-version`. |
 | GET | `/admin/latest-server-version` | Same response as `/latest-server-version`. |
 | GET | `/admin/server-time` | Plain text `Epoch time: <seconds>`. |
@@ -303,7 +309,7 @@ All `/admin/*` routes below require an authenticated `ADMIN`. Mutations use
 | PUT | `/admin/toggle-user-status` | JSON `{"username":"alice","enabled":"false"}` (string value). Expires the target user's sessions. |
 | PUT | `/admin/update-user-password` | JSON `{"username":"alice","newPassword":"<SHA3-512 digest>"}`. Expires the target user's sessions. |
 | PUT | `/admin/update-username` | JSON `{"oldUsername":"alice","newUsername":"alice2"}`. Expires sessions for the old username. |
-| PUT | `/admin/unlock-user` | JSON `{"username":"alice"}`; removes the user's brute-force tracker entry. |
+| PUT | `/admin/unlock-user` | JSON `{"username":"alice"}`. Clears user and per-IP lockout timers while retaining the tracker entry. |
 | DELETE | `/admin/delete-user` | JSON `{"username":"alice"}`. Expires sessions; the admin cannot be deleted. |
 | DELETE | `/admin/logout-user-session` | JSON `{"username":"alice"}`. Logs out all sessions for that user. |
 | DELETE | `/admin/logout-all-sessions` | No body. Logs out every user's sessions, including the admin's. |
@@ -468,6 +474,11 @@ STOMP versions `1.0,1.1`). A connection proceeds as follows:
 6. On disconnect, repeat CONNECT and SUBSCRIBE; subscription IDs are local to a
    connection. Handle `ERROR` frames without trying to parse them as clipboard JSON.
 
+The server accepts `SEND` to `/app/cliptext` (legacy JSON) or `/app/clipbinary`
+(negotiated CCB1 binary), and `SUBSCRIBE` only to `/user/queue/cliptext`.
+Other send or subscription destinations are rejected. Both formats arrive on the
+same subscription; distinguish binary messages by `content-type:application/octet-stream`.
+
 Wire example (`\0` below means one NUL byte, not the two characters backslash/zero;
 headers and the blank line use LF). Replace `host` with your server hostname:
 
@@ -506,8 +517,10 @@ embedded newlines/control characters. A stream parser must support multiple
 frames per received chunk and frames split across chunks; use the declared length
 when present and skip heartbeat newlines outside frames.
 
-The server emits an envelope to connected, subscribed sessions of the **same
-username, including the sender**. It preserves `payload`, `type`, and `metadata`;
+By default, the server emits a legacy JSON envelope to connected, subscribed
+sessions of the **same username, including the sender**. Optional headers can
+disable self-echo, select recipients, or advertise a receive-size limit; see below.
+For legacy JSON it preserves `payload`, `type`, and `metadata`;
 missing/null `type` becomes `text`. Missing metadata can serialize as `null`.
 The routing identity comes from authentication, not a username inside the payload.
 There is no message ID, sequence number, durable acknowledgement, or delivery
@@ -519,6 +532,64 @@ The simple broker advertises `heart-beat:20000,0`. With the client's
 20-second intervals; server-required client heartbeats are disabled. If another
 pair is negotiated, respect it. External broker deployments can differ.
 Use scheduling/network tolerance when detecting missed heartbeats.
+
+#### P2S transfer capabilities and recipient discovery
+
+These optional **STOMP CONNECT headers** are connection-scoped, not HTTP upgrade
+headers. Clients omitting them retain legacy behavior.
+
+| Header | Value / behavior |
+| --- | --- |
+| `x-clipcascade-binary` | `ccb1` advertises binary receive support and permits recipient-targeted sends. Advertise it only if you can also receive legacy JSON. |
+| `x-clipcascade-recipient-updates` | `1` requests JSON recipient snapshots on the clipboard subscription. Independent of binary support. |
+| `x-clipcascade-no-self-echo` | `true` suppresses this sender's legacy JSON echo. Binary sends always exclude the sender. |
+| `x-clipcascade-receive-limit` | Decimal integer bytes from `0` through `9007199254740991`, or `unlimited`. Missing/invalid values advertise no usable limit. Reconnect to change this header's value. |
+
+Subscribe normally to `/user/queue/cliptext`. Opted-in clients receive a full
+snapshot after subscription/membership changes and approximately every 20 seconds:
+
+```json
+{"_cc_control":"relay-recipients","version":1,"epoch":"<server epoch>","revision":1,"format":"ccb1","recipients":[{"id":"<STOMP session ID>","binary":true},{"id":"<legacy session ID>","binary":false}]}
+```
+
+Consume this reserved control before looking for clipboard fields or applying
+receive-clipboard preferences. It contains no clipboard data or encryption keys.
+On each connection, clear the old snapshot. Within that connection, accept only
+the same nonempty epoch and increasing safe-integer revisions. Official clients
+expire snapshots after 60 seconds. Validate the recipient array: at most 256
+unique IDs, each matching `[A-Za-z0-9_-]{1,128}`, with boolean `binary` values.
+Oversized/invalid recipient lists invalidate the cached plan. The server can send
+257 entries to signal that the cache is too large to use.
+
+When no usable pushed snapshot exists, `GET /clipbinary/recipients` returns the
+same `format`/`recipients` fields without the control/version/epoch/revision fields.
+It lists the user's connected STOMP sessions; the pushed snapshot tracks clipboard
+subscriptions. Binary support is recorded once a binary-capable session subscribes.
+These snapshots are not delivery guarantees: sessions can join or leave afterward.
+If discovery is unavailable, unsupported, or invalid, send legacy JSON to
+`/app/cliptext` without a recipient header. Official clients bound the HTTP lookup
+to about three seconds; older servers need no changes to accept this fallback.
+
+For a valid plan, partition recipients by `binary`. Send CCB1 only to binary
+recipients and legacy JSON only to the others. On each SEND, set
+`x-clipcascade-recipients` to that group's comma-separated session IDs; do not
+send an empty group/header. This header requires the sender's CONNECT binary
+opt-in, accepts at most 256 IDs and 32768 characters, and is required on
+`/app/clipbinary`. Target IDs are restricted to the authenticated user's sessions.
+Binary delivery additionally excludes the sender and non-binary sessions. Avoid
+also broadcasting legacy JSON to everyone, which would duplicate binary delivery.
+If binary content cannot be represented within the header/fragment bounds below,
+official clients fall back to legacy JSON for those recipients too.
+
+Include `metadata.contentSizeBytes` when the original size is known: UTF-8 text
+bytes, encoded image file bytes, or the sum of file-content bytes, excluding
+headers, Base64, JSON, and encryption overhead. It is optional for legacy JSON and
+required for CCB1, with integer range `0..9007199254740991`. The relay uses a valid
+size to skip recipients whose advertised limit is smaller. A legacy sender still
+gets its own JSON echo unless it opted out or explicitly excluded itself via
+recipient selection; this preserves older Android clients' send completion behavior.
+Without a valid size, the relay cannot perform size-based filtering. Receivers
+must check actual decoded size too; metadata is sender-supplied and unauthenticated.
 
 ### P2P: signaling over `/p2psignaling`
 
@@ -607,18 +678,25 @@ ID, peer connections, and fragment buffers, then rebuild from the new assignment
 
 #### Data-channel heartbeat and fragmentation
 
-Messages on `cliptext` are JSON strings. Ignore the following control message
-before looking for `payload`, `type`, or `metadata`:
+Legacy messages on `cliptext` are JSON strings. CCB1-capable peers can also exchange
+binary messages after negotiation. Ignore the following JSON control message
+before looking for `payload`, `type`, or `metadata` (also accept the older minimal
+form `{"_cc_keepalive":true}`):
 
 ```json
-{"_cc_keepalive":true}
+{"_cc_keepalive":true,"capabilities":{"version":1,"transferFormats":["ccb1"],"receiveLimitBytes":null}}
 ```
 
 Official clients send this roughly every 20 seconds on idle/live channels. It is
 not a clipboard update, does not require a reply, and does not replace WebSocket
-ping/pong on the signaling connection.
+ping/pong on the signaling connection. Current clients also send capabilities when
+the data channel opens. Use binary only after that peer advertises version `1`
+with `ccb1` in `transferFormats`; unknown/older peers receive legacy JSON.
+`receiveLimitBytes` is `null` for unlimited or a safe nonnegative integer. Filter
+each peer independently, update its limit from later controls, and clear its
+capabilities on channel replacement/disconnection.
 
-The clipboard envelope is the same as P2S, with fragmentation metadata:
+The legacy JSON clipboard envelope is the same as P2S, with fragmentation metadata:
 
 ```json
 {
@@ -629,7 +707,8 @@ The clipboard envelope is the same as P2S, with fragmentation metadata:
     "isFragmented":false,
     "index":0,
     "totalFragments":1,
-    "combinedRawPayloadSizeInBytes":5
+    "combinedRawPayloadSizeInBytes":5,
+    "contentSizeBytes":5
   }
 }
 ```
@@ -640,9 +719,10 @@ The clipboard envelope is the same as P2S, with fragmentation metadata:
 | `isFragmented` | boolean | Whether more than one fragment was generated |
 | `index` | integer | Zero-based fragment position |
 | `totalFragments` | integer | Total fragment count (one for an unfragmented message) |
-| `combinedRawPayloadSizeInBytes` | integer | UTF-8 size of the complete serialized plaintext payload **before encryption**, not the enclosing envelope or original file byte count |
+| `combinedRawPayloadSizeInBytes` | integer | Legacy JSON: UTF-8 size of the complete serialized plaintext payload before encryption. CCB1: size of the complete inner CCB1 content container before encryption. Excludes the outer envelope and is not the original file byte count. |
+| `contentSizeBytes` | integer, optional for legacy JSON | Original text/image/file-content bytes, excluding serialization/encryption overhead; required for CCB1. |
 
-Sender algorithm:
+Legacy JSON sender algorithm:
 
 1. Serialize the content into the payload string described below. Record its
    UTF-8 length for `combinedRawPayloadSizeInBytes`.
@@ -658,7 +738,7 @@ Sender algorithm:
 5. Use data-channel buffered-amount/backpressure support to avoid unbounded queued
    sends. Finish one transfer before starting another for best interoperability.
 
-Receiver algorithm:
+Legacy JSON receiver algorithm:
 
 1. Drop keepalive messages. Check types, count/index bounds, transfer identity,
    and local byte/count limits before allocating buffers.
@@ -676,8 +756,9 @@ For compatibility, send ordered fragments: their receive logic expects completio
 when the last-index fragment arrives and can discard incomplete/interleaved
 transfers. A newly copied/received clipboard value can cancel in-flight work;
 there is no fragment retry, acknowledgement, resume, or transfer-cancel message.
-With encryption disabled, the official fragmenter emits no fragments for an empty
-string, so do not depend on an empty P2P payload to clear other clients' clipboards.
+With encryption disabled, the legacy string fragmenter emits no fragments for an
+empty string, so do not depend on an empty legacy P2P payload to clear other
+clients' clipboards. CCB1 has an inner container even for empty text and can carry it.
 
 #### Signaling liveness and limits
 
@@ -697,22 +778,24 @@ Avoid rapid reconnect/offer loops and bursts of redundant candidates.
 ## Clipboard payload encoding and encryption
 
 These are **client interoperability conventions**, not server-side content
-validation. The P2S server treats the payload as a string and does not encrypt,
-decrypt, inspect image bytes, or save uploaded files. P2P signaling does not see
-clipboard content at all.
+validation. The P2S server relays legacy payload strings or CCB1 bytes and does not
+encrypt, decrypt, inspect image bytes, or save uploaded files. It validates the
+binary outer header and recipient selection, but cannot authenticate encrypted
+content. P2P signaling does not see clipboard content at all.
 
-### Common envelope
+### Legacy JSON envelope
 
 | Field | Type | Contract |
 | --- | --- | --- |
 | `payload` | string | Serialized plaintext content or a serialized encrypted object; never a nested object |
 | `type` | string | Official values are lowercase `text`, `image`, `files`; send explicitly |
-| `metadata` | object or null, optional | P2P fragmentation fields above; passed through by P2S |
+| `metadata` | object or null, optional | Original-content size and/or P2P fragmentation fields above; passed through by P2S |
 
 Do not infer encryption from the type: the type stays `text`, `image`, or `files`
 even when encrypted. There is no encryption flag, algorithm version, key ID,
-compression field, timestamp, MIME field, or sender-device ID in the standard
-envelope. Unknown types/custom metadata have no official client behavior.
+compression field, timestamp, MIME field, or sender-device ID in the legacy JSON
+envelope. CCB1 has an explicit encryption flag, as described below. Unknown
+types/custom metadata have no official client behavior.
 
 ### Plaintext content formats
 
@@ -730,14 +813,15 @@ Plaintext file envelope containing `hello.txt` with five bytes `Hello`:
 
 Parse the outer JSON first, then parse `payload` as JSON for `files`; Base64-decode
 each value separately. File keys are names such as `hello.txt`, not paths.
-Duplicate basenames overwrite each other in the desktop sender's dictionary.
+Official desktop and Android senders rename duplicate basenames, for example
+`report.txt` and `report (1).txt`, avoiding case-insensitive name collisions.
 For an alternative receiver, constrain saves to its selected download directory,
 reject path separators/traversal names, and resolve existing-file conflicts before
 writing. Clipboard peers supply these names; the server does not sanitize them.
 Feature support and clipboard permissions vary by platform; receiving data does
 not guarantee an OS clipboard update or an automatic file save.
 
-### Encryption derivation and wire representation
+### Encryption derivation and legacy wire representation
 
 All clients sharing data must agree on the exact username, original password,
 extra salt, iteration count, and encryption-enabled setting. Defaults in desktop
@@ -819,7 +903,7 @@ def decrypt_payload(payload, key):
 # body = json.dumps({"payload": encrypt_payload("Hello", key), "type": "text"})
 ```
 
-The complete transformation order is:
+For legacy JSON, the complete transformation order is:
 
 ```text
 Send: content → serialize to string → encrypt if enabled → fragment if P2P
@@ -867,11 +951,142 @@ Expected inner encryption object (JSON key order/whitespace may differ):
 
 Serialize this object into a string for `payload`; do not send it as an object.
 
+### CCB1 binary content, encryption, and framing
+
+CCB1 is optional. A legacy-only client can continue using the JSON conventions
+above without opting into binary or recipient controls. New clients must retain
+legacy support for older clients and servers; the relay does not transcode formats.
+
+Both the outer transport envelope and inner content container use this byte layout:
+
+| Bytes | Meaning |
+| --- | --- |
+| `0..3` | ASCII magic `CCB1` (`43 43 42 31` in hexadecimal) |
+| `4..7` | Unsigned 32-bit big-endian length of the UTF-8 JSON header |
+| Next `headerLength` bytes | JSON object, at most 65536 bytes |
+| Remaining bytes | Opaque payload bytes |
+
+Reject a wrong magic, truncated prefix/header, non-object JSON header, or header
+length above 65536. Lengths count encoded bytes, not characters. No NUL terminator
+belongs to CCB1 itself; STOMP still has its own frame terminator.
+
+**Inner content container:** serialize original content without Base64:
+
+| Type | Inner header | Inner payload bytes |
+| --- | --- | --- |
+| `text` | `{"type":"text","files":null}` | UTF-8 text; preserve leading `U+FEFF`, line breaks, and empty strings |
+| `image` | `{"type":"image","files":null}` | Encoded image file bytes, not raw pixels |
+| `files` | `{"type":"files","files":[["hello.txt",5],["empty.txt",0]]}` | File bytes concatenated in exactly the header's file-entry order |
+
+File lengths are nonnegative integers. Reject duplicate or empty names, `/`, `\\`,
+NUL, `.` and `..`, lengths exceeding the remaining content, and trailing content
+not described by the file list. Empty files are valid. Require the inner `type`
+to match the outer envelope's `type`. Check the actual content byte total against
+the local receive limit, independently of the advertised metadata size.
+
+**Encryption:** derive the same 32-byte key described above. If enabled, encrypt
+the **entire inner CCB1 container once** with AES-256-GCM, no AAD, a fresh nonce,
+and a 16-byte authentication tag. Replace the inner container with these bytes:
+
+```text
+one-byte nonce length N | N nonce bytes | 16 tag bytes | ciphertext bytes
+```
+
+Official receivers accept nonce lengths from 8 through 32 bytes. Verify the tag
+before parsing or exposing decrypted content. Unlike legacy encrypted JSON, there
+is no Base64 or nonce/ciphertext/tag JSON object. Encrypting the inner container
+authenticates the content type and file boundaries. Outer routing/size metadata
+remains outside that authenticated plaintext.
+
+**Outer transport envelope:** its JSON header contains:
+
+```json
+{"type":"text","metadata":{"contentSizeBytes":5},"encrypted":false}
+```
+
+`type` must be `text`, `image`, or `files`; `encrypted` must be a boolean matching
+the receiver's encryption setting. `metadata.contentSizeBytes` is required and is
+the original content byte count, excluding both containers and encryption overhead.
+The outer payload is the complete inner container or encrypted bytes above, except
+when carrying a P2P fragment. The envelope header is always visible to the relay.
+
+**P2S:** send the complete outer CCB1 envelope as the byte body of one STOMP SEND
+to `/app/clipbinary`, with `content-type:application/octet-stream`, the exact body
+byte `content-length`, and `x-clipcascade-recipients` as described earlier. Use a
+byte-safe STOMP implementation because the body can contain NUL or non-UTF-8 data.
+The server forwards the bytes with the same content type to the existing
+`/user/queue/cliptext` subscription. It rejects fragmented relay envelopes; P2S has
+no application-level reassembly. WebSocket messages can carry portions of the
+STOMP stream, so receivers must parse across message boundaries.
+
+**P2P:** split the complete inner/encrypted bytes into chunks of at most 15360
+bytes, then wrap **each chunk** in an outer CCB1 envelope with the full metadata:
+
+```json
+{"type":"text","encrypted":false,"metadata":{"id":"<transfer UUID>","isFragmented":false,"index":0,"totalFragments":1,"combinedRawPayloadSizeInBytes":42,"contentSizeBytes":5}}
+```
+
+The `42` above is illustrative: calculate `combinedRawPayloadSizeInBytes` from
+the actual inner CCB1 container **before encryption**. JSON header serialization
+affects this value. All fragments share the same ID, type, encryption flag, count,
+and original-content size. `totalFragments` is `1..65536`; `index` is zero-based;
+`isFragmented` must equal `totalFragments > 1`. Even a single-fragment binary P2P
+message carries this metadata. Send binary data-channel messages in index order.
+Use independent backpressure for each recipient so a stalled peer does not block
+the others. Cancel superseded local work rather than mixing revisions.
+
+On receive, require fragment zero to start a transfer, consistent metadata and
+sending peer, and consecutive indices. Bound allocation and accumulated bytes;
+official binary reassembly allows at most `contentSizeBytes + 65536 + 64` bytes
+for the inner header and encryption overhead. Reassemble the opaque payload bytes
+before decrypting or parsing the inner container. Expire abandoned transfers and
+ignore tails of canceled transfers. If a sender's inner header exceeds 65536 bytes
+or binary fragmentation would exceed 65536 chunks, use legacy JSON for that peer.
+
+Minimal encoder using the encryption helpers/key derivation above:
+
+```python
+import json
+import struct
+from Crypto.Cipher import AES
+
+
+def pack_ccb1(header, payload):
+    encoded = json.dumps(header, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    if len(encoded) > 65536:
+        raise ValueError("CCB1 header too large")
+    return b"CCB1" + struct.pack(">I", len(encoded)) + encoded + payload
+
+
+def ccb1_text_frame(text, key=None):
+    content = text.encode("utf-8")
+    raw = pack_ccb1({"type": "text", "files": None}, content)
+    if key is not None:
+        cipher = AES.new(key, AES.MODE_GCM)
+        ciphertext, tag = cipher.encrypt_and_digest(raw)
+        raw = bytes([len(cipher.nonce)]) + cipher.nonce + tag + ciphertext
+    return pack_ccb1({
+        "type": "text",
+        "metadata": {"contentSizeBytes": len(content)},
+        "encrypted": key is not None,
+    }, raw)
+
+
+# After capability discovery, use this as the binary STOMP body, with recipient headers.
+# frame = ccb1_text_frame("Hello", derive_key(username, raw_password))
+```
+
 ### Echo and clipboard-loop suppression
 
-The server has no deduplication or conflict resolution. Official clients track a
-hash of the most recent serialized plaintext payload before send and before
-applying received content. Desktop uses xxHash64; mobile uses xxHash32. These hashes
+The server has no content deduplication or conflict resolution. New official
+clients disable their JSON self-echo; binary sends never echo. Older servers can
+still echo JSON, so official clients also track their own encrypted nonce/tag
+envelopes to distinguish echoes without retaining clipboard contents. A legacy
+client omitting the no-self-echo opt-in should continue handling its own echo.
+
+Official clients track a hash of the content type, file boundaries where relevant,
+and original content bytes before send and before applying received content.
+Desktop uses xxHash64; mobile uses xxHash32. These hashes
 are local and are not sent, so an alternative client need not use the same hash
 function. Compare content before encryption: random nonces make ciphertext change
 on every encryption. Update your local suppression state before writing the OS
@@ -1011,9 +1226,12 @@ places**. Use the byte value for calculations, especially for small limits.
 For P2S, official clients check text UTF-8 bytes, encoded image file bytes, or
 cumulative raw file bytes against the base limit before serialization. The server
 sets WebSocket text/binary buffer limits, STOMP message/buffer limits, and Jackson's
-JSON string limit to **twice the base size** to allow encoding overhead. Its STOMP
-send time limit is 200000 ms. It does not separately reject a decoded clipboard
-payload at the base limit in the message handler. JSON escaping, Base64, encryption,
+JSON string limit to **twice the base size** to allow encoding overhead. The native
+Tomcat blocking-write stall timeout is 60000 ms. Spring's whole-send time limit
+is `2147483647` ms (about 24.8 days), while its per-session send-buffer protection
+remains enabled. These are separate from any broker/proxy timeouts. The server
+does not separately reject a decoded clipboard payload at the base limit in the
+message handler. JSON escaping, Base64, encryption,
 filenames, and framing can still exceed the transport ceiling. Sending near the
 limit can close a socket rather than return an HTTP `413` or structured JSON error.
 P2S has no application-level fragment reassembly; do not reuse P2P fragment envelopes
@@ -1025,6 +1243,13 @@ limit to `-1` in this mode and relies on local limits. The P2S buffer configurat
 is conditional and does not configure the P2P signaling endpoint; do not infer its
 maximum SDP size from `/max-size`. Apply your own transfer/buffer limits and account
 for runtime, proxy, and WebRTC message limits.
+
+Current clients measure local limits against original content bytes, not legacy
+Base64/JSON or CCB1 container sizes. They advertise receive limits using STOMP
+CONNECT headers in P2S and data-channel capability controls in P2P. Legacy peers
+may still enforce the serialized `combinedRawPayloadSizeInBytes` value and reject
+content below the new original-content limit because of encoding overhead. Preserve
+that legacy size field's representation-specific meaning for interoperability.
 
 Client-relevant server settings (defaults from this tree):
 
@@ -1043,7 +1268,7 @@ Client-relevant server settings (defaults from this tree):
 | `CC_SESSION_PERSISTENCE_ENABLED` | `false` | Opt-in JDBC sessions, H2/PostgreSQL |
 | `CC_SIGNUP_ENABLED` | `false` | Public registration and captcha |
 | `CC_CAPTCHA_DIFFICULTY_PERCENT` | `100` | Captcha presentation difficulty, clamped to 0–100 |
-| `CC_MAX_USER_ACCOUNTS` | `-1` | Total account cap including admin; `-1` unlimited |
+| `CC_MAX_USER_ACCOUNTS` | `-1` | Regular user account cap, excluding the administrator. `-1` is unlimited. |
 | `CC_ACCOUNT_PURGE_TIMEOUT_SECONDS` | `-1` | Inactive non-admin cleanup at startup; negative disables |
 | `CC_MAX_UNIQUE_IP_ATTEMPTS` | `15` | Brute-force tracker unique-IP threshold |
 | `CC_MAX_ATTEMPTS_PER_IP` | `30` | Brute-force tracker per-IP threshold |
@@ -1110,7 +1335,14 @@ These are implementation acceptance checks, not claims of automated test coverag
 - [ ] Encryption round-trips with official clients, including matching nondefault
       salt/iterations; mismatched settings and altered tags fail without pasting.
 - [ ] PNG images and multiple files decode correctly; filenames and file contents
-      survive the extra JSON/Base64 layers.
+      survive legacy JSON/Base64 and CCB1, including empty files and duplicate names.
+- [ ] Leading `U+FEFF`, Unicode, line breaks, and empty binary text survive unchanged.
+- [ ] Old clients/servers use legacy fallback; mixed recipient groups receive one
+      representation each; binary/control messages never reach unopted-in clients.
+- [ ] Recipient snapshots reset on reconnect, expire correctly, and fall back safely
+      when discovery is unsupported or lists are invalid/oversized.
+- [ ] Advertised receive limits filter peers independently; missing size metadata
+      does not bypass the receiver's actual-content size check.
 - [ ] P2S echo does not cause clipboard loops; reconnection resubscribes.
 - [ ] P2P initiator ordering works with either peer joining first; peer departure,
       sleep/resume, and fresh IDs remove stale connections.
@@ -1136,6 +1368,8 @@ When changing the protocol, update this guide alongside these sources:
 - [User validation](ClipCascade_Backend/src/main/java/com/acme/clipcascade/utils/UserValidator.java)
 - [Pagination](ClipCascade_Backend/src/main/java/com/acme/clipcascade/utils/PagingUtility.java)
 - [STOMP configuration](ClipCascade_Backend/src/main/java/com/acme/clipcascade/config/StompWebSocketConfig.java)
+- [Binary relay endpoint and validation](ClipCascade_Backend/src/main/java/com/acme/clipcascade/controller/BinaryClipboardController.java)
+- [P2S capabilities, recipient snapshots, and delivery](ClipCascade_Backend/src/main/java/com/acme/clipcascade/service/P2SDeliveryService.java)
 - [P2P signaling handler](ClipCascade_Backend/src/main/java/com/acme/clipcascade/config/P2PWebSocketHandler.java)
 - [Configuration and size calculations](ClipCascade_Backend/src/main/java/com/acme/clipcascade/config/ClipCascadeProperties.java)
 - [Official desktop HTTP client](../ClipCascade_Desktop/src/utils/request_manager.py)
@@ -1143,7 +1377,11 @@ When changing the protocol, update this guide alongside these sources:
 - [Desktop STOMP client](../ClipCascade_Desktop/src/stomp_ws/stomp_manager.py)
 - [Desktop P2P and fragmentation](../ClipCascade_Desktop/src/p2p/p2p_manager.py)
 - [Desktop encryption](../ClipCascade_Desktop/src/utils/cipher_manager.py)
+- [Desktop CCB1 codec](../ClipCascade_Desktop/src/utils/binary_protocol.py)
+- [Desktop recipient snapshot cache](../ClipCascade_Desktop/src/utils/relay_recipients.py)
 - [Desktop image/file serialization](../ClipCascade_Desktop/src/clipboard/clipboard_manager.py)
 - [Desktop configuration defaults](../ClipCascade_Desktop/src/core/config.py)
 - [Mobile key derivation](../ClipCascade_Mobile/src/App.js)
 - [Mobile encryption, WebRTC, and fragmentation](../ClipCascade_Mobile/src/StartForegroundService.js)
+- [Mobile CCB1 codec](../ClipCascade_Mobile/src/BinaryProtocol.js)
+- [Browser CCB1 codec](ClipCascade_Backend/src/main/resources/static/assets/js/binary-protocol.js)

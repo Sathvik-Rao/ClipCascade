@@ -136,6 +136,18 @@ class LoginForm:
         )
         self._save_preference("save_password")
 
+        use_keyring = LoginForm.str_to_bool(
+            input(
+                f"Use OS credential storage [{LoginForm.bool_to_str(self.config.data['use_keyring'])}]: "
+            ) or LoginForm.bool_to_str(self.config.data["use_keyring"])
+        )
+        if not self.config.save_preferences({"use_keyring": use_keyring}):
+            CustomDialog(
+                "Unable to save the credential storage preference. Existing saved data has been preserved. "
+                "Check that the DATA file location is writable.",
+                msg_type="error",
+            ).mainloop()
+
         # Validate max_clipboard_size_local_limit_bytes
         while True:
             saved_mcsll = str(

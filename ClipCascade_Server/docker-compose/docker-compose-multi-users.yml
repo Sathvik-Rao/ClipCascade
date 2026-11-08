@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   clipcascade:
     image: sathvikrao/clipcascade:latest
@@ -45,7 +43,9 @@ services:
       CC_MAX_WS_GLOBAL_CONNECTIONS: -1
 
   postgresdb:
-    image: postgres:latest
+    # This volume layout uses PostgreSQL 17. Keep the existing database major
+    # version on upgrades until you have migrated its data.
+    image: postgres:17
     container_name: postgresdb
     restart: always
     environment:

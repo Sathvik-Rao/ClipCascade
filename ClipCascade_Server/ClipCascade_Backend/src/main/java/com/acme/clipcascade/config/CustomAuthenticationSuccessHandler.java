@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 
+import com.acme.clipcascade.constants.ServerConstants;
 import com.acme.clipcascade.model.IpAttemptDetails;
 import com.acme.clipcascade.service.BruteForceProtectionService;
 import com.acme.clipcascade.service.FacadeUserService;
@@ -36,6 +37,8 @@ public class CustomAuthenticationSuccessHandler implements AuthenticationSuccess
 
         // save ip details to the database
         facadeUserService.setLoginDetails(authentication.getName(), ipDetails);
+
+        request.getSession().removeAttribute(ServerConstants.DEFAULT_PASSWORD_PROMPT_SHOWN);
 
         // Redirect to the home page
         response.sendRedirect("/");

@@ -20,9 +20,18 @@ import {checkForUpdates} from './UpdateChecker';
 import {downloadDirectoryLabel} from './DownloadDirectory';
 import {webSocketErrorMessage, webSocketCloseMessage} from './WebSocketStatus';
 import {isClipboardSyncEnabled} from './DevicePreferences';
-import {fileUris, encodeFiles, deliverPendingShare} from './FileTransfer';
+import {readClipboardStream, readClipboardBytes, fileUris, encodeFiles, deliverPendingShare} from './FileTransfer';
 import {acquireServiceRun, serviceRun} from './ServiceLifecycle';
 import {deactivateStompClient} from './StompShutdown';
+import {StompSocket} from './StompSocket';
+import * as binary from './BinaryProtocol';
+import {RelayRecipients} from './RelayRecipients';
+import {normalizeReceiveLimit, receiveLimitHeader, allowsContentSize, metadataContentSize,
+  receiveCapabilityMessage, readReceiveCapability, base64ContentSize} from './TransferLimits';
+import {fragmentClipboard, yieldClipboardEvents, ClipboardJobs, ClipboardSuperseded,
+  isClipboardSuperseded, sendSharedClipboardFragments, acceptsClipboardFragment,
+  ClipboardRevisionGate, ClipboardEchoes, encryptedClipboardEchoKey, serializeClipboardMessages,
+  acceptClipboardObservation} from './ClipboardPreparation';
 
 import {
   getDataFromAsyncStorage,
@@ -124,6 +133,26 @@ module.exports = async (inputData = null) => {
           ClipboardListener.startListening();
           clipboardStarted = true;
         }
+        const clipboardJobs = new ClipboardJobs(() => NativeBridgeModule.cancelClipboardReadsSync());
+        const clipboardRevisions = new ClipboardRevisionGate();
+        const sentEchoes = new ClipboardEchoes();
+        let localClipboardEpoch = 0;
+        let cancelIncoming = () => {};
+        const checkClipboardJob = generation => {
+          clipboardJobs.check(generation);
+          if (!run.isCurrent() || transportStopped) throw new ClipboardSuperseded();
+        };
+        const clearShareFailure = async generation => {
+          checkClipboardJob(generation);
+          if (!isShareTransportReady()) return;
+          const flags = JSON.parse(NativeBridgeModule.getFlagsSync(['wsStatusMessage']));
+          const message = flags.wsStatusMessage || '';
+          if (message.startsWith('❌ Share failed:') || message.startsWith('✅ Connected - ⏳ Loading ')) {
+            // A newer clipboard action supersedes the old share's result.
+            // Leave unrelated connection and clipboard errors untouched.
+            await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
+          }
+        };
         const textEncoder = new encoding.TextEncoder();
         const textDecoder = new encoding.TextDecoder();
 
@@ -131,13 +160,13 @@ module.exports = async (inputData = null) => {
         await setDataInAsyncStorage('fileDownloadStatus', '');
 
         let previous_clipboard_content_hash = '';
-        let toggle = false; // p2s toggle
         let block_image_once = false;
         let files_in_memory = null;
         let websocket_status_notification_toggle = false;
         let p2pMsg = null; // p2p status message
 
         let stompClient = null;
+        let stompSocket = null;
         let wsSignalingClient = null;
         let sendClipBoardP2S = null;
         let sendClipBoardP2P = null;
@@ -146,6 +175,7 @@ module.exports = async (inputData = null) => {
         let isShareTransportReady = () => false;
         let getP2PStatusMessage = null;
         let isP2PStatusMsgChanged = false;
+        let attachmentLoading = null;
 
         // Discover in the service too: Android can start it without the app UI.
         const keys = [
@@ -192,24 +222,25 @@ module.exports = async (inputData = null) => {
         };
 
         const maxsize = Number(maxsizeStr);
-        let max_clipboard_size_local_limit_bytes = Number(maxClipboardLimitStr);
-        if (max_clipboard_size_local_limit_bytes === 0) {
-          max_clipboard_size_local_limit_bytes = maxsize;
-        }
+        // Blank/legacy zero means no local cap. Server limits are separate.
+        const localReceiveLimit = normalizeReceiveLimit(Number(maxClipboardLimitStr) === 0 ? null : maxClipboardLimitStr);
+        const max_clipboard_size_local_limit_bytes = localReceiveLimit ?? -1;
 
         // encrption
-        const encrypt = async plainText => {
+        const encrypt = async (plainText, onEncrypted = () => {}) => {
           try {
             const encryptedData = await AesGcmCrypto.encrypt(
               plainText,
               false,
               await getDataFromAsyncStorage('hashed_password'),
             );
-            return JSON.stringify({
+            const envelope = {
               nonce: Buffer.from(encryptedData.iv, 'hex').toString('base64'),
               ciphertext: encryptedData.content,
               tag: Buffer.from(encryptedData.tag, 'hex').toString('base64'),
-            });
+            };
+            onEncrypted(envelope);
+            return JSON.stringify(envelope);
           } catch (e) {
             throw new Error('Failed to encrypt: ' + e);
           }
@@ -231,9 +262,75 @@ module.exports = async (inputData = null) => {
           }
         };
 
+        // The installed AES library's binary API requires whole-payload Base64.
+        // Use a bounded, file-backed native cipher for CCB1 instead.
+        const cryptBinary = async (raw, decrypting, nonce = new Uint8Array(0), tag = new Uint8Array(0)) => {
+          const generation = clipboardJobs.generation;
+          const checkCurrent = () => checkClipboardJob(generation);
+          checkCurrent();
+          const id = await NativeBridgeModule.beginClipboardCipher(
+            await getDataFromAsyncStorage('hashed_password'), decrypting, Array.from(nonce), Array.from(tag));
+          try {
+            for (let offset = 0; offset < raw.length; offset += 32768) {
+              checkCurrent();
+              await NativeBridgeModule.appendClipboardCipher(id, binary.toBase64(raw.subarray(offset, offset + 32768)));
+              await yieldClipboardEvents();
+            }
+            checkCurrent();
+            const envelope = await NativeBridgeModule.finishClipboardCipher(id);
+            const content = await readClipboardStream(envelope.id, NativeBridgeModule, checkCurrent);
+            checkCurrent();
+            return decrypting ? content : binary.concat([new Uint8Array([binary.fromBase64(envelope.nonce).length]),
+              binary.fromBase64(envelope.nonce), binary.fromBase64(envelope.tag), content]);
+          } catch (error) {
+            checkCurrent();
+            throw error;
+          } finally {
+            await NativeBridgeModule.abortClipboardCipher(id);
+          }
+        };
+        const encryptBinary = raw => cryptBinary(raw, false);
+        const decryptBinary = raw => {
+          const n = raw[0];
+          if (!Number.isInteger(n) || n < 8 || n > 32 || raw.length < 1 + n + 16) throw new Error('Invalid encrypted binary payload');
+          return cryptBinary(raw.subarray(1 + n + 16), true, raw.subarray(1, 1 + n), raw.subarray(1 + n, 1 + n + 16));
+        };
+        const decodeBinary = async message => {
+          if (message.encrypted !== (cipher_enabled === 'true')) throw new Error('Encryption settings differ between devices');
+          return binary.decodeContent(message.payload, message.type,
+            message.encrypted ? decryptBinary : null, localReceiveLimit, true);
+        };
+        let relayRecipientCache = new RelayRecipients();
+        const relayRecipients = async () => {
+          const cached = relayRecipientCache.get();
+          if (cached) return cached;
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 3000);
+          try {
+            const response = await fetch(server_url.replace(/\/+$/, '') + '/clipbinary/recipients',
+              {credentials: 'include', signal: controller.signal, headers: {Accept: 'application/json'}});
+            const fallback = response.ok ? binary.recipients(await response.json()) : null;
+            return relayRecipientCache.get() || fallback;
+          } catch (_) { return null; }
+          finally { clearTimeout(timer); }
+        };
+
         // hash clipboard content
-        const hashCB = async (input, seed = 0) => {
-          return String(xxHash32(input, seed));
+        const hashCB = async (input, kind = 'text') => {
+          const generation = clipboardJobs.generation;
+          const [header, parts] = binary.contentParts(input, kind);
+          let hash = xxHash32(textEncoder.encode(JSON.stringify(header)), 0);
+          // Fixed chunk boundaries make the hash independent of transport fragments.
+          for (const part of parts) {
+            for (let offset = 0; offset < part.length; offset += 65536) {
+              hash = xxHash32(part.subarray(offset, offset + 65536), hash);
+              if (offset % (1024 * 1024) === 0) {
+                await yieldClipboardEvents();
+                checkClipboardJob(generation);
+              }
+            }
+          }
+          return String(hash);
         };
 
         //check if clipboard content changed
@@ -242,33 +339,12 @@ module.exports = async (inputData = null) => {
         };
 
         const calculateBase64DecodedLength = async base64Str => {
-          // Calculates the decoded byte length of a Base64-encoded string.
-          const n = base64Str.length;
-          const padding = (base64Str.match(/=/g) || []).length;
-          return 3 * (n / 4) - padding;
+          return base64ContentSize(base64Str);
         };
 
         // fragment string into chunks
-        const fragmentString = async (str, fragmentSize) => {
-          if (!Number.isInteger(fragmentSize) || fragmentSize < 4) {
-            throw new Error(
-              'fragmentSize must be an integer of at least 4 bytes',
-            );
-          }
-          const bytes = textEncoder.encode(str); // convert to UTF-8 bytes
-          const fragments = [];
-          let start = 0;
-          while (start < bytes.length) {
-            let end = Math.min(start + fragmentSize, bytes.length);
-            // Move the boundary back to the start of any split UTF-8 character.
-            while (end < bytes.length && (bytes[end] & 0xc0) === 0x80) {
-              end -= 1;
-            }
-            const chunk = bytes.slice(start, end);
-            fragments.push(textDecoder.decode(chunk));
-            start = end;
-          }
-          return fragments;
+        const fragmentString = async (str, fragmentSize, checkCurrent) => {
+          return fragmentClipboard(str, fragmentSize, textEncoder, textDecoder, checkCurrent);
         };
 
         // generate uuid
@@ -284,8 +360,36 @@ module.exports = async (inputData = null) => {
           isP2PStatusMsgChanged = true;
         };
 
-        // validate clipboard size
-        const validateClipboardSize = async (clipContent, type, direction) => {
+        const loadClipboardAttachment = async (content, type, generation, onSize) => {
+          const checkCurrent = () => checkClipboardJob(generation);
+          checkCurrent();
+          const loading = {generation, message: type === 'files' ? 'Loading files…' : 'Loading image…'};
+          attachmentLoading = loading;
+          const message = server_mode === 'P2P'
+            ? await getP2PStatusMessage()
+            : `✅ Connected - ⏳ ${loading.message}`;
+          try {
+            checkCurrent();
+            await setDataInAsyncStorage('wsStatusMessage', message);
+            checkCurrent();
+            return type === 'files'
+              ? await encodeFiles(content, NativeBridgeModule, checkCurrent, onSize, true)
+              : await readClipboardBytes(content, NativeBridgeModule, checkCurrent);
+          } finally {
+            if (attachmentLoading === loading) attachmentLoading = null;
+            if (generation === clipboardJobs.generation && run.isCurrent() && !transportStopped) {
+              // Preserve connection errors or newer status updates made during the read.
+              const flags = JSON.parse(NativeBridgeModule.getFlagsSync(['wsStatusMessage']));
+              if (flags.wsStatusMessage === message) {
+                await setDataInAsyncStorage('wsStatusMessage', server_mode === 'P2P'
+                  ? await getP2PStatusMessage() : '✅ Connected');
+              }
+              if (server_mode === 'P2P') await p2pStatusMessageChanged();
+            }
+          }
+        };
+
+        const measureClipboardContent = async (clipContent, type, direction) => {
           let clipContentByteLength = 0;
           if (type === 'text') {
             clipContentByteLength = Buffer.byteLength(clipContent, 'utf8');
@@ -298,9 +402,8 @@ module.exports = async (inputData = null) => {
                 await NativeBridgeModule.getFileSize(clipContent),
               );
             } else if (direction.toLowerCase() === 'inbound') {
-              clipContentByteLength = await calculateBase64DecodedLength(
-                clipContent,
-              );
+              clipContentByteLength = typeof clipContent === 'string'
+                ? await calculateBase64DecodedLength(clipContent) : clipContent.length;
             }
           } else if (type === 'files') {
             if (
@@ -314,21 +417,27 @@ module.exports = async (inputData = null) => {
                 );
               }
             } else if (direction.toLowerCase() === 'inbound') {
-              let files = JSON.parse(clipContent);
+              let files = typeof clipContent === 'string' ? JSON.parse(clipContent) : clipContent;
               for (const file in files) {
-                clipContentByteLength += await calculateBase64DecodedLength(
-                  files[file],
-                );
+                clipContentByteLength += typeof files[file] === 'string'
+                  ? await calculateBase64DecodedLength(files[file]) : files[file].length;
               }
             }
           } else {
             return false;
           }
 
+          return clipContentByteLength;
+        };
+
+        // Both modes use original content bytes, excluding encoding overhead.
+        const validateClipboardSize = async (clipContent, type, direction, measuredSize = null) => {
+          const clipContentByteLength = measuredSize ?? await measureClipboardContent(clipContent, type, direction);
+          if (!Number.isSafeInteger(clipContentByteLength) || clipContentByteLength < 0) return false;
           if (server_mode === 'P2S') {
             if (
-              clipContentByteLength <= maxsize &&
-              clipContentByteLength <= max_clipboard_size_local_limit_bytes
+              (maxsize < 0 || clipContentByteLength <= maxsize) &&
+              allowsContentSize(localReceiveLimit, clipContentByteLength)
             ) {
               return true;
             }
@@ -375,6 +484,7 @@ module.exports = async (inputData = null) => {
           track(async params => {
             try {
               if (params && params.content && params.type) {
+                if (!acceptClipboardObservation(clipboardRevisions, params)) return;
                 await sendClipBoard(params.content, params.type);
               }
             } catch (e) {
@@ -387,25 +497,35 @@ module.exports = async (inputData = null) => {
         );
 
         const clearFiles = async (expensiveCall = false) => {
+          const generation = clipboardJobs.generation;
           files_in_memory = null;
           if (!expensiveCall) {
             // A finished download belongs to the previous clipboard item.
             // Keep active saving progress visible until that batch finishes.
-            if ((await getDataFromAsyncStorage('fileDownloadInProgress')) !== 'true') {
+            const downloadInProgress = await getDataFromAsyncStorage('fileDownloadInProgress');
+            clipboardJobs.check(generation);
+            if (downloadInProgress !== 'true') {
               await setDataInAsyncStorage('fileDownloadStatus', '');
+              clipboardJobs.check(generation);
             }
             await notifee.cancelNotification(
               'ClipCascade_Download_Files_Notification_Id',
             );
+            clipboardJobs.check(generation);
             await setDataInAsyncStorage('filesAvailableToDownload', 'false');
+            clipboardJobs.check(generation);
             await setDataInAsyncStorage('downloadFiles', 'false');
+            clipboardJobs.check(generation);
             await setDataInAsyncStorage('dirPath', '');
+            clipboardJobs.check(generation);
           }
         };
 
         const showFilesDownloadNotification = async files => {
-          const count = Object.keys(JSON.parse(files)).length;
+          const generation = clipboardJobs.generation;
+          const count = Object.keys(typeof files === 'string' ? JSON.parse(files) : files).length;
           await setDataInAsyncStorage('availableFileCount', String(count));
+          clipboardJobs.check(generation);
           // Display a silent notification
           await notifee.displayNotification({
             id: 'ClipCascade_Download_Files_Notification_Id',
@@ -445,7 +565,14 @@ module.exports = async (inputData = null) => {
           // websocket stomp client
           stompClient = new Client({
             brokerURL: websocket_url,
+            webSocketFactory: () => {
+              stompSocket = new StompSocket(websocket_url, NativeBridgeModule, DeviceEventEmitter);
+              return stompSocket;
+            },
+            connectHeaders: {'x-clipcascade-recipient-updates': '1', 'x-clipcascade-binary': 'ccb1', 'x-clipcascade-no-self-echo': 'true',
+              'x-clipcascade-receive-limit': receiveLimitHeader(localReceiveLimit)},
             beforeConnect: async () => {
+              relayRecipientCache.reset();
               if (!(await track(prepareReconnect)()) && stompClient) {
                 // Do not await deactivate inside beforeConnect: it can wait on
                 // this very connection attempt. The poll loop completes cleanup.
@@ -456,35 +583,40 @@ module.exports = async (inputData = null) => {
             connectionTimeout: 5000,
             heartbeatIncoming: HEARTBEAT_INTERVAL,
             heartbeatOutgoing: 0,
-            forceBinaryWSFrames: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#forceBinaryWSFrames
+            // The native transport sends small binary writes, preserving NUL
+            // bytes without one oversized React Native/OkHttp send.
+            forceBinaryWSFrames: false,
             // appendMissingNULLonIncoming: true, // https://stomp-js.github.io/api-docs/latest/classes/Client.html#appendMissingNULLonIncoming
             onConnect: track(async () => {
+              const recipientCache = relayRecipientCache = new RelayRecipients();
               await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
 
-              toggle = false;
               // Subscribe to a topic
-              stompClient.subscribe(SUBSCRIPTION_DESTINATION, track(async message => {
+              const receiveClipboardMessage = track(serializeClipboardMessages(async (message, parsedBody) => {
+                let generation = clipboardJobs.generation;
                 try {
-                  // Echoes still release the outbound throttle in send-only mode.
-                  toggle = false;
                   if (!(await isClipboardSyncEnabled('receive_clipboard'))) {
                     return;
                   }
-                  await clearFiles();
-                  await setDataInAsyncStorage(
-                    'wsStatusMessage',
-                    '✅ Connected - Subscribed',
-                  );
 
-                  if (message && message.body) {
-                    const body = JSON.parse(message.body);
-                    let cb = String(body.payload);
+                  if (message && (message.isBinaryBody || message.body)) {
+                    const isBinary = message.headers?.['content-type']?.split(';')[0] === binary.CONTENT_TYPE;
+                    const body = isBinary ? binary.decodeFrame(message.binaryBody) : parsedBody;
+                    if (!allowsContentSize(localReceiveLimit, metadataContentSize(body.metadata))) {
+                      await setDataInAsyncStorage('wsStatusMessage', '⚠️ Incoming clipboard ignored: original content exceeds the local size limit.');
+                      return;
+                    }
+                    let cb = isBinary ? body.payload : String(body.payload);
                     const type_ = body.type ?? 'text';
 
                     //decrypt
-                    if (cipher_enabled === 'true') {
+                    if (isBinary) {
+                      cb = await decodeBinary(body);
+                    } else if (cipher_enabled === 'true') {
                       try {
-                        cb = await decrypt(JSON.parse(cb));
+                        const envelope = JSON.parse(cb);
+                        if (sentEchoes.consume(encryptedClipboardEchoKey(type_, envelope))) return;
+                        cb = await decrypt(envelope);
                       } catch (error) {
                         throw new Error(
                           `Encryption must be enabled on all devices if enabled. JSON parsing failed: ${error.message}`,
@@ -493,8 +625,14 @@ module.exports = async (inputData = null) => {
                     }
 
                     // hash clipboard content
-                    const hcb = await hashCB(cb);
+                    const hcb = await hashCB(cb, type_);
+                    checkClipboardJob(generation);
                     if (await newCB(hcb)) {
+                      generation = clipboardJobs.cancel();
+                      await clearFiles();
+                      checkClipboardJob(generation);
+                      await clearShareFailure(generation);
+                      checkClipboardJob(generation);
                       previous_clipboard_content_hash = hcb;
 
                       // validate clipboard size
@@ -502,17 +640,20 @@ module.exports = async (inputData = null) => {
                         if (!(await isClipboardSyncEnabled('receive_clipboard'))) {
                           return;
                         }
+                        checkClipboardJob(generation);
                         await NativeBridgeModule.discardPendingShare();
+                        checkClipboardJob(generation);
                         // set clipboard content
                         if (type_ === 'text') {
                           await NativeBridgeModule.copyTextToClipboard(cb);
                         } else if (type_ === 'image') {
-                          await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
-                            cb,
-                          );
                           block_image_once = true;
+                          await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
+                            binary.legacyContent(cb, type_),
+                          );
                         } else if (type_ === 'files') {
                           await showFilesDownloadNotification(cb);
+                          checkClipboardJob(generation);
 
                           files_in_memory = cb;
                           await setDataInAsyncStorage(
@@ -522,13 +663,27 @@ module.exports = async (inputData = null) => {
                         }
                       }
                     }
+                    await clearShareFailure(generation);
                   }
                 } catch (e) {
+                  if (isClipboardSuperseded(e)) return;
                   await setDataInAsyncStorage(
                     'wsStatusMessage',
                     '❌ Inbound Error: ' + e,
                   );
                 }
+              }, () => localClipboardEpoch));
+              stompClient.subscribe(SUBSCRIPTION_DESTINATION, track(message => {
+                if (recipientCache !== relayRecipientCache || !stompClient?.connected) return;
+                // Membership controls bypass clipboard serialization and receive preferences.
+                let parsedBody;
+                if (message.headers?.['content-type']?.split(';')[0] !== binary.CONTENT_TYPE) {
+                  try {
+                    parsedBody = JSON.parse(message.body);
+                    if (recipientCache.accept(parsedBody)) return;
+                  } catch (_) { return; }
+                }
+                return receiveClipboardMessage(message, parsedBody);
               }));
 
               if (enable_websocket_status_notification === 'true') {
@@ -545,6 +700,7 @@ module.exports = async (inputData = null) => {
               }
             }),
             onDisconnect: track(async () => {
+              relayRecipientCache.reset();
               block_image_once = false;
               await setDataInAsyncStorage('wsStatusMessage', 'Disconnected');
             }),
@@ -563,6 +719,7 @@ module.exports = async (inputData = null) => {
               );
             }),
             onWebSocketClose: track(async event => {
+              relayRecipientCache.reset();
               block_image_once = false;
               await setDataInAsyncStorage(
                 'wsStatusMessage',
@@ -582,17 +739,31 @@ module.exports = async (inputData = null) => {
             }),
           });
 
-          isShareTransportReady = () => run.isCurrent() && !!stompClient?.connected && !toggle;
+          isShareTransportReady = () => run.isCurrent() && !!stompClient?.connected;
 
           // start websocket stomp connection
           stompClient.activate();
 
           // send clipboard content P2S
-          sendClipBoardP2S = async (clipContent, type_ = 'text') => {
+          sendClipBoardP2S = async (clipContent, type_ = 'text', generation) => {
+            const sendingSocket = stompSocket;
+            const checkCurrent = () => {
+              checkClipboardJob(generation);
+              if (sendingSocket !== stompSocket || (sendingSocket && sendingSocket.readyState !== 1)) {
+                throw new ClipboardSuperseded();
+              }
+            };
             try {
               await clearFiles();
-              if (!stompClient?.connected || toggle) return false;
-              if (stompClient && stompClient.connected && !toggle) {
+              checkCurrent();
+              if (!stompClient?.connected) return false;
+              if (stompClient && stompClient.connected) {
+                const socket = stompSocket;
+                if (!socket) return false;
+                // Finish an already-started STOMP frame before publishing
+                // another. Superseded waiters must not prepare more files.
+                await socket.flush();
+                checkCurrent();
                 if (
                   (type_ === 'image' && enable_image_sharing === 'false') ||
                   (type_ === 'files' && enable_file_sharing === 'false')
@@ -600,49 +771,72 @@ module.exports = async (inputData = null) => {
                   return true;
                 }
 
-                if (
-                  await validateClipboardSize(clipContent, type_, 'Outbound')
-                ) {
-                  // base64 encode
-                  if (type_ === 'image') {
-                    clipContent = await NativeBridgeModule.getFileAsBase64(
-                      clipContent,
-                    );
-                  } else if (type_ === 'files') {
-                    clipContent = await encodeFiles(clipContent, NativeBridgeModule);
+                let contentSizeBytes = await measureClipboardContent(clipContent, type_, 'Outbound');
+                if (await validateClipboardSize(clipContent, type_, 'Outbound', contentSizeBytes)) {
+                  checkCurrent();
+                  const plan = await relayRecipients();
+                  checkCurrent();
+                  // Load original bytes once for this recipient snapshot.
+                  if (type_ === 'image' || type_ === 'files') {
+                    clipContent = await loadClipboardAttachment(clipContent, type_, generation, size => { contentSizeBytes = size; });
                   }
 
-                  // clipboad content hash
-                  const hcb = await hashCB(clipContent);
+                  checkCurrent();
+                  if (type_ === 'image') contentSizeBytes = clipContent.length;
+                  if (!(await validateClipboardSize(clipContent, type_, 'Outbound', contentSizeBytes))) return true;
+                  checkCurrent();
+                  // clipboard content hash
+                  const hcb = await hashCB(clipContent, type_);
+                  // Legacy servers still echo. Plaintext hashes cannot tell
+                  // an echo apart from another device's genuine resend.
+                  let echoKey = null;
+                  checkCurrent();
                   if (await newCB(hcb)) {
                     if (block_image_once) {
                       block_image_once = false;
                     } else {
-                      toggle = true;
 
-                      if (cipher_enabled === 'true') {
-                        //ecrypt
-                        clipContent = await encrypt(clipContent);
+                      checkCurrent();
+                      const encrypted = cipher_enabled === 'true';
+                      const messages = [];
+                      if (plan?.binary.length) {
+                        try {
+                          const raw = await binary.encodeContent(clipContent, type_, encrypted ? encryptBinary : null, undefined, checkCurrent);
+                          checkCurrent();
+                          messages.push({destination: '/app/clipbinary',
+                            headers: {'content-type': binary.CONTENT_TYPE, 'x-clipcascade-recipients': plan.binary.join(',')},
+                            binaryBody: binary.encodeFrame(raw, type_, {contentSizeBytes}, encrypted)});
+                        } catch (error) {
+                          if (error.message !== 'Binary header too large') throw error;
+                          plan.legacy.push(...plan.binary);
+                          plan.binary = [];
+                        }
                       }
-
-                      await setDataInAsyncStorage(
-                        'wsStatusMessage',
-                        '✅ Connected - Broadcasting',
-                      );
-
-                      if (!(await isClipboardSyncEnabled('send_clipboard'))) {
-                        toggle = false;
-                        return true;
+                      if (!plan || plan.legacy.length) {
+                        let prepared = binary.legacyContent(clipContent, type_);
+                        if (encrypted) prepared = await encrypt(prepared, envelope => { echoKey = encryptedClipboardEchoKey(type_, envelope); });
+                        messages.push({destination: SEND_DESTINATION,
+                          headers: plan ? {'x-clipcascade-recipients': plan.legacy.join(',')} : {},
+                          body: JSON.stringify({payload: String(prepared), type: type_, metadata: {contentSizeBytes}})});
                       }
-                      if (!run.isCurrent() || transportStopped) return false;
-                      // send
-                      stompClient.publish({
-                        destination: SEND_DESTINATION,
-                        body: JSON.stringify({
-                          payload: String(clipContent),
-                          type: type_,
-                        }),
-                      });
+                      await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
+                      for (const message of messages) {
+                        checkCurrent();
+                        if (!(await isClipboardSyncEnabled('send_clipboard'))) return true;
+                        if (!run.isCurrent() || transportStopped) return false;
+                        if (message.body && echoKey !== null) sentEchoes.remember(echoKey);
+                        try { stompClient.publish(message); }
+                        catch (error) {
+                          if (message.body && echoKey !== null) sentEchoes.consume(echoKey);
+                          throw error;
+                        }
+                        await socket.flush();
+                      }
+                      // A frame already submitted can still be echoed by an
+                      // older server, even if newer clipboard work supersedes
+                      // us while the transport drains. Keep its nonce tracked.
+                      await socket.flush();
+                      checkCurrent();
                       previous_clipboard_content_hash = hcb;
                     }
                   }
@@ -650,7 +844,7 @@ module.exports = async (inputData = null) => {
               }
               return true;
             } catch (e) {
-              toggle = false;
+              if (isClipboardSuperseded(e)) throw e;
               block_image_once = false;
               throw e;
             }
@@ -658,7 +852,11 @@ module.exports = async (inputData = null) => {
 
           // stop events and connection P2S
           stopServicesP2S = async () => {
+            relayRecipientCache.reset();
             transportStopped = true;
+            clipboardJobs.cancel();
+            cancelIncoming();
+            files_in_memory = null;
             // 1) Stop clipboard listening
             try {
               if (!restarting) await stopClipboard();
@@ -698,7 +896,8 @@ module.exports = async (inputData = null) => {
           let myPeerId = null; // Your assigned peer ID from server
           let peers = new Set(); // Current set of known peer IDs in the "room"
           let peerConnections = {}; // Map: peerId -> RTCPeerConnection
-          let dataChannels = {}; // Map: peerId -> RTCDataChannel
+          let dataChannels = {};
+          const peerReceiveLimits = new Map(); // Map: peerId -> original-content byte limit (null means unlimited)
           isShareTransportReady = () => run.isCurrent() && Object.values(dataChannels).some(channel => channel.readyState === 'open');
           let liveConnectionsCount = 0; // Track open DataChannels
           let pendingPeerList = null;
@@ -710,10 +909,16 @@ module.exports = async (inputData = null) => {
           const peerConnectionDeadlines = {};
           const pendingIce = new WeakMap();
           const dataChannelHeartbeatTimers = {};
-          const P2P_DC_KEEPALIVE_JSON = JSON.stringify({ _cc_keepalive: true });
+          const P2P_DC_KEEPALIVE_JSON = receiveCapabilityMessage(localReceiveLimit);
 
           // Fragment variables
           let sendingFragmentId = '';
+          const discardedFragments = new Map();
+          const discardFragment = id => {
+            discardedFragments.delete(id);
+            discardedFragments.set(id, true);
+            if (discardedFragments.size > 1024) discardedFragments.delete(discardedFragments.keys().next().value);
+          };
           let receivingFragments = {}; // Map: fragmentId -> array of strings (ordered)
           let sendingFragmentStats = null;
           let receivingFragmentStats = null;
@@ -721,6 +926,9 @@ module.exports = async (inputData = null) => {
           getP2PStatusMessage = async () => {
             let msg = '📊';
             msg += ` Peers: ${liveConnectionsCount}`;
+            if (attachmentLoading?.generation === clipboardJobs.generation) {
+              msg += ` | ${attachmentLoading.message}`;
+            }
             if (sendingFragmentStats != null) {
               msg += ` | Sending: ${sendingFragmentStats}`;
             }
@@ -739,8 +947,28 @@ module.exports = async (inputData = null) => {
             await resetP2PMsg();
           };
 
-          const resetReceivingFragments = async () => {
+          const clearReceiving = () => {
+            Object.keys(receivingFragments).forEach(discardFragment);
             receivingFragments = {};
+            receivingFragmentStats = null;
+          };
+          cancelIncoming = () => {
+            sendingFragmentId = '';
+            sendingFragmentStats = null;
+            clearReceiving();
+          };
+          const dropPeerFragments = peerId => {
+            peerReceiveLimits.delete(peerId);
+            for (const [fid, entry] of Object.entries(receivingFragments)) {
+              if (entry.peerId === peerId) {
+                discardFragment(fid);
+                delete receivingFragments[fid];
+              }
+            }
+            if (!Object.keys(receivingFragments).length) receivingFragmentStats = null;
+          };
+          const resetReceivingFragments = async () => {
+            clearReceiving();
             receivingFragmentStats = null;
             await resetP2PMsg();
           };
@@ -754,6 +982,7 @@ module.exports = async (inputData = null) => {
               const entry = receivingFragments[fid];
               if (entry && typeof entry.lastReceivedAt === 'number'
                   && (now - entry.lastReceivedAt) > FRAGMENT_TTL_MS) {
+                discardFragment(fid);
                 delete receivingFragments[fid];
                 pruned += 1;
               }
@@ -791,6 +1020,7 @@ module.exports = async (inputData = null) => {
             }
             dataChannelHeartbeatTimers[remotePeerId] = setInterval(() => {
               try {
+                pruneStaleReceivingFragments();
                 if (run.isCurrent() && channel.readyState === 'open') {
                   channel.send(P2P_DC_KEEPALIVE_JSON);
                 }
@@ -802,6 +1032,9 @@ module.exports = async (inputData = null) => {
 
           async function cleanupPeerConnections() {
             p2pShuttingDown = true;
+            peerReceiveLimits.clear();
+            clipboardJobs.cancel();
+            cancelIncoming();
             for (const id of Object.keys(peerConnectionDeadlines)) {
               cancelPeerConnectionDeadline(id);
             }
@@ -986,7 +1219,8 @@ module.exports = async (inputData = null) => {
           initializeWebSocketSignalingClient();
 
           // send clipboard content P2P
-          sendClipBoardP2P = async (clipContent, type_ = 'text') => {
+          sendClipBoardP2P = async (clipContent, type_ = 'text', generation) => {
+            const checkCurrent = () => checkClipboardJob(generation);
             try {
               if (!isShareTransportReady()) return false;
               await clearFiles();
@@ -997,98 +1231,129 @@ module.exports = async (inputData = null) => {
                 return;
               }
 
-              if (await validateClipboardSize(clipContent, type_, 'Outbound')) {
-                // base64 encode
-                if (type_ === 'image') {
-                  clipContent = await NativeBridgeModule.getFileAsBase64(
-                    clipContent,
-                  );
-                } else if (type_ === 'files') {
-                  clipContent = await encodeFiles(clipContent, NativeBridgeModule);
+              let contentSizeBytes = await measureClipboardContent(clipContent, type_, 'Outbound');
+              const eligiblePeers = () => Object.entries(dataChannels).filter(([peer, channel]) =>
+                channel.readyState === 'open' && allowsContentSize(peerReceiveLimits.get(peer), contentSizeBytes))
+                .map(([, channel]) => channel);
+              if (await validateClipboardSize(clipContent, type_, 'Outbound', contentSizeBytes)) {
+                checkCurrent();
+                if (!eligiblePeers().length) {
+                  p2pMsg = '⚠️ Clipboard not sent: content exceeds connected peers’ receive limits.';
+                  await p2pStatusMessageChanged();
+                  return true;
+                }
+                checkCurrent();
+                const recipients = eligiblePeers();
+                const recipientIds = new Map(Object.entries(dataChannels).map(([peer, channel]) => [channel, peer]));
+                const binaryPeers = new Set(recipients.filter(channel => channel._ccBinary === true));
+                // Load original bytes once for this recipient snapshot.
+                if (type_ === 'image' || type_ === 'files') {
+                  clipContent = await loadClipboardAttachment(clipContent, type_, generation, size => { contentSizeBytes = size; });
                 }
 
-                // clipboad content hash
-                const hcb = await hashCB(clipContent);
+                checkCurrent();
+                if (type_ === 'image') contentSizeBytes = clipContent.length;
+                if (!(await validateClipboardSize(clipContent, type_, 'Outbound', contentSizeBytes))) return true;
+                checkCurrent();
+                if (!eligiblePeers().length) {
+                  p2pMsg = '⚠️ Clipboard not sent: content exceeds connected peers’ receive limits.';
+                  await p2pStatusMessageChanged();
+                  return true;
+                }
+                // clipboard content hash
+                const hcb = await hashCB(clipContent, type_);
+                checkCurrent();
                 if (await newCB(hcb)) {
                   if (block_image_once) {
                     block_image_once = false;
                   } else {
+                    checkCurrent();
                     await resetSendingFragmentId();
+                    checkCurrent();
                     await resetReceivingFragments();
+                    checkCurrent();
 
-                    const rawPayloadSizeInBytes =
-                      textEncoder.encode(clipContent).length;
-
-                    if (cipher_enabled === 'true') {
-                      //ecrypt
-                      clipContent = await encrypt(clipContent);
-                    }
-
-                    // fragment payload
-                    const fragments = await fragmentString(
-                      clipContent,
-                      FRAGMENT_SIZE,
-                    );
-
-                    const metadata = {
-                      id: await generateUuid(),
-                      isFragmented: fragments.length > 1,
-                      index: 0,
-                      totalFragments: fragments.length,
-                      combinedRawPayloadSizeInBytes: rawPayloadSizeInBytes,
+                    let legacy = null;
+                    const getLegacy = () => {
+                      if (legacy === null) legacy = binary.legacyContent(clipContent, type_);
+                      return legacy;
                     };
-
-                    const recipients = Object.values(dataChannels).filter(channel => channel.readyState === 'open');
                     if (!recipients.length) return false;
-                    let loopBroken = false;
-                    sendingFragmentId = metadata.id;
-                    for (let i = 0; i < fragments.length; i++) {
-                      if (!(await isClipboardSyncEnabled('send_clipboard'))) {
-                        await resetSendingFragmentId();
-                        return;
-                      }
-                      if (sendingFragmentId != metadata.id) {
-                        loopBroken = true;
-                        return false;
-                      }
-
-                      const fragment = fragments[i];
-
-                      const messageJson = JSON.stringify({
-                        payload: fragment,
-                        type: type_,
-                        metadata: metadata,
-                      });
-                      metadata.index += 1;
-
-                      // A peer joining midway cannot receive a partial batch.
-                      let sent = false;
-                      for (const channel of recipients) {
-                        if (run.isCurrent() && !transportStopped && channel.readyState === 'open') {
-                          await channel.send(messageJson);
-                          sent = true;
+                    const encrypted = cipher_enabled === 'true';
+                    const groups = [];
+                    for (let useBinary of [false, true]) {
+                      const channels = recipients.filter(channel => binaryPeers.has(channel) === useBinary);
+                      if (!channels.length) continue;
+                      checkCurrent();
+                      let parts;
+                      let combinedRawPayloadSizeInBytes = 0;
+                      if (useBinary) {
+                        try {
+                          const raw = await binary.encodeContent(clipContent, type_, encrypted ? encryptBinary : null,
+                            size => { combinedRawPayloadSizeInBytes = size; }, checkCurrent);
+                          parts = binary.fragments(raw, FRAGMENT_SIZE);
+                        } catch (error) {
+                          if (error.message !== 'Binary header too large') throw error;
+                          parts = [];
                         }
+                        if (!parts.length || parts.length > 65536) {
+                          useBinary = false;
+                          combinedRawPayloadSizeInBytes = Buffer.byteLength(getLegacy(), 'utf8');
+                          parts = await fragmentString(encrypted ? await encrypt(getLegacy()) : getLegacy(), FRAGMENT_SIZE, checkCurrent);
+                        }
+                      } else {
+                        combinedRawPayloadSizeInBytes = Buffer.byteLength(getLegacy(), 'utf8');
+                        const prepared = encrypted ? await encrypt(getLegacy()) : getLegacy();
+                        parts = await fragmentString(prepared, FRAGMENT_SIZE, checkCurrent);
                       }
-                      if (!sent) {
-                        await resetSendingFragmentId();
-                        return false;
-                      }
-
-                      // Update stats
-                      if (metadata.isFragmented) {
-                        sendingFragmentStats = `${metadata.index}/${metadata.totalFragments}`;
-                        await p2pStatusMessageChanged();
-                      }
+                      groups.push({useBinary, channels, fragments: parts, combinedRawPayloadSizeInBytes});
                     }
-                    if (!loopBroken) {
+                    checkCurrent();
+                    clipContent = null;
+                    const metadata = {
+                      id: await generateUuid(), contentSizeBytes,
+                    };
+                    checkCurrent();
+                    sendingFragmentId = metadata.id;
+                    try {
+                      const results = await Promise.all(groups.map(group => sendSharedClipboardFragments(
+                        group.fragments, group.channels,
+                        {...metadata, combinedRawPayloadSizeInBytes: group.combinedRawPayloadSizeInBytes,
+                          isFragmented: group.fragments.length > 1, index: 0, totalFragments: group.fragments.length},
+                        type_, textEncoder,
+                        () => {
+                          checkCurrent();
+                          if (sendingFragmentId !== metadata.id) throw new ClipboardSuperseded();
+                        },
+                        async () => {
+                          if (!(await isClipboardSyncEnabled('send_clipboard'))) throw new ClipboardSuperseded();
+                        },
+                        (index, total) => {
+                          if (generation === clipboardJobs.generation && sendingFragmentId === metadata.id) {
+                            sendingFragmentStats = `${index}/${total}`;
+                            isP2PStatusMsgChanged = true;
+                          }
+                        },
+                        channel => dataChannels[recipientIds.get(channel)] === channel
+                          && allowsContentSize(peerReceiveLimits.get(recipientIds.get(channel)), contentSizeBytes),
+                        group.useBinary ? (part, meta) => binary.encodeFrame(part, type_, meta, encrypted) : null,
+                      )));
+                      const completed = results.reduce((sum, count) => sum + count, 0);
+                      checkCurrent();
+                      if (!completed) return false;
                       previous_clipboard_content_hash = hcb;
-                      await resetSendingFragmentId();
+                    } finally {
+                      if (sendingFragmentId === metadata.id) await resetSendingFragmentId();
                     }
                   }
                 }
               }
             } catch (e) {
+              checkCurrent();
+              if (isClipboardSuperseded(e)) throw e;
               block_image_once = false;
+              await resetSendingFragmentId();
+              checkCurrent();
               p2pMsg = '❌ P2P Outbound Error: ' + JSON.stringify(e, null, 2);
               await p2pStatusMessageChanged();
               throw e;
@@ -1098,6 +1363,9 @@ module.exports = async (inputData = null) => {
           // stop events and connection P2P
           stopServicesP2P = async () => {
             transportStopped = true;
+            clipboardJobs.cancel();
+            cancelIncoming();
+            files_in_memory = null;
             // This service must stay stopped even if a newer service sets the
             // shared running flag back to true before an old retry completes.
             signalingStopped = true;
@@ -1160,10 +1428,15 @@ module.exports = async (inputData = null) => {
           };
 
           // receive clipboard content P2P
-          const onDataChannelMessage = async messageJson => {
+          const onDataChannelMessage = async (messageJson, peerId) => {
             try {
-              const message = JSON.parse(messageJson);
+              const message = typeof messageJson === 'string' ? JSON.parse(messageJson) : binary.decodeFrame(messageJson);
+              const isBinary = message._cc_binary === true;
               if (message && message._cc_keepalive === true) {
+                const channel = dataChannels[peerId];
+                if (channel) channel._ccBinary = message.capabilities?.version === 1
+                  && Array.isArray(message.capabilities.transferFormats) && message.capabilities.transferFormats.includes('ccb1');
+                readReceiveCapability(message, peerReceiveLimits, peerId);
                 return;
               }
 
@@ -1171,25 +1444,36 @@ module.exports = async (inputData = null) => {
                 await resetReceivingFragments();
                 return;
               }
-              await clearFiles(true);
-              await resetSendingFragmentId();
 
-              let cb = String(message.payload);
+              let cb = isBinary ? message.payload : String(message.payload);
               const type_ = message.type ?? 'text';
               const metadata = message.metadata;
-
+              if (!acceptsClipboardFragment(metadata, receivingFragments, discardedFragments)) return;
               // Check if the payload exceeds the maximum size: first layer protection
-              if (
-                metadata != null &&
-                max_clipboard_size_local_limit_bytes >= 0 &&
-                metadata.combinedRawPayloadSizeInBytes >
-                  max_clipboard_size_local_limit_bytes
-              ) {
-                await resetReceivingFragments();
-                p2pMsg = `⚠️ Payload size limit exceeded: ${metadata['combinedRawPayloadSizeInBytes']} bytes exceeds ${max_clipboard_size_local_limit_bytes} bytes`;
+              // Legacy payload sizes include overhead. When original size is
+              // absent, defer to the decoded-content validation below.
+              const announcedSize = metadataContentSize(metadata);
+              if (!allowsContentSize(localReceiveLimit, announcedSize)) {
+                if (metadata?.id) {
+                  delete receivingFragments[metadata.id];
+                  discardFragment(metadata.id);
+                }
+                if (!Object.keys(receivingFragments).length) receivingFragmentStats = null;
+                p2pMsg = `⚠️ Content size limit exceeded: ${announcedSize} bytes exceeds ${max_clipboard_size_local_limit_bytes} bytes`;
                 await p2pStatusMessageChanged();
                 return;
               }
+
+              let generation = metadata && receivingFragments[metadata.id]?.generation;
+              if (metadata == null || (metadata.index === 0 && generation == null)) {
+                generation = clipboardJobs.cancel();
+                await resetSendingFragmentId();
+                checkClipboardJob(generation);
+                await clearFiles(true);
+              }
+              checkClipboardJob(generation);
+              await clearShareFailure(generation);
+              checkClipboardJob(generation);
 
               // Fragmented message handling
               if (metadata != null && metadata.isFragmented) {
@@ -1198,9 +1482,21 @@ module.exports = async (inputData = null) => {
                   metadata.totalFragments
                 }`;
                 await p2pStatusMessageChanged();
+                checkClipboardJob(generation);
 
                 if (metadata.id in receivingFragments) {
                   const entry = receivingFragments[metadata.id];
+                  if (entry.peerId !== peerId || entry.fragments.length !== metadata.totalFragments || entry.type !== type_ || entry.binary !== isBinary || entry.encrypted !== message.encrypted) {
+                    await resetReceivingFragments();
+                    return;
+                  }
+                  checkClipboardJob(entry.generation);
+                  if (isBinary) {
+                    if (metadata.index !== entry.nextIndex || metadata.contentSizeBytes !== entry.size
+                        || entry.bytes + cb.length > entry.size + 65536 + 64) throw new Error('Invalid binary fragment sequence or size');
+                    entry.nextIndex++;
+                    entry.bytes += cb.length;
+                  }
                   entry.fragments[metadata.index] = cb;
                   entry.lastReceivedAt = Date.now();
 
@@ -1209,7 +1505,8 @@ module.exports = async (inputData = null) => {
                     // Check if all fragments are present (none is empty)
                     if (entry.fragments.every(frag => frag !== '')) {
                       // Join them all together into one payload
-                      cb = entry.fragments.join('');
+                      cb = isBinary ? binary.concat(entry.fragments) : entry.fragments.join('');
+                      discardFragment(metadata.id);
                       delete receivingFragments[metadata.id];
                     } else {
                       // Missing fragment(s): error out
@@ -1225,8 +1522,11 @@ module.exports = async (inputData = null) => {
                   }
                 } else {
                   await resetReceivingFragments();
+                  checkClipboardJob(generation);
                   receivingFragments[metadata.id] = {
                     lastReceivedAt: Date.now(),
+                    peerId, generation, type: type_, binary: isBinary, encrypted: message.encrypted,
+                    nextIndex: 1, bytes: cb.length, size: metadata.contentSizeBytes,
                     fragments: Array(metadata.totalFragments).fill(''),
                   };
                   receivingFragments[metadata.id].fragments[metadata.index] = cb;
@@ -1234,10 +1534,14 @@ module.exports = async (inputData = null) => {
                 }
               }
 
+              checkClipboardJob(generation);
               await clearFiles();
+              checkClipboardJob(generation);
 
               // decrypt
-              if (cipher_enabled === 'true') {
+              if (isBinary) {
+                cb = await decodeBinary({...message, payload: cb});
+              } else if (cipher_enabled === 'true') {
                 try {
                   cb = await decrypt(JSON.parse(cb));
                 } catch (error) {
@@ -1247,8 +1551,10 @@ module.exports = async (inputData = null) => {
                 }
               }
 
+              checkClipboardJob(generation);
               // hash clipboard content
-              const hcb = await hashCB(cb);
+              const hcb = await hashCB(cb, type_);
+              checkClipboardJob(generation);
               if (await newCB(hcb)) {
                 previous_clipboard_content_hash = hcb;
 
@@ -1260,16 +1566,18 @@ module.exports = async (inputData = null) => {
                     return;
                   }
                   await NativeBridgeModule.discardPendingShare();
+                  checkClipboardJob(generation);
                   // set clipboard content
                   if (type_ === 'text') {
                     await NativeBridgeModule.copyTextToClipboard(cb);
                   } else if (type_ === 'image') {
-                    await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
-                      cb,
-                    );
                     block_image_once = true;
+                    await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
+                      binary.legacyContent(cb, type_),
+                    );
                   } else if (type_ === 'files') {
                     await showFilesDownloadNotification(cb);
+                    checkClipboardJob(generation);
 
                     files_in_memory = cb;
                     await setDataInAsyncStorage(
@@ -1279,7 +1587,10 @@ module.exports = async (inputData = null) => {
                   }
                 }
               }
+              await clearShareFailure(generation);
             } catch (e) {
+              if (isClipboardSuperseded(e)) return;
+              await resetReceivingFragments();
               p2pMsg = '❌ P2P Inbound Error: ' + e;
               await p2pStatusMessageChanged();
             }
@@ -1326,6 +1637,7 @@ module.exports = async (inputData = null) => {
             );
             // 2) For each stale peer, close data channel and peer connection
             for (const oldPid of stalePeerIds) {
+              dropPeerFragments(oldPid);
               cancelPeerConnectionDeadline(oldPid);
               delete peerOpChains[oldPid];
               delete peerRetryAttempts[oldPid];
@@ -1358,6 +1670,7 @@ module.exports = async (inputData = null) => {
           };
 
           const disposePeerConnection = async peerId => {
+            dropPeerFragments(peerId);
             cancelPeerConnectionDeadline(peerId);
             if (dataChannelHeartbeatTimers[peerId]) {
               clearInterval(dataChannelHeartbeatTimers[peerId]);
@@ -1621,20 +1934,26 @@ module.exports = async (inputData = null) => {
            * Set up DataChannel for remotePeerId.
            */
           const setupDataChannel = async (remotePeerId, channel) => {
+            channel.binaryType = 'arraybuffer';
             channel.onopen = track(async () => {
               if (dataChannels[remotePeerId] !== channel) return;
               cancelPeerConnectionDeadline(remotePeerId);
               delete peerRetryAttempts[remotePeerId];
+              channel.send(P2P_DC_KEEPALIVE_JSON);
               startDataChannelHeartbeat(remotePeerId, channel);
               await syncLiveConnectionsCount();
             });
 
-            channel.onmessage = track(async e => {
-              await onDataChannelMessage(e.data);
-            });
+            const receiveMessage = serializeClipboardMessages(async data => {
+              if (run.isCurrent() && !transportStopped && dataChannels[remotePeerId] === channel) {
+                await onDataChannelMessage(data, remotePeerId);
+              }
+            }, () => localClipboardEpoch);
+            channel.onmessage = track(e => receiveMessage(e.data));
 
             channel.onclose = track(async () => {
               if (dataChannels[remotePeerId] !== channel) return;
+              dropPeerFragments(remotePeerId);
               const pc = peerConnections[remotePeerId];
               if (dataChannelHeartbeatTimers[remotePeerId]) {
                 clearInterval(dataChannelHeartbeatTimers[remotePeerId]);
@@ -1658,16 +1977,36 @@ module.exports = async (inputData = null) => {
         // send clipboard content
         const sendClipBoard = async (clipContent, type_ = 'text') => {
           if (!run.isCurrent() || transportStopped) return false;
-          if (type_ !== 'image') block_image_once = false;
-          if (!(await isClipboardSyncEnabled('send_clipboard'))) {
-            block_image_once = false;
-            return;
-          }
-          const sent = server_mode === 'P2S'
-            ? await sendClipBoardP2S(clipContent, type_)
-            : await sendClipBoardP2P(clipContent, type_);
-          if (sent === false) {
-            throw new Error('Clipboard not sent: connection unavailable, busy, or interrupted. Copy/share it again when connected.');
+          // Native observation metadata identifies our own writes. A real
+          // local copy must not be suppressed merely because its text or URI
+          // matches a previous received item.
+          block_image_once = false;
+          localClipboardEpoch++;
+          const generation = clipboardJobs.cancel();
+          cancelIncoming();
+          let sent;
+          try {
+            await clearFiles();
+            checkClipboardJob(generation);
+            await clearShareFailure(generation);
+            checkClipboardJob(generation);
+            if (!(await isClipboardSyncEnabled('send_clipboard'))) return;
+            checkClipboardJob(generation);
+            sent = server_mode === 'P2S'
+              ? await sendClipBoardP2S(clipContent, type_, generation)
+              : await sendClipBoardP2P(clipContent, type_, generation);
+            checkClipboardJob(generation);
+            if (sent === false) {
+              throw new Error('Clipboard not sent: connection unavailable, busy, or interrupted. Copy/share it again when connected.');
+            }
+            await clearShareFailure(generation);
+          } catch (error) {
+            // A newer local copy or inbound item can arrive while an awaited
+            // send is returning false or failing. It is cancellation, not a
+            // connection error belonging to the current clipboard item.
+            if (generation !== clipboardJobs.generation) return true;
+            if (isClipboardSuperseded(error)) return true;
+            throw error;
           }
           return sent;
         };
@@ -1682,8 +2021,9 @@ module.exports = async (inputData = null) => {
               isShareTransportReady,
               async (content, type) => {
                 block_image_once = false;
+                const expectedGeneration = clipboardJobs.generation + 1;
                 const result = await sendClipBoard(content, type);
-                if (run.isCurrent() && type === 'text') {
+                if (run.isCurrent() && type === 'text' && clipboardJobs.generation === expectedGeneration) {
                   try {
                     await NativeBridgeModule.copyTextToClipboard(content);
                   } catch (error) {
@@ -1693,6 +2033,7 @@ module.exports = async (inputData = null) => {
                 return result;
               },
               error => setDataInAsyncStorage('wsStatusMessage', '❌ Share failed: ' + error),
+              revision => clipboardRevisions.baseline(revision),
             )) {
               // Each entry is consumed once; this only handles a newly arrived share.
             }
@@ -1796,7 +2137,7 @@ module.exports = async (inputData = null) => {
               };
               try {
                 // Snapshot the batch; incoming clipboard updates can replace files_in_memory.
-                const files = JSON.parse(files_in_memory || '{}');
+                const files = typeof files_in_memory === 'string' ? JSON.parse(files_in_memory) : (files_in_memory || {});
                 const entries = Object.entries(files);
                 total = entries.length;
                 await setDataInAsyncStorage('fileDownloadInProgress', 'true');
@@ -1809,7 +2150,7 @@ module.exports = async (inputData = null) => {
                 for (const [name, content] of entries) {
                   await NativeBridgeModule.saveBase64Files(
                     dirPath,
-                    JSON.stringify({[name]: content}),
+                    JSON.stringify({[name]: typeof content === 'string' ? content : binary.toBase64(content)}),
                   );
                   saved += 1;
                   await reportDownload(`Saving ${saved} of ${total} ${total === 1 ? 'file' : 'files'}…`, true);

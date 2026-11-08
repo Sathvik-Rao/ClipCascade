@@ -12,7 +12,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>ClipCascade</title>
 
-    <!-- Bootstrap CSS (CDN) -->
+    <!-- Locally bundled Bootstrap CSS -->
     <link rel="stylesheet" href="/assets/css/bootstrap@3.3.7.min.css" />
 
     <!-- Favicon -->
@@ -68,14 +68,7 @@
           </li>
           <!-- Advanced (ONLY SHOW IF ADMIN) -->
           <li>
-            <a
-              href="/admin/advance"
-              id="advance-link"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Advance
-            </a>
+            <a href="#advanced" id="advance-link">Advanced</a>
           </li>
           <!-- Change Username (ONLY SHOW IF ADMIN) -->
           <li>
@@ -98,7 +91,13 @@
     </nav>
 
     <!-- Main Container -->
-    <div class="container">
+    <div id="dashboard-view" class="container">
+      <div id="default-password-warning" class="alert alert-warning" role="status" hidden>
+        <strong>Your server is using the default admin password.</strong>
+        <button type="button" id="default-password-warning-change" class="btn btn-warning btn-sm">
+          Change password
+        </button>
+      </div>
       <noscript>
         <h2 style="color: #f00">
           Seems your browser doesn't support JavaScript!
@@ -253,6 +252,30 @@
     </div>
     <!-- /.container -->
 
+    <section id="advanced-view" class="container" aria-labelledby="advanced-title" hidden>
+      <header class="advanced-header">
+        <a href="/" id="advanced-back" class="btn btn-default">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round"
+            stroke-linejoin="round" aria-hidden="true">
+            <path d="m12 5-7 7 7 7M5 12h14" />
+          </svg>
+          Back
+        </a>
+        <h2 id="advanced-title" tabindex="-1">Advanced</h2>
+      </header>
+      <p id="advanced-status" role="status"></p>
+      <div id="advanced-tools"></div>
+    </section>
+
+    <dialog id="default-password-dialog" aria-labelledby="default-password-title">
+      <h3 id="default-password-title">Change the default admin password</h3>
+      <p>Anyone who can reach this server can sign in as administrator with the published password.</p>
+      <p>Change it before making your server accessible to others.</p>
+      <button type="button" id="default-password-change" class="btn btn-primary">Change password</button>
+      <button type="button" id="default-password-later" class="btn btn-default">Remind me later</button>
+    </dialog>
+
     <!-- =====================================================
        ===========    MODALS FOR ADMIN ACTIONS    ===========
        ===================================================== -->
@@ -387,6 +410,9 @@
     <script src="/assets/js/jquery-3.1.1.min.js"></script>
     <script src="/assets/js/stomp.umd.min.js"></script>
     <script src="/assets/js/sha3.min.js"></script>
+    <script src="/assets/js/advance.js"></script>
+    <script src="/assets/js/binary-protocol.js"></script>
+    <script src="/assets/js/relay-recipients.js"></script>
     <script src="/assets/js/main.js"></script>
   </body>
 </html>

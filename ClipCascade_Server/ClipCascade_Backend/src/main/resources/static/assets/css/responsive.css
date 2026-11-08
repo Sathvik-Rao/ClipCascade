@@ -49,7 +49,6 @@
   right: 0;
 }
 .dashboard-page .modal-content h3 { padding-right: 28px; }
-.advance-page .section-container,
 .dashboard-page .alert { overflow-wrap: anywhere; }
 .auth-page .captcha-image-container { min-width: 0; }
 .auth-page #captchaImage { max-width: 100%; height: auto; }
@@ -76,9 +75,6 @@
 }
 
 @media (max-width: 991px) {
-  .advance-page { padding: 16px 0; }
-  .advance-page > .container { max-width: 100%; }
-  .advance-page .unlock-user-btn { margin-top: 0; }
   .dashboard-page #user-section .form-inline .form-group,
   .dashboard-page #ws_text { display: block; width: 100%; }
   .dashboard-page #send { margin-top: 8px; }
@@ -106,13 +102,10 @@
   .dashboard-page .admin-toolbar .admin-search-input { width: 100%; max-width: none; }
   .dashboard-page .footer { justify-content: center; }
   .dashboard-page .footer #server-version { flex-basis: 100%; margin: 0; text-align: center; }
-  .advance-page .section-container { padding: 16px; }
-  .advance-page .table-toolbar .search-input { max-width: none; flex: 1 1 100%; }
-  .advance-page h1 { font-size: 1.75rem; }
-  .advance-page h2 { font-size: 1.4rem; }
-  .advance-page .theme-header { padding: 0 0 54px; }
-  .advance-page .theme-header .theme-toggle { top: auto; bottom: 0; }
-  .advance-page .table-toolbar > .btn { white-space: normal; }
+  #advanced-view .section-container { padding: 16px; }
+  #advanced-view .table-toolbar .search-input { max-width: none; flex: 1 1 100%; }
+  #advanced-view .section-container h2 { font-size: 20px; }
+  .advance-unlock-row > :first-child { width: 100%; }
   /* 16px fields avoid focus zoom on iOS; 44px controls are easier to tap. */
   body .form-control,
   body .form-select { font-size: 16px; min-height: 44px; }

@@ -1,5 +1,3 @@
-version: '3.8'
-
 # # 🌐 GitHub Repository: https://github.com/Sathvik-Rao/ClipCascade
 # # 🐳 Docker Compose configuration for deploying ClipCascade Server.
 # # ⚠️ IMPORTANT: Update the default admin credentials after the first login.

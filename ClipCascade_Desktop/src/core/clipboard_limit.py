@@ -25,6 +25,14 @@ def parse_clipboard_limit(amount, unit):
         raise ValueError("Enter a valid clipboard size limit.") from error
 
 
-def format_clipboard_limit(value):
-    # Preserve the original byte value and blank-input behavior on every load.
+def format_clipboard_limit(value, display=None):
+    if isinstance(display, dict):
+        amount, unit = display.get("amount"), display.get("unit")
+        if isinstance(amount, str) and isinstance(unit, str):
+            try:
+                if parse_clipboard_limit(amount, unit) == value:
+                    return amount, unit
+            except ValueError:
+                pass
+    # Older settings and byte counts changed outside the editor use Bytes.
     return ("" if value is None or value == "" else str(int(value))), "Bytes"

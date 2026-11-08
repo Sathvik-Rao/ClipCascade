@@ -11,6 +11,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.acme.clipcascade.constants.RoleConstants;
+import com.acme.clipcascade.constants.ServerConstants;
 import com.acme.clipcascade.model.PageResponse;
 import com.acme.clipcascade.model.Users;
 import com.acme.clipcascade.repo.UserRepo;
@@ -24,6 +25,7 @@ public class UserService {
     private final UserRepo userRepo;
     private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final MessageDigest shaPasswordEncoder;
+    private final String defaultAdminPasswordDigest;
 
     public UserService(UserRepo userRepo,
             BCryptPasswordEncoder bCryptPasswordEncoder,
@@ -32,6 +34,15 @@ public class UserService {
         this.userRepo = userRepo;
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
         this.shaPasswordEncoder = shaPasswordEncoder;
+        this.defaultAdminPasswordDigest = HashingUtility.preHashPassword(
+                ServerConstants.DEFAULT_ADMIN_PASSWORD, shaPasswordEncoder);
+    }
+
+    public boolean usesDefaultAdminPassword(String username) {
+        return userRepo.findById(username)
+                .filter(user -> RoleConstants.ADMIN.equals(user.getRole()))
+                .map(user -> bCryptPasswordEncoder.matches(defaultAdminPasswordDigest, user.getPassword()))
+                .orElse(false);
     }
 
     public void doubleHashAndCreateUser(

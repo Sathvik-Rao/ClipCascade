@@ -53,6 +53,17 @@ body .section-container {
   padding: 20px;
 }
 body a { color: var(--cc-link); }
+#default-password-dialog {
+  width: min(440px, calc(100% - 32px));
+  padding: 24px;
+  color: var(--cc-text);
+  background: var(--cc-surface);
+  border: 1px solid var(--cc-border);
+  border-radius: 12px;
+}
+#default-password-dialog h3 { margin-top: 0; }
+#default-password-dialog .btn { margin-top: 6px; }
+#default-password-dialog::backdrop { background: rgb(0 0 0 / 50%); }
 body a:hover { color: var(--cc-link); }
 body hr { border-color: var(--cc-border); opacity: 1; }
 body label small,

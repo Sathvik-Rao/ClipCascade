@@ -76,6 +76,27 @@ class RequestManager:
             logging.error(msg)
             return False, msg, None
 
+    def binary_recipients(self):
+        """An authenticated, per-transfer snapshot; old servers fall back to v1."""
+        try:
+            response = requests.get(self.config.data["server_url"].rstrip("/") + "/clipbinary/recipients",
+                                    headers={"Cookie": self.format_cookie(self.config.data["cookie"])},
+                                    verify=self._verify(), timeout=3)
+            if response.status_code != 200:
+                return None
+            plan = response.json()
+            peers = plan.get("recipients")
+            import re
+            if plan.get("format") != "ccb1" or not isinstance(peers, list) or len(peers) > 256:
+                return None
+            if not all(isinstance(peer, dict) and isinstance(peer.get("id"), str)
+                       and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", peer["id"])
+                       and type(peer.get("binary")) is bool for peer in peers):
+                return None
+            return {flag: [peer["id"] for peer in peers if peer["binary"] == flag] for flag in (False, True)}
+        except (requests.RequestException, ValueError, TypeError):
+            return None
+
     def maxsize(self) -> int:
         try:
             response = RequestManager.get(
@@ -136,9 +157,6 @@ class RequestManager:
         try:
             response = RequestManager.get(
                 url=METADATA_URL,
-                headers={
-                    "Cookie": RequestManager.format_cookie(self.config.data["cookie"])
-                },
                 verify=True,
             )
             if response.status_code == 200:

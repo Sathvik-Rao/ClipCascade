@@ -30,16 +30,21 @@ class CipherManager:
         )
 
     def encrypt(self, plaintext: str) -> dict:
+        return self.encrypt_bytes(plaintext.encode("utf-8"))
+
+    def encrypt_bytes(self, plaintext_bytes: bytes) -> dict:
         key = self.config.data["hashed_password"]
-        plaintext_bytes = plaintext.encode("utf-8")
         cipher = AES.new(key, self.mode)
         ciphertext, tag = cipher.encrypt_and_digest(plaintext_bytes)
         return {"nonce": cipher.nonce, "ciphertext": ciphertext, "tag": tag}
 
     def decrypt(self, nonce: bytes, ciphertext: bytes, tag: bytes) -> str:
+        return self.decrypt_bytes(nonce, ciphertext, tag).decode()
+
+    def decrypt_bytes(self, nonce: bytes, ciphertext: bytes, tag: bytes) -> bytes:
         key = self.config.data["hashed_password"]
         cipher = AES.new(key, self.mode, nonce=nonce)
-        return cipher.decrypt_and_verify(ciphertext, tag).decode()
+        return cipher.decrypt_and_verify(ciphertext, tag)
 
     @staticmethod
     def encode_to_json_string(**kwargs: bytes) -> str:
