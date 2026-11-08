@@ -176,7 +176,7 @@ class Application:
             ws_conn_successful, msg = self._get_ws_manager().connect()
             if ws_conn_successful:
                 self._get_ws_manager().is_login_phase = False
-                return
+                return False  # Reused saved login; keep its current storage.
 
         # enable login form
         used_saved_credentials = False
@@ -251,6 +251,8 @@ class Application:
             raw_password = None  # Clear the raw password
             if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
                 Echo("-" * 53)
+
+        return display_login_success_dialog  # A form login commits the storage choice.
 
     def _get_ws_manager(self):
         return self.transport_manager
@@ -337,8 +339,12 @@ class Application:
             dialog = CustomDialog(
                 "ClipCascade is not connected because saved login data could not be accessed.\n\n"
                 + self.config.credential_load_error
-                + "\n\nRetry may show an OS unlock or permission prompt. "
-                  "You can also sign in manually or exit.",
+                + (
+                    "\n\nRetry may show an OS unlock or permission prompt. "
+                    if self.config.credentials_use_keyring
+                    else "\n\nRetry after checking the saved DATA file. "
+                )
+                + "You can also sign in manually or exit.",
                 msg_type="warning",
                 actions=[("Retry", "retry"), ("Sign in", "sign_in"), ("Exit", "exit")],
             )
@@ -355,14 +361,19 @@ class Application:
             self.ensure_single_instance()
             self.load_saved_config()
             self.update_checker.start()
-            self.authenticate_and_connect()
-            if not self.config.save():
-                CustomDialog(
-                    "ClipCascade is connected, but the login could not be saved securely. "
-                    "Automatic login may not work next time. Existing saved data has been preserved.\n\n"
+            manual_login = self.authenticate_and_connect()
+            if not self.config.save(commit_storage=manual_login):
+                storage_help = (
                     "Check that the OS credential store is available, unlocked, and allows ClipCascade access. "
                     "If running from source, also check that the Python 'keyring' package is installed "
-                    "in the same environment used to run ClipCascade.",
+                    "in the same environment used to run ClipCascade."
+                    if (self.config.data["use_keyring"] if manual_login else self.config.credentials_use_keyring)
+                    else "Check that the DATA file location is writable."
+                )
+                CustomDialog(
+                    "ClipCascade is connected, but the login could not be saved. "
+                    "Automatic login may not work next time. Existing saved data has been preserved.\n\n"
+                    + storage_help,
                     msg_type="warning",
                 ).mainloop()
             donation_url = self.get_donation_url()

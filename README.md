@@ -1154,6 +1154,9 @@ Device preferences save as you change them, without requiring a successful login
 
 #### Desktop (Specific):
 
+- **Use OS credential storage**: Disabled by default. Enable it under **Show advanced settings → Security** to save login credentials in Windows Credential Manager, macOS Keychain, or a Linux Secret Service keyring instead of the local `DATA` file. When disabled, credentials use the existing `DATA` format without OS credential-store protection. The preference saves immediately, but the storage change takes effect only after successful manual login. Closing the login form or a failed login/save preserves the existing saved credentials. This option is independent of **Store Password Locally**.
+   > Note: On Linux, starting before OS login may leave the credential service unavailable, and a locked keyring may require an unlock popup after login. On macOS, an updated app may ask you to allow Keychain access again.
+
 - **Notify when clipboard content is received**: Disabled by default. Enable it in advanced settings to show notifications for content received from another device, including a text preview, image dimensions, or file names with a file icon. Previews may be visible on your lock screen. This setting is independent of connection status and update notifications.
 
 #### Android (Specific):

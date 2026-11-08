@@ -6,6 +6,23 @@ import time
 
 SERVICE = "ClipCascade"
 
+# Shared by the GUI hover help and Linux CLI advanced settings.
+STORAGE_HELP = (
+    "Off (default): saved login credentials are stored in the local DATA file, "
+    "without OS credential-store protection.\n\n"
+    "On: store saved login credentials in Windows Credential Manager, macOS Keychain, "
+    "or a Linux Secret Service keyring instead of DATA. "
+    "This also protects saved session credentials and encryption keys; "
+    "it does not change whether your password is remembered. "
+    "This choice is saved immediately and takes effect after your next successful manual login. "
+    "Closing the login form keeps the existing saved credentials in their current location.\n\n"
+    "Linux: starting before OS login may leave the credential service unavailable. "
+    "A locked keyring may show an unlock popup when a desktop session is available, "
+    "including after automatic login.\n\n"
+    "macOS: an updated app may ask you to allow Keychain access again. "
+    "Allow access to continue using the saved login."
+)
+
 
 def is_service_unavailable(error):
     """Recognize availability failures, not evidence that startup is in progress."""
