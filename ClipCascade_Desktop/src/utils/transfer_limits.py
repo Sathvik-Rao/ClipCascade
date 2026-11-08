@@ -62,7 +62,8 @@ def content_size(payload, kind):
     if kind == "text":
         return len(payload.encode("utf-8"))
     if kind == "image":
-        return base64_size(payload)
+        return len(payload) if isinstance(payload, bytes) else base64_size(payload)
     if kind == "files":
-        return sum(base64_size(value) for value in json.loads(payload).values())
+        return (sum(len(value) for value in payload.values()) if isinstance(payload, dict) else
+                sum(base64_size(value) for value in json.loads(payload).values()))
     return None

@@ -20,7 +20,7 @@ import {checkForUpdates} from './UpdateChecker';
 import {downloadDirectoryLabel} from './DownloadDirectory';
 import {webSocketErrorMessage, webSocketCloseMessage} from './WebSocketStatus';
 import {isClipboardSyncEnabled} from './DevicePreferences';
-import {fileUris, encodeFiles, deliverPendingShare} from './FileTransfer';
+import {readClipboardStream, readClipboardBytes, fileUris, encodeFiles, deliverPendingShare} from './FileTransfer';
 import {acquireServiceRun, serviceRun} from './ServiceLifecycle';
 import {deactivateStompClient} from './StompShutdown';
 import {StompSocket} from './StompSocket';
@@ -28,7 +28,7 @@ import * as binary from './BinaryProtocol';
 import {RelayRecipients} from './RelayRecipients';
 import {normalizeReceiveLimit, receiveLimitHeader, allowsContentSize, metadataContentSize,
   receiveCapabilityMessage, readReceiveCapability, base64ContentSize} from './TransferLimits';
-import {fragmentClipboard, ClipboardJobs, ClipboardSuperseded,
+import {fragmentClipboard, yieldClipboardEvents, ClipboardJobs, ClipboardSuperseded,
   isClipboardSuperseded, sendSharedClipboardFragments, acceptsClipboardFragment,
   ClipboardRevisionGate, ClipboardEchoes, encryptedClipboardEchoKey, serializeClipboardMessages,
   acceptClipboardObservation} from './ClipboardPreparation';
@@ -262,26 +262,43 @@ module.exports = async (inputData = null) => {
           }
         };
 
-        const encryptBinary = async raw => {
-          const envelope = await AesGcmCrypto.encrypt(binary.toBase64(raw), true,
-            await getDataFromAsyncStorage('hashed_password'));
-          const nonce = new Uint8Array(Buffer.from(envelope.iv, 'hex'));
-          const tag = new Uint8Array(Buffer.from(envelope.tag, 'hex'));
-          return binary.concat([new Uint8Array([nonce.length]), nonce, tag, binary.fromBase64(envelope.content)]);
+        // The installed AES library's binary API requires whole-payload Base64.
+        // Use a bounded, file-backed native cipher for CCB1 instead.
+        const cryptBinary = async (raw, decrypting, nonce = new Uint8Array(0), tag = new Uint8Array(0)) => {
+          const generation = clipboardJobs.generation;
+          const checkCurrent = () => checkClipboardJob(generation);
+          checkCurrent();
+          const id = await NativeBridgeModule.beginClipboardCipher(
+            await getDataFromAsyncStorage('hashed_password'), decrypting, Array.from(nonce), Array.from(tag));
+          try {
+            for (let offset = 0; offset < raw.length; offset += 32768) {
+              checkCurrent();
+              await NativeBridgeModule.appendClipboardCipher(id, binary.toBase64(raw.subarray(offset, offset + 32768)));
+              await yieldClipboardEvents();
+            }
+            checkCurrent();
+            const envelope = await NativeBridgeModule.finishClipboardCipher(id);
+            const content = await readClipboardStream(envelope.id, NativeBridgeModule, checkCurrent);
+            checkCurrent();
+            return decrypting ? content : binary.concat([new Uint8Array([binary.fromBase64(envelope.nonce).length]),
+              binary.fromBase64(envelope.nonce), binary.fromBase64(envelope.tag), content]);
+          } catch (error) {
+            checkCurrent();
+            throw error;
+          } finally {
+            await NativeBridgeModule.abortClipboardCipher(id);
+          }
         };
-        const decryptBinary = async raw => {
+        const encryptBinary = raw => cryptBinary(raw, false);
+        const decryptBinary = raw => {
           const n = raw[0];
           if (!Number.isInteger(n) || n < 8 || n > 32 || raw.length < 1 + n + 16) throw new Error('Invalid encrypted binary payload');
-          const result = await AesGcmCrypto.decrypt(binary.toBase64(raw.subarray(1 + n + 16)),
-            await getDataFromAsyncStorage('hashed_password'),
-            Buffer.from(raw.subarray(1, 1 + n)).toString('hex'),
-            Buffer.from(raw.subarray(1 + n, 1 + n + 16)).toString('hex'), true);
-          return binary.fromBase64(result);
+          return cryptBinary(raw.subarray(1 + n + 16), true, raw.subarray(1, 1 + n), raw.subarray(1 + n, 1 + n + 16));
         };
         const decodeBinary = async message => {
           if (message.encrypted !== (cipher_enabled === 'true')) throw new Error('Encryption settings differ between devices');
           return binary.decodeContent(message.payload, message.type,
-            message.encrypted ? decryptBinary : null, localReceiveLimit);
+            message.encrypted ? decryptBinary : null, localReceiveLimit, true);
         };
         let relayRecipientCache = new RelayRecipients();
         const relayRecipients = async () => {
@@ -299,8 +316,21 @@ module.exports = async (inputData = null) => {
         };
 
         // hash clipboard content
-        const hashCB = async (input, seed = 0) => {
-          return String(xxHash32(input, seed));
+        const hashCB = async (input, kind = 'text') => {
+          const generation = clipboardJobs.generation;
+          const [header, parts] = binary.contentParts(input, kind);
+          let hash = xxHash32(textEncoder.encode(JSON.stringify(header)), 0);
+          // Fixed chunk boundaries make the hash independent of transport fragments.
+          for (const part of parts) {
+            for (let offset = 0; offset < part.length; offset += 65536) {
+              hash = xxHash32(part.subarray(offset, offset + 65536), hash);
+              if (offset % (1024 * 1024) === 0) {
+                await yieldClipboardEvents();
+                checkClipboardJob(generation);
+              }
+            }
+          }
+          return String(hash);
         };
 
         //check if clipboard content changed
@@ -343,8 +373,8 @@ module.exports = async (inputData = null) => {
             await setDataInAsyncStorage('wsStatusMessage', message);
             checkCurrent();
             return type === 'files'
-              ? await encodeFiles(content, NativeBridgeModule, checkCurrent, onSize)
-              : await NativeBridgeModule.getFileAsBase64(content);
+              ? await encodeFiles(content, NativeBridgeModule, checkCurrent, onSize, true)
+              : await readClipboardBytes(content, NativeBridgeModule, checkCurrent);
           } finally {
             if (attachmentLoading === loading) attachmentLoading = null;
             if (generation === clipboardJobs.generation && run.isCurrent() && !transportStopped) {
@@ -372,9 +402,8 @@ module.exports = async (inputData = null) => {
                 await NativeBridgeModule.getFileSize(clipContent),
               );
             } else if (direction.toLowerCase() === 'inbound') {
-              clipContentByteLength = await calculateBase64DecodedLength(
-                clipContent,
-              );
+              clipContentByteLength = typeof clipContent === 'string'
+                ? await calculateBase64DecodedLength(clipContent) : clipContent.length;
             }
           } else if (type === 'files') {
             if (
@@ -388,11 +417,10 @@ module.exports = async (inputData = null) => {
                 );
               }
             } else if (direction.toLowerCase() === 'inbound') {
-              let files = JSON.parse(clipContent);
+              let files = typeof clipContent === 'string' ? JSON.parse(clipContent) : clipContent;
               for (const file in files) {
-                clipContentByteLength += await calculateBase64DecodedLength(
-                  files[file],
-                );
+                clipContentByteLength += typeof files[file] === 'string'
+                  ? await calculateBase64DecodedLength(files[file]) : files[file].length;
               }
             }
           } else {
@@ -495,7 +523,7 @@ module.exports = async (inputData = null) => {
 
         const showFilesDownloadNotification = async files => {
           const generation = clipboardJobs.generation;
-          const count = Object.keys(JSON.parse(files)).length;
+          const count = Object.keys(typeof files === 'string' ? JSON.parse(files) : files).length;
           await setDataInAsyncStorage('availableFileCount', String(count));
           clipboardJobs.check(generation);
           // Display a silent notification
@@ -597,7 +625,7 @@ module.exports = async (inputData = null) => {
                     }
 
                     // hash clipboard content
-                    const hcb = await hashCB(cb);
+                    const hcb = await hashCB(cb, type_);
                     checkClipboardJob(generation);
                     if (await newCB(hcb)) {
                       generation = clipboardJobs.cancel();
@@ -621,7 +649,7 @@ module.exports = async (inputData = null) => {
                         } else if (type_ === 'image') {
                           block_image_once = true;
                           await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
-                            cb,
+                            binary.legacyContent(cb, type_),
                           );
                         } else if (type_ === 'files') {
                           await showFilesDownloadNotification(cb);
@@ -746,17 +774,19 @@ module.exports = async (inputData = null) => {
                 let contentSizeBytes = await measureClipboardContent(clipContent, type_, 'Outbound');
                 if (await validateClipboardSize(clipContent, type_, 'Outbound', contentSizeBytes)) {
                   checkCurrent();
-                  // base64 encode
+                  const plan = await relayRecipients();
+                  checkCurrent();
+                  // Load original bytes once for this recipient snapshot.
                   if (type_ === 'image' || type_ === 'files') {
                     clipContent = await loadClipboardAttachment(clipContent, type_, generation, size => { contentSizeBytes = size; });
                   }
 
                   checkCurrent();
-                  if (type_ === 'image') contentSizeBytes = base64ContentSize(clipContent);
+                  if (type_ === 'image') contentSizeBytes = clipContent.length;
                   if (!(await validateClipboardSize(clipContent, type_, 'Outbound', contentSizeBytes))) return true;
                   checkCurrent();
                   // clipboard content hash
-                  const hcb = await hashCB(clipContent);
+                  const hcb = await hashCB(clipContent, type_);
                   // Legacy servers still echo. Plaintext hashes cannot tell
                   // an echo apart from another device's genuine resend.
                   let echoKey = null;
@@ -766,13 +796,12 @@ module.exports = async (inputData = null) => {
                       block_image_once = false;
                     } else {
 
-                      const plan = await relayRecipients();
                       checkCurrent();
                       const encrypted = cipher_enabled === 'true';
                       const messages = [];
                       if (plan?.binary.length) {
                         try {
-                          const raw = await binary.encodeContent(clipContent, type_, encrypted ? encryptBinary : null);
+                          const raw = await binary.encodeContent(clipContent, type_, encrypted ? encryptBinary : null, undefined, checkCurrent);
                           checkCurrent();
                           messages.push({destination: '/app/clipbinary',
                             headers: {'content-type': binary.CONTENT_TYPE, 'x-clipcascade-recipients': plan.binary.join(',')},
@@ -784,7 +813,7 @@ module.exports = async (inputData = null) => {
                         }
                       }
                       if (!plan || plan.legacy.length) {
-                        let prepared = clipContent;
+                        let prepared = binary.legacyContent(clipContent, type_);
                         if (encrypted) prepared = await encrypt(prepared, envelope => { echoKey = encryptedClipboardEchoKey(type_, envelope); });
                         messages.push({destination: SEND_DESTINATION,
                           headers: plan ? {'x-clipcascade-recipients': plan.legacy.join(',')} : {},
@@ -1214,13 +1243,16 @@ module.exports = async (inputData = null) => {
                   return true;
                 }
                 checkCurrent();
-                // base64 encode
+                const recipients = eligiblePeers();
+                const recipientIds = new Map(Object.entries(dataChannels).map(([peer, channel]) => [channel, peer]));
+                const binaryPeers = new Set(recipients.filter(channel => channel._ccBinary === true));
+                // Load original bytes once for this recipient snapshot.
                 if (type_ === 'image' || type_ === 'files') {
                   clipContent = await loadClipboardAttachment(clipContent, type_, generation, size => { contentSizeBytes = size; });
                 }
 
                 checkCurrent();
-                if (type_ === 'image') contentSizeBytes = base64ContentSize(clipContent);
+                if (type_ === 'image') contentSizeBytes = clipContent.length;
                 if (!(await validateClipboardSize(clipContent, type_, 'Outbound', contentSizeBytes))) return true;
                 checkCurrent();
                 if (!eligiblePeers().length) {
@@ -1229,7 +1261,7 @@ module.exports = async (inputData = null) => {
                   return true;
                 }
                 // clipboard content hash
-                const hcb = await hashCB(clipContent);
+                const hcb = await hashCB(clipContent, type_);
                 checkCurrent();
                 if (await newCB(hcb)) {
                   if (block_image_once) {
@@ -1241,22 +1273,24 @@ module.exports = async (inputData = null) => {
                     await resetReceivingFragments();
                     checkCurrent();
 
-                    const rawPayloadSizeInBytes = Buffer.byteLength(clipContent, 'utf8');
-                    const recipients = eligiblePeers();
+                    let legacy = null;
+                    const getLegacy = () => {
+                      if (legacy === null) legacy = binary.legacyContent(clipContent, type_);
+                      return legacy;
+                    };
                     if (!recipients.length) return false;
-                    const recipientIds = new Map(Object.entries(dataChannels).map(([peer, channel]) => [channel, peer]));
                     const encrypted = cipher_enabled === 'true';
                     const groups = [];
                     for (let useBinary of [false, true]) {
-                      const channels = recipients.filter(channel => !!channel._ccBinary === useBinary);
+                      const channels = recipients.filter(channel => binaryPeers.has(channel) === useBinary);
                       if (!channels.length) continue;
                       checkCurrent();
                       let parts;
-                      let combinedRawPayloadSizeInBytes = rawPayloadSizeInBytes;
+                      let combinedRawPayloadSizeInBytes = 0;
                       if (useBinary) {
                         try {
                           const raw = await binary.encodeContent(clipContent, type_, encrypted ? encryptBinary : null,
-                            size => { combinedRawPayloadSizeInBytes = size; });
+                            size => { combinedRawPayloadSizeInBytes = size; }, checkCurrent);
                           parts = binary.fragments(raw, FRAGMENT_SIZE);
                         } catch (error) {
                           if (error.message !== 'Binary header too large') throw error;
@@ -1264,11 +1298,12 @@ module.exports = async (inputData = null) => {
                         }
                         if (!parts.length || parts.length > 65536) {
                           useBinary = false;
-                          combinedRawPayloadSizeInBytes = rawPayloadSizeInBytes;
-                          parts = await fragmentString(encrypted ? await encrypt(clipContent) : clipContent, FRAGMENT_SIZE, checkCurrent);
+                          combinedRawPayloadSizeInBytes = Buffer.byteLength(getLegacy(), 'utf8');
+                          parts = await fragmentString(encrypted ? await encrypt(getLegacy()) : getLegacy(), FRAGMENT_SIZE, checkCurrent);
                         }
                       } else {
-                        const prepared = encrypted ? await encrypt(clipContent) : clipContent;
+                        combinedRawPayloadSizeInBytes = Buffer.byteLength(getLegacy(), 'utf8');
+                        const prepared = encrypted ? await encrypt(getLegacy()) : getLegacy();
                         parts = await fragmentString(prepared, FRAGMENT_SIZE, checkCurrent);
                       }
                       groups.push({useBinary, channels, fragments: parts, combinedRawPayloadSizeInBytes});
@@ -1299,7 +1334,8 @@ module.exports = async (inputData = null) => {
                             isP2PStatusMsgChanged = true;
                           }
                         },
-                        channel => allowsContentSize(peerReceiveLimits.get(recipientIds.get(channel)), contentSizeBytes),
+                        channel => dataChannels[recipientIds.get(channel)] === channel
+                          && allowsContentSize(peerReceiveLimits.get(recipientIds.get(channel)), contentSizeBytes),
                         group.useBinary ? (part, meta) => binary.encodeFrame(part, type_, meta, encrypted) : null,
                       )));
                       const completed = results.reduce((sum, count) => sum + count, 0);
@@ -1517,7 +1553,7 @@ module.exports = async (inputData = null) => {
 
               checkClipboardJob(generation);
               // hash clipboard content
-              const hcb = await hashCB(cb);
+              const hcb = await hashCB(cb, type_);
               checkClipboardJob(generation);
               if (await newCB(hcb)) {
                 previous_clipboard_content_hash = hcb;
@@ -1537,7 +1573,7 @@ module.exports = async (inputData = null) => {
                   } else if (type_ === 'image') {
                     block_image_once = true;
                     await NativeBridgeModule.copyBase64ImageToClipboardUsingCache(
-                      cb,
+                      binary.legacyContent(cb, type_),
                     );
                   } else if (type_ === 'files') {
                     await showFilesDownloadNotification(cb);
@@ -2101,7 +2137,7 @@ module.exports = async (inputData = null) => {
               };
               try {
                 // Snapshot the batch; incoming clipboard updates can replace files_in_memory.
-                const files = JSON.parse(files_in_memory || '{}');
+                const files = typeof files_in_memory === 'string' ? JSON.parse(files_in_memory) : (files_in_memory || {});
                 const entries = Object.entries(files);
                 total = entries.length;
                 await setDataInAsyncStorage('fileDownloadInProgress', 'true');
@@ -2114,7 +2150,7 @@ module.exports = async (inputData = null) => {
                 for (const [name, content] of entries) {
                   await NativeBridgeModule.saveBase64Files(
                     dirPath,
-                    JSON.stringify({[name]: content}),
+                    JSON.stringify({[name]: typeof content === 'string' ? content : binary.toBase64(content)}),
                   );
                   saved += 1;
                   await reportDownload(`Saving ${saved} of ${total} ${total === 1 ? 'file' : 'files'}…`, true);

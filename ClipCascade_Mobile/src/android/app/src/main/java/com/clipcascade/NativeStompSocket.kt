@@ -48,7 +48,7 @@ internal class NativeStompSocket(private val context: ReactApplicationContext) {
         }
     }
 
-    fun send(id: Int, frame: String, terminated: Boolean, promise: Promise, binary: Boolean = false) {
+    fun send(id: Int, frame: String, terminated: Boolean, promise: Promise, binary: Boolean = false, drain: Boolean = true) {
         val connection = sockets[id]
         if (connection == null) {
             promise.reject("STOMP_CLOSED", "STOMP connection is closed")
@@ -57,7 +57,7 @@ internal class NativeStompSocket(private val context: ReactApplicationContext) {
         try {
             connection.writer.execute {
                 try {
-                    connection.write(frame, terminated, binary)
+                    connection.write(frame, terminated, binary, drain)
                     promise.resolve(null)
                 } catch (error: Exception) {
                     promise.reject("STOMP_SEND_FAILED", error.message, error)
@@ -105,7 +105,15 @@ internal class NativeStompSocket(private val context: ReactApplicationContext) {
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) { event("message", text) }
-        override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) { event("binary", Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)) }
+        override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
+            // STOMP consumes a continuous stream; keep binary bridge strings bounded.
+            var offset = 0
+            while (offset < bytes.size) {
+                val end = minOf(offset + 32 * 1024, bytes.size)
+                event("binary", Base64.encodeToString(bytes.substring(offset, end).toByteArray(), Base64.NO_WRAP))
+                offset = end
+            }
+        }
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { finished(code, reason) }
         override fun onFailure(webSocket: WebSocket, error: Throwable, response: Response?) { failed(error) }
@@ -130,7 +138,7 @@ internal class NativeStompSocket(private val context: ReactApplicationContext) {
             if (socket == null) finished(code, reason)
         }
 
-        fun write(frame: String, terminated: Boolean, binary: Boolean) {
+        fun write(frame: String, terminated: Boolean, binary: Boolean, drain: Boolean) {
             val target = socket ?: throw IOException("STOMP connection is closed")
             val bytes = if (binary) Base64.decode(frame, Base64.NO_WRAP) else frame.toByteArray(Charsets.UTF_8)
             var previous = target.queueSize()
@@ -160,7 +168,7 @@ internal class NativeStompSocket(private val context: ReactApplicationContext) {
                 if (!target.send(byteArrayOf(0).toByteString())) throw IOException("STOMP send rejected")
             }
             // Resolve only after the native transport has drained this frame.
-            while (target.queueSize() > 0) {
+            while (drain && target.queueSize() > 0) {
                 awaitCapacity(1024L * 1024)
             }
         }

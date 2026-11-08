@@ -12,6 +12,7 @@ export class StompSocket {
     this._id = ++nextSocketId;
     this._pending = new Set();
     this._failure = null;
+    this._sendChain = Promise.resolve();
     this._listener = events.addListener('CLIPCASCADE_STOMP_SOCKET', event => {
       if (event.id !== this._id) return;
       if (event.type === 'open') {
@@ -38,9 +39,21 @@ export class StompSocket {
     // A literal NUL can be truncated by the React Native string bridge.
     // Send the STOMP terminator separately and restore it natively.
     const terminated = !binary && frame.endsWith('\0');
-    const pending = binary
-      ? this._bridge.sendStompBinaryFrame(this._id, toBase64(bytes(frame)))
-      : this._bridge.sendStompFrame(this._id, terminated ? frame.slice(0, -1) : frame, terminated);
+    // Serialize complete frames so heartbeats cannot interleave with a binary
+    // frame's bounded bridge chunks. Native writes retain per-socket backpressure.
+    const pending = this._sendChain.then(async () => {
+      if (this._failure) throw this._failure;
+      if (binary) {
+        const data = bytes(frame);
+        for (let offset = 0; offset < data.length; offset += 32768) {
+          const end = Math.min(offset + 32768, data.length);
+          await this._bridge.sendStompBinaryChunk(this._id, toBase64(data.subarray(offset, end)), end === data.length);
+        }
+      } else {
+        await this._bridge.sendStompFrame(this._id, terminated ? frame.slice(0, -1) : frame, terminated);
+      }
+    });
+    this._sendChain = pending.catch(error => { this._failure = error; });
     this._pending.add(pending);
     pending.then(() => this._pending.delete(pending), error => {
       this._failure = error;

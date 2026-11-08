@@ -14,6 +14,7 @@ from core.constants import *
 from core.config import Config
 from utils.notification_manager import NotificationManager
 from utils.transfer_limits import content_size
+from utils import binary_protocol as binary
 
 if PLATFORM.startswith(LINUX) and LINUX_USE_CLI_UI:
     from cli.tray import TaskbarPanel
@@ -65,8 +66,14 @@ class ClipboardManager:
             self.sys_tray.disable_files_download()
 
     @staticmethod
-    def hash_clipboard(clipboard: str) -> int:
-        return xxhash.xxh64(clipboard.encode("utf-8") if isinstance(clipboard, str) else clipboard).intdigest()
+    def hash_clipboard(clipboard, kind="text") -> int:
+        header, parts = binary.content_parts(clipboard, kind)
+        digest = xxhash.xxh64()
+        digest.update(json.dumps(header, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        for part in parts:
+            for offset in range(0, len(part), 1024 * 1024):
+                digest.update(memoryview(part)[offset:offset + 1024 * 1024])
+        return digest.intdigest()
 
     def is_clipboard_size_within_limit(
         self, clipboard_content: any, type_: str = "text"
@@ -116,7 +123,7 @@ class ClipboardManager:
 
         return True
 
-    def has_clipboard_changed(self, payload: str) -> bool:
+    def has_clipboard_changed(self, payload, kind="text") -> bool:
         """
         Check if the clipboard content has changed by comparing the current hash
         with the previous clipboard hash.
@@ -127,7 +134,7 @@ class ClipboardManager:
         Returns:
         - True if the clipboard content has changed, False otherwise.
         """
-        current_clipboard_hash = ClipboardManager.hash_clipboard(payload)
+        current_clipboard_hash = ClipboardManager.hash_clipboard(payload, kind)
         if current_clipboard_hash != self.previous_clipboard_hash:
             self.previous_clipboard_hash = current_clipboard_hash
             return True
@@ -138,7 +145,7 @@ class ClipboardManager:
         if self._update_worker is not None:
             self._update_worker.stop()
         worker = ClipboardUpdateWorker(
-            self.clipboard_to_base64,
+            self.prepare_clipboard,
             lambda payload, kind, current, size: copy_callback(
                 payload, kind, is_current=current, content_size_bytes=size),
         )
@@ -184,7 +191,7 @@ class ClipboardManager:
             if self._attachment_loading is loading:
                 self._attachment_loading = None
 
-    def clipboard_to_base64(self, callback, content: any, type_: str = "text"):
+    def prepare_clipboard(self, callback, content: any, type_: str = "text"):
         if not self.config.data.get("send_clipboard", True):
             return
         try:
@@ -203,11 +210,16 @@ class ClipboardManager:
                         )
 
                     content = Image.open(content[0])
-                if self.is_clipboard_size_within_limit(content, type_):
-                    with self._loading_attachment("Loading image…", check_current):
-                        content_str = ClipboardManager.convert_image_to_base64(img=content)
-                    check_current()
-                    callback(content_str, type_, content_size_bytes=content_size(content_str, type_))
+                with self._loading_attachment("Loading image…", check_current):
+                    if isinstance(content, bytes):
+                        raw = content
+                    else:
+                        with io.BytesIO() as output:
+                            content.save(output, format=content.format or "PNG")
+                            raw = output.getvalue()
+                check_current()
+                if self.is_content_size_within_limit(len(raw)):
+                    callback(raw, type_, content_size_bytes=len(raw))
 
             elif type_ == "files":
                 if PLATFORM.startswith(LINUX):
@@ -219,43 +231,44 @@ class ClipboardManager:
                         logging.info("No connected peer accepts this file's content size")
                         return
                     with self._loading_attachment("Loading files…", check_current):
-                        content_str, size = encode_files(content, check_current, with_size=True)
+                        content_str, size = encode_files(content, check_current, with_size=True, raw=True)
                     check_current()
                     # Recheck actual bytes read in case a file grew during preparation.
-                    if content_str != "{}" and self.is_content_size_within_limit(size):
+                    if bool(content_str) and self.is_content_size_within_limit(size):
                         callback(content_str, type_, content_size_bytes=size)
         except ClipboardSuperseded:
             pass
         except Exception as e:
-            logging.error(f"Failed to convert clipboard data to base64: {e}")
+            logging.error(f"Failed to prepare clipboard data: {e}")
 
     def cancel_preparation(self):
         if self._update_worker is not None:
             self._update_worker.invalidate()
 
-    def base64_to_clipboard(self, base64_string: str, type_: str = "text", is_current=lambda: True):
+    def content_to_clipboard(self, content: str | bytes | dict, type_: str = "text", is_current=lambda: True):
         if not self.config.data.get("receive_clipboard", True):
             return
         try:
             if type_ == "text":
-                txt = base64_string
+                txt = content
                 if self.is_clipboard_size_within_limit(txt, type_):
                     if is_current() and self.paste(txt, type_):
                         self.notification_manager.notify_clipboard_received(txt, type_)
             elif type_ == "image":
-                img = ClipboardManager.convert_base64_to_image(base64_img=base64_string)
-                if self.is_clipboard_size_within_limit(img, type_):
+                raw = binary.original_content(content, type_)
+                img = Image.open(io.BytesIO(raw))
+                img.load()
+                if self.is_content_size_within_limit(len(raw)):
                     if is_current() and self.paste(img, type_):
                         self.notification_manager.notify_clipboard_received(img, type_)
             elif type_ == "files":
-                file_objects = ClipboardManager.convert_base64_to_files(
-                    base64_json=base64_string
-                )
+                file_objects = {name: io.BytesIO(value) for name, value in
+                                binary.original_content(content, type_).items()}
                 if self.is_clipboard_size_within_limit(file_objects, type_):
                     if is_current() and self.paste(file_objects, type_):
                         self.notification_manager.notify_clipboard_received(file_objects, type_)
         except Exception as e:
-            logging.error(f"Failed to convert base64 data to clipboard: {e}")
+            logging.error(f"Failed to apply clipboard content: {e}")
 
     @staticmethod
     def execute_command(*args, input_data):

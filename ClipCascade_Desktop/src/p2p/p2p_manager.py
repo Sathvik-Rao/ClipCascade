@@ -913,7 +913,7 @@ class P2PManager(ReconnectMixin, WSInterface):
                 logging.info("No connected peer accepts this clipboard content size")
                 return
             # Hash/encode/encrypt can be large. Keep the receive loop available.
-            payload_hash = await asyncio.to_thread(self.clipboard_manager.hash_clipboard, payload)
+            payload_hash = await asyncio.to_thread(self.clipboard_manager.hash_clipboard, payload, payload_type)
             check_current()
             if payload_hash == self.clipboard_manager.previous_clipboard_hash:
                 return
@@ -928,12 +928,17 @@ class P2PManager(ReconnectMixin, WSInterface):
 
             def prepare():
                 prepared_groups = []
-                legacy_raw_size = len(payload.encode("utf-8"))
+                legacy = None
+                def get_legacy():
+                    nonlocal legacy
+                    if legacy is None:
+                        legacy = binary.legacy_content(payload, payload_type)
+                    return legacy
                 for use_binary, channels in groups:
                     if not channels:
                         continue
                     check_current()
-                    raw_size = legacy_raw_size
+                    raw_size = 0
                     if use_binary:
                         def measure_raw_size(size):
                             nonlocal raw_size
@@ -941,20 +946,22 @@ class P2PManager(ReconnectMixin, WSInterface):
                         try:
                             prepared = binary.encode_content(payload, payload_type,
                                 self.cipher_manager if encrypted else None, on_raw_size=measure_raw_size)
-                            fragments = [prepared[i:i + FRAGMENT_SIZE] for i in range(0, len(prepared), FRAGMENT_SIZE)]
+                            fragments = [memoryview(prepared)[i:i + FRAGMENT_SIZE] for i in range(0, len(prepared), FRAGMENT_SIZE)]
                         except ValueError as error:
                             if str(error) != "Binary header too large":
                                 raise
                             fragments = []
                         if not fragments or len(fragments) > 65536:
                             use_binary = False
-                            raw_size = legacy_raw_size
-                            prepared = (CipherManager.encode_to_json_string(**self.cipher_manager.encrypt(payload))
-                                        if encrypted else payload)
+                            raw_size = 0
+                            prepared = (CipherManager.encode_to_json_string(**self.cipher_manager.encrypt(get_legacy()))
+                                        if encrypted else get_legacy())
+                            raw_size = len(get_legacy().encode("utf-8"))
                             fragments = self.fragment_string(prepared, check_current=check_current)
                     else:
-                        prepared = (CipherManager.encode_to_json_string(**self.cipher_manager.encrypt(payload))
-                                    if encrypted else payload)
+                        prepared = (CipherManager.encode_to_json_string(**self.cipher_manager.encrypt(get_legacy()))
+                                    if encrypted else get_legacy())
+                        raw_size = len(get_legacy().encode("utf-8"))
                         fragments = self.fragment_string(prepared, check_current=check_current)
                     check_current()
                     prepared_groups.append((use_binary, channels, fragments, raw_size))
@@ -980,7 +987,8 @@ class P2PManager(ReconnectMixin, WSInterface):
                                 combinedRawPayloadSizeInBytes=raw_size, contentSizeBytes=content_size_bytes)
                 return await send_shared_fragments(
                     fragments, channels, metadata, payload_type, check_current, progress,
-                    lambda ch: allows_content(self._peer_receive_limits.get(recipient_ids[id(ch)]), content_size_bytes),
+                    lambda ch: self.data_channels.get(recipient_ids[id(ch)]) is ch
+                        and allows_content(self._peer_receive_limits.get(recipient_ids[id(ch)]), content_size_bytes),
                     (lambda part, meta: binary.encode_frame(part, payload_type, meta, encrypted)) if use_binary else None,
                 )
 
@@ -1151,12 +1159,13 @@ class P2PManager(ReconnectMixin, WSInterface):
                     **CipherManager.decode_from_json_string(payload)
                 )
 
+            payload = binary.original_content(payload, payload_type)
             if generation != self._send_generation:
                 return
-            if self.clipboard_manager.has_clipboard_changed(payload):
+            if self.clipboard_manager.has_clipboard_changed(payload, payload_type):
                 self.reset_receiving_fragments()
-                self.clipboard_manager.base64_to_clipboard(
-                    base64_string=payload, type_=payload_type,
+                self.clipboard_manager.content_to_clipboard(
+                    content=payload, type_=payload_type,
                     is_current=lambda: generation == self._send_generation
                 )
         except json.decoder.JSONDecodeError:

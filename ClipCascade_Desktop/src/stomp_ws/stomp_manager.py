@@ -146,7 +146,7 @@ class STOMPManager(ReconnectMixin, WSInterface):
             return
         try:
             if self.is_connected:
-                payload_hash = self.clipboard_manager.hash_clipboard(payload)
+                payload_hash = self.clipboard_manager.hash_clipboard(payload, payload_type)
                 if payload_hash != self.clipboard_manager.previous_clipboard_hash:
                     if not valid_size(content_size_bytes):
                         content_size_bytes = content_size(payload, payload_type)
@@ -170,7 +170,7 @@ class STOMPManager(ReconnectMixin, WSInterface):
                                 "x-clipcascade-recipients": ",".join(plan[True])}, None))
                     if plan is None or plan[False]:
                         echo_key = None
-                        prepared = payload
+                        prepared = binary.legacy_content(payload, payload_type)
                         if encrypted:
                             envelope = self.cipher_manager.encrypt(prepared)
                             echo_key = (payload_type, "encrypted", envelope["nonce"], envelope["tag"])
@@ -230,14 +230,15 @@ class STOMPManager(ReconnectMixin, WSInterface):
                     payload = self.cipher_manager.decrypt(**envelope)
                     del envelope
 
+                payload = binary.original_content(payload, payload_type)
                 if generation != self._transfer_generation:
                     return
-                if self.clipboard_manager.has_clipboard_changed(payload):
+                if self.clipboard_manager.has_clipboard_changed(payload, payload_type):
                     self._on_local_change()
                     generation = self._transfer_generation
                     self.clipboard_manager.cancel_preparation()
-                    self.clipboard_manager.base64_to_clipboard(
-                        base64_string=payload, type_=payload_type,
+                    self.clipboard_manager.content_to_clipboard(
+                        content=payload, type_=payload_type,
                         is_current=lambda: generation == self._transfer_generation
                     )
         except json.decoder.JSONDecodeError:

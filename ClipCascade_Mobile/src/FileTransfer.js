@@ -1,3 +1,4 @@
+import {fromBase64} from './BinaryProtocol';
 import {base64ContentSize} from './TransferLimits';
 
 // One URI stays one URI, even if it contains a comma.
@@ -9,7 +10,7 @@ export function fileUris(content) {
   return uris;
 }
 
-export async function encodeFiles(content, bridge, checkCurrent = () => {}, onSize = () => {}) {
+export async function encodeFiles(content, bridge, checkCurrent = () => {}, onSize = () => {}, raw = false) {
   checkCurrent();
   const uris = fileUris(content);
   const names = await Promise.all(uris.map(uri => bridge.getFileName(uri)));
@@ -32,12 +33,12 @@ export async function encodeFiles(content, bridge, checkCurrent = () => {}, onSi
       } while (reserved.has(candidate.toLowerCase()) || used.has(candidate.toLowerCase()));
     }
     used.add(candidate.toLowerCase());
-    files[candidate] = await bridge.getFileAsBase64(uris[i]);
+    files[candidate] = raw ? await readClipboardBytes(uris[i], bridge, checkCurrent) : await bridge.getFileAsBase64(uris[i]);
     checkCurrent();
-    contentSizeBytes += base64ContentSize(files[candidate]);
+    contentSizeBytes += raw ? files[candidate].length : base64ContentSize(files[candidate]);
   }
   onSize(contentSizeBytes);
-  return JSON.stringify(files);
+  return raw ? files : JSON.stringify(files);
 }
 
 // Consume before attempting delivery: failures are reported, never replayed.
@@ -61,4 +62,38 @@ export async function deliverPendingShare(bridge, ready, send, onError, onBeginS
     await onError(error);
   }
   return true;
+}
+
+// Read a URI once. The classic RN bridge requires bounded Base64 chunks;
+// decode each immediately, retaining bytes instead of a legacy attachment string.
+export async function readClipboardBytes(uri, bridge, checkCurrent = () => {}) {
+  const id = await bridge.openClipboardBytes(uri);
+  return readClipboardStream(id, bridge, checkCurrent);
+}
+
+export async function readClipboardStream(id, bridge, checkCurrent = () => {}) {
+  try {
+    const parts = [];
+    while (true) {
+      checkCurrent();
+      const part = await bridge.readClipboardBytes(id);
+      checkCurrent();
+      if (!part.length) break;
+      parts.push(fromBase64(part));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    const result = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+    let offset = 0;
+    for (let index = 0; index < parts.length; index++) {
+      checkCurrent();
+      result.set(parts[index], offset);
+      offset += parts[index].length;
+      parts[index] = null;
+      if (index % 32 === 0) await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    checkCurrent();
+    return result;
+  } finally {
+    await bridge.closeClipboardBytes(id);
+  }
 }

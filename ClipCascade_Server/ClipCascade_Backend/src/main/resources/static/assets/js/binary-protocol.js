@@ -48,30 +48,51 @@
     if (!header || typeof header !== 'object' || Array.isArray(header)) throw new Error('Invalid binary header');
     return [header, data.subarray(8 + length)];
   }
-  async function encodeContent(payload, kind, encrypt = null, onRawSize = () => {}) {
-    let raw, files = null;
-    if (kind === 'text') raw = utf8(payload);
-    else if (kind === 'image') raw = fromBase64(payload);
-    else if (kind === 'files') {
-      files = [];
-      raw = concat(Object.entries(JSON.parse(payload)).map(([name, value]) => {
-        const block = fromBase64(value);
-        files.push([name, block.length]);
-        return block;
-      }));
-    } else throw new Error('Unsupported content type');
-    raw = pack({type: kind, files}, raw);
+  function originalContent(payload, kind) {
+    if (kind === 'text') return payload;
+    if (kind === 'image') return typeof payload === 'string' ? fromBase64(payload) : bytes(payload);
+    if (kind !== 'files') throw new Error('Unsupported content type');
+    return typeof payload === 'string' ? Object.fromEntries(Object.entries(JSON.parse(payload))
+      .map(([name, value]) => [name, fromBase64(value)])) : payload;
+  }
+  function legacyContent(payload, kind) {
+    if (kind === 'text' || typeof payload === 'string') return payload;
+    if (kind === 'image') return toBase64(payload);
+    return JSON.stringify(Object.fromEntries(Object.entries(payload).map(([name, value]) => [name, toBase64(value)])));
+  }
+  function contentParts(payload, kind) {
+    payload = originalContent(payload, kind);
+    if (kind === 'text') return [{type: kind, files: null}, [utf8(payload)]];
+    if (kind === 'image') return [{type: kind, files: null}, [payload]];
+    return [{type: kind, files: Object.entries(payload).map(([name, value]) => [name, value.length])}, Object.values(payload)];
+  }
+  async function encodeContent(payload, kind, encrypt = null, onRawSize = () => {}, checkCurrent = () => {}) {
+    const [header, parts] = contentParts(payload, kind);
+    const prefix = pack(header, new Uint8Array(0));
+    const raw = new Uint8Array(prefix.length + parts.reduce((sum, part) => sum + part.length, 0));
+    raw.set(prefix);
+    let position = prefix.length;
+    for (const part of parts) {
+      for (let offset = 0; offset < part.length; offset += 1024 * 1024) {
+        checkCurrent();
+        const block = part.subarray(offset, offset + 1024 * 1024);
+        raw.set(block, position);
+        position += block.length;
+        if (raw.length > 1024 * 1024) await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+    checkCurrent();
     onRawSize(raw.length);
     return encrypt ? bytes(await encrypt(raw)) : raw;
   }
-  async function decodeContent(raw, kind, decrypt = null, limit = null) {
+  async function decodeContent(raw, kind, decrypt = null, limit = null, original = false) {
     if (Number.isSafeInteger(limit) && limit >= 0 && raw.length > limit + 65536 + 64) throw new Error('Binary content exceeds receive limit');
     if (decrypt) raw = await decrypt(bytes(raw));
     const [header, content] = unpack(raw);
     if (header.type !== kind) throw new Error('Content type mismatch');
     if (Number.isSafeInteger(limit) && limit >= 0 && content.length > limit) throw new Error('Binary content exceeds receive limit');
     if (kind === 'text') return text(content);
-    if (kind === 'image') return toBase64(content);
+    if (kind === 'image') return original ? content : toBase64(content);
     if (kind !== 'files' || !Array.isArray(header.files)) throw new Error('Invalid binary content');
     const result = Object.create(null);
     let offset = 0;
@@ -79,11 +100,11 @@
       if (!Array.isArray(entry) || entry.length !== 2) throw new Error('Invalid file entry');
       const [name, length] = entry;
       if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[/\\\0]/.test(name) || Object.prototype.hasOwnProperty.call(result, name) || !Number.isSafeInteger(length) || length < 0 || length > content.length - offset) throw new Error('Invalid file entry');
-      result[name] = toBase64(content.subarray(offset, offset + length));
+      result[name] = original ? content.subarray(offset, offset + length) : toBase64(content.subarray(offset, offset + length));
       offset += length;
     }
     if (offset !== content.length) throw new Error('Trailing binary content');
-    return JSON.stringify(result);
+    return original ? result : JSON.stringify(result);
   }
   const encodeFrame = (payload, kind, metadata, encrypted = false) => pack({type: kind, metadata, encrypted}, payload);
   function decodeFrame(data) {
@@ -107,7 +128,8 @@
   function recipients(plan) {
     if (plan?.format !== FORMAT || !Array.isArray(plan.recipients) || plan.recipients.length > 256) return null;
     if (!plan.recipients.every(peer => typeof peer.id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(peer.id) && typeof peer.binary === 'boolean')) return null;
+    if (new Set(plan.recipients.map(peer => peer.id)).size !== plan.recipients.length) return null;
     return {binary: plan.recipients.filter(p => p.binary).map(p => p.id), legacy: plan.recipients.filter(p => !p.binary).map(p => p.id)};
   }
-  return {FORMAT, CONTENT_TYPE, bytes, concat, fromBase64, toBase64, pack, unpack, encodeContent, decodeContent, encodeFrame, decodeFrame, fragments, recipients};
+  return {FORMAT, CONTENT_TYPE, bytes, concat, fromBase64, toBase64, pack, unpack, encodeContent, decodeContent, encodeFrame, decodeFrame, fragments, recipients, originalContent, legacyContent, contentParts};
 });

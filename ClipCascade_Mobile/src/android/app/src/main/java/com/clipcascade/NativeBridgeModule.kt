@@ -42,6 +42,36 @@ import android.util.Base64OutputStream
 
 class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
+    companion object {
+        // Shared across module reloads: startup cleanup must also protect files
+        // owned by another live module in this process, including finished streams.
+        private val cipherFileLock = Any()
+        private val activeCipherFiles = mutableSetOf<File>()
+
+        private fun createCipherFile(cacheDir: File): File = synchronized(cipherFileLock) {
+            File.createTempFile("clipboard-cipher-", ".tmp", cacheDir).also { activeCipherFiles.add(it) }
+        }
+
+        private fun deleteCipherFile(file: File) = synchronized(cipherFileLock) {
+            try {
+                if (file.exists() && !file.delete()) {
+                    android.util.Log.w("ClipboardPreparation", "Could not delete cipher temporary file")
+                }
+            } finally {
+                activeCipherFiles.remove(file)
+            }
+        }
+
+        private fun cleanAbandonedCipherFiles(cacheDir: File) = synchronized(cipherFileLock) {
+            cacheDir.listFiles()?.forEach { file ->
+                if (file.isFile && file.name.startsWith("clipboard-cipher-")
+                    && file.name.endsWith(".tmp") && file !in activeCipherFiles) {
+                    deleteCipherFile(file)
+                }
+            }
+        }
+    }
+
     private val asyncBridge = AsyncStorageBridge(reactContext)
     private val stompSockets = NativeStompSocket(reactContext)
     private val clipboardReadGeneration = AtomicLong()
@@ -50,6 +80,15 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     // One worker also avoids concurrently loading multiple large attachments.
     private val clipboardReads = Executors.newSingleThreadExecutor { task ->
         Thread(task, "ClipboardPreparation").apply { isDaemon = true }
+    }
+
+    init {
+        // Process death skips normal cleanup. Reclaim its files before any new
+        // cipher work, off the UI/module queue; preserve unrelated cache content.
+        clipboardReads.execute {
+            runCatching { cleanAbandonedCipherFiles(reactContext.cacheDir) }
+                .onFailure { android.util.Log.w("ClipboardPreparation", "Cipher cache cleanup failed", it) }
+        }
     }
 
     override fun getName(): String {
@@ -69,6 +108,12 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     @ReactMethod
     fun sendStompBinaryFrame(id: Double, frame: String, promise: Promise) {
         stompSockets.send(id.toInt(), frame, false, promise, true)
+    }
+
+    @ReactMethod
+    fun sendStompBinaryChunk(id: Double, chunk: String, last: Boolean, promise: Promise) {
+        if (chunk.length > 43692) { promise.reject("STOMP_CHUNK_SIZE", "Bridge chunk too large"); return }
+        stompSockets.send(id.toInt(), chunk, false, promise, true, last)
     }
 
     @ReactMethod
@@ -312,6 +357,157 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
             promise.resolve(fileName)
         } catch (e: Exception) {
             promise.reject("ERROR", "Failed to get file name: ${e.message}")
+        }
+    }
+
+    // The classic RN bridge has no byte-buffer value. Numeric arrays require
+    // per-byte JNI calls, so use bounded Base64 bridge chunks, never a whole
+    // attachment string. Streams remain on the preparation executor.
+    private val attachmentStreams = mutableMapOf<String, Pair<Long, java.io.InputStream>>()
+    private var nextAttachmentStream = 0L
+
+    private data class ClipboardCipherJob(
+        val generation: Long, val cipher: javax.crypto.Cipher, val file: File,
+        val output: FileOutputStream, val decrypt: Boolean, val tag: ByteArray
+    )
+    private val clipboardCiphers = mutableMapOf<String, ClipboardCipherJob>()
+
+    private fun bridgeBytes(values: ReadableArray): ByteArray {
+        require(values.size() <= 32 * 1024) { "Bridge chunk too large" }
+        return ByteArray(values.size()) { index ->
+            val value = values.getInt(index)
+            require(value in 0..255) { "Invalid byte" }
+            value.toByte()
+        }
+    }
+
+    // AES work and temporary output stay off RN/UI threads. Decrypted output is
+    // exposed only after doFinal authenticates the complete GCM message.
+    @ReactMethod
+    fun beginClipboardCipher(key: String, decrypt: Boolean, nonce: ReadableArray, tag: ReadableArray, promise: Promise) {
+        val generation = clipboardReadGeneration.get()
+        val iv = bridgeBytes(nonce)
+        val authTag = bridgeBytes(tag)
+        clipboardReads.execute {
+            try {
+                if (generation != clipboardReadGeneration.get()) throw java.io.InterruptedIOException()
+                val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+                val secret = javax.crypto.spec.SecretKeySpec(Base64.decode(key, Base64.DEFAULT), "AES")
+                if (decrypt) {
+                    require(iv.size in 8..32 && authTag.size == 16)
+                    cipher.init(javax.crypto.Cipher.DECRYPT_MODE, secret, javax.crypto.spec.GCMParameterSpec(128, iv))
+                } else {
+                    cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, secret)
+                }
+                val file = createCipherFile(reactApplicationContext.cacheDir)
+                val id = (++nextAttachmentStream).toString()
+                val output = try { FileOutputStream(file) } catch (error: Exception) { deleteCipherFile(file); throw error }
+                clipboardCiphers[id] = ClipboardCipherJob(generation, cipher, file, output, decrypt, authTag)
+                promise.resolve(id)
+            } catch (error: Exception) { promise.reject(if (error is java.io.InterruptedIOException) "CLIPBOARD_SUPERSEDED" else "CIPHER_ERROR", "Cannot begin clipboard cipher", error) }
+        }
+    }
+
+    @ReactMethod
+    fun appendClipboardCipher(id: String, encoded: String, promise: Promise) {
+        clipboardReads.execute {
+            try {
+                require(encoded.length <= 43692) { "Bridge chunk too large" }
+                val block = Base64.decode(encoded, Base64.NO_WRAP)
+                require(block.size <= 32 * 1024) { "Bridge chunk too large" }
+                val job = clipboardCiphers[id] ?: throw IOException("Cipher closed")
+                if (job.generation != clipboardReadGeneration.get()) throw java.io.InterruptedIOException()
+                job.cipher.update(block)?.let { job.output.write(it) }
+                promise.resolve(null)
+            } catch (error: Exception) { promise.reject(if (error is java.io.InterruptedIOException) "CLIPBOARD_SUPERSEDED" else "CIPHER_ERROR", "Clipboard cipher interrupted", error) }
+        }
+    }
+
+    @ReactMethod
+    fun finishClipboardCipher(id: String, promise: Promise) {
+        clipboardReads.execute {
+            val job = clipboardCiphers.remove(id)
+            try {
+                requireNotNull(job) { "Cipher closed" }
+                if (job.generation != clipboardReadGeneration.get()) throw java.io.InterruptedIOException()
+                job.output.write(if (job.decrypt) job.cipher.doFinal(job.tag) else job.cipher.doFinal())
+                job.output.close()
+                val result = com.facebook.react.bridge.Arguments.createMap()
+                if (!job.decrypt) {
+                    val tagBytes = ByteArray(16)
+                    java.io.RandomAccessFile(job.file, "rw").use { file ->
+                        file.seek(file.length() - 16)
+                        file.readFully(tagBytes)
+                        file.setLength(file.length() - 16)
+                    }
+                    result.putString("nonce", Base64.encodeToString(job.cipher.iv, Base64.NO_WRAP))
+                    result.putString("tag", Base64.encodeToString(tagBytes, Base64.NO_WRAP))
+                }
+                if (job.generation != clipboardReadGeneration.get()) throw java.io.InterruptedIOException()
+                val stream = object : java.io.FileInputStream(job.file) {
+                    override fun close() { try { super.close() } finally { deleteCipherFile(job.file) } }
+                }
+                attachmentStreams[id] = job.generation to stream
+                result.putString("id", id)
+                promise.resolve(result)
+            } catch (error: Exception) {
+                runCatching { job?.output?.close() }
+                job?.file?.let { deleteCipherFile(it) }
+                promise.reject(if (error is java.io.InterruptedIOException) "CLIPBOARD_SUPERSEDED" else "CIPHER_ERROR", "Clipboard authentication or cipher failed", error)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun abortClipboardCipher(id: String, promise: Promise) {
+        clipboardReads.execute {
+            val job = clipboardCiphers.remove(id)
+            try { job?.output?.close(); promise.resolve(null) }
+            catch (error: Exception) { promise.reject("CIPHER_ERROR", "Cannot close clipboard cipher", error) }
+            finally { job?.file?.let { deleteCipherFile(it) } }
+        }
+    }
+
+    @ReactMethod
+    fun openClipboardBytes(uri: String, promise: Promise) {
+        val generation = clipboardReadGeneration.get()
+        clipboardReads.execute {
+            try {
+                attachmentStreams.entries.removeAll { (_, value) ->
+                    if (value.first != generation) { value.second.close(); true } else false
+                }
+                if (generation != clipboardReadGeneration.get()) throw java.io.InterruptedIOException()
+                val stream = reactApplicationContext.contentResolver.openInputStream(Uri.parse(uri.trim()))
+                    ?: throw IOException("Cannot open attachment")
+                val id = (++nextAttachmentStream).toString()
+                attachmentStreams[id] = generation to stream
+                promise.resolve(id)
+            } catch (error: Exception) { promise.reject(if (error is java.io.InterruptedIOException) "CLIPBOARD_SUPERSEDED" else "ERROR", "Cannot open attachment", error) }
+        }
+    }
+
+    @ReactMethod
+    fun readClipboardBytes(id: String, promise: Promise) {
+        clipboardReads.execute {
+            try {
+                val (generation, stream) = attachmentStreams[id] ?: throw IOException("Attachment closed")
+                if (generation != clipboardReadGeneration.get()) throw java.io.InterruptedIOException()
+                val buffer = ByteArray(32 * 1024)
+                val count = stream.read(buffer)
+                if (generation != clipboardReadGeneration.get()) throw java.io.InterruptedIOException()
+                promise.resolve(if (count < 0) "" else Base64.encodeToString(buffer, 0, count, Base64.NO_WRAP))
+            } catch (error: Exception) {
+                attachmentStreams.remove(id)?.second?.close()
+                promise.reject(if (error is java.io.InterruptedIOException) "CLIPBOARD_SUPERSEDED" else "ERROR", "Attachment read interrupted", error)
+            }
+        }
+    }
+
+    @ReactMethod
+    fun closeClipboardBytes(id: String, promise: Promise) {
+        clipboardReads.execute {
+            try { attachmentStreams.remove(id)?.second?.close(); promise.resolve(null) }
+            catch (error: Exception) { promise.reject("ERROR", "Cannot close attachment", error) }
         }
     }
 
@@ -642,6 +838,12 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
         stompSockets.shutdown()
         clipboardReadGeneration.incrementAndGet()
         // Queued jobs must run their cancellation checks and settle promises.
+        clipboardReads.execute {
+            attachmentStreams.values.forEach { runCatching { it.second.close() } }
+            attachmentStreams.clear()
+            clipboardCiphers.values.forEach { runCatching { it.output.close() }; deleteCipherFile(it.file) }
+            clipboardCiphers.clear()
+        }
         clipboardReads.shutdown()
         asyncBridge.disconnect()
     }

@@ -28,22 +28,43 @@ def unpack(data):
     return header, data[8 + size:]
 
 
-def encode_content(payload, kind, cipher=None, on_raw_size=lambda size: None):
+def original_content(payload, kind):
+    """Normalize legacy input once at ingress; modern adapters already return bytes."""
     if kind == "text":
-        raw, files = payload.encode("utf-8"), None
-    elif kind == "image":
-        raw, files = base64.b64decode("".join(payload.split()), validate=True), None
-    elif kind == "files":
-        parts, files = [], []
-        for name, value in json.loads(payload).items():
-            block = base64.b64decode("".join(value.split()), validate=True)
-            files.append([name, len(block)])
-            parts.append(block)
-        raw = b"".join(parts)
-    else:
-        raise ValueError("Unsupported content type")
+        return payload
+    if kind == "image":
+        return payload if isinstance(payload, bytes) else base64.b64decode("".join(payload.split()), validate=True)
+    if kind == "files":
+        if isinstance(payload, dict):
+            return payload
+        return {name: base64.b64decode("".join(value.split()), validate=True)
+                for name, value in json.loads(payload).items()}
+    raise ValueError("Unsupported content type")
+
+
+def legacy_content(payload, kind):
+    if kind == "text" or isinstance(payload, str):
+        return payload
+    if kind == "image":
+        return base64.b64encode(payload).decode("ascii")
+    return json.dumps({name: base64.b64encode(value).decode("ascii") for name, value in payload.items()})
+
+
+def content_parts(payload, kind):
+    payload = original_content(payload, kind)
+    if kind == "text":
+        return {"type": kind, "files": None}, [payload.encode("utf-8")]
+    if kind == "image":
+        return {"type": kind, "files": None}, [payload]
+    return {"type": kind, "files": [[name, len(value)] for name, value in payload.items()]}, list(payload.values())
+
+
+def encode_content(payload, kind, cipher=None, on_raw_size=lambda size: None):
+    header, parts = content_parts(payload, kind)
+    # One allocation for the complete plaintext, without a second joined file body.
+    prefix = pack(header, b"")
+    raw = b"".join([prefix, *parts])
     # Kind and file boundaries are inside the authenticated plaintext.
-    raw = pack({"type": kind, "files": files}, raw)
     on_raw_size(len(raw))
     if cipher is not None:
         envelope = cipher.encrypt_bytes(raw)
@@ -67,7 +88,7 @@ def decode_content(raw, kind, cipher=None, limit=None):
     if kind == "text":
         return raw.decode("utf-8")
     if kind == "image":
-        return base64.b64encode(raw).decode("ascii")
+        return raw
     if kind != "files" or not isinstance(header.get("files"), list):
         raise ValueError("Invalid binary content")
     result, offset = {}, 0
@@ -79,11 +100,11 @@ def decode_content(raw, kind, cipher=None, limit=None):
                 or any(c in name for c in ("/", "\\", "\0")) or name in (".", "..")
                 or not isinstance(size, int) or isinstance(size, bool) or size < 0 or size > len(raw) - offset):
             raise ValueError("Invalid file entry")
-        result[name] = base64.b64encode(raw[offset:offset+size]).decode("ascii")
+        result[name] = raw[offset:offset+size]
         offset += size
     if offset != len(raw):
         raise ValueError("Trailing binary content")
-    return json.dumps(result)
+    return result
 
 
 def encode_frame(payload, kind, metadata, encrypted=False):

@@ -45,7 +45,7 @@ def local_file_paths(paths):
     return result
 
 
-def encode_files(file_paths, check_current=lambda: None, with_size=False):
+def encode_files(file_paths, check_current=lambda: None, with_size=False, raw=False):
     paths = [path for path in file_paths if os.path.isfile(path)]
     reserved = {os.path.basename(path).casefold() for path in paths}
     used = set()
@@ -74,9 +74,9 @@ def encode_files(file_paths, check_current=lambda: None, with_size=False):
                 if not block:
                     break
                 total_size += len(block)
-                parts.append(base64.b64encode(block).decode("ascii"))
-            encoded[candidate] = "".join(parts)
+                parts.append(block if raw else base64.b64encode(block).decode("ascii"))
+            encoded[candidate] = b"".join(parts) if raw else "".join(parts)
             del parts
     check_current()
-    payload = json.dumps(encoded)
+    payload = encoded if raw else json.dumps(encoded)
     return (payload, total_size) if with_size else payload
