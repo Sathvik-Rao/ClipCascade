@@ -365,12 +365,16 @@ module.exports = async (inputData = null) => {
           checkCurrent();
           const loading = {generation, message: type === 'files' ? 'Loading files…' : 'Loading image…'};
           attachmentLoading = loading;
-          const message = server_mode === 'P2P'
-            ? await getP2PStatusMessage()
-            : `✅ Connected - ⏳ ${loading.message}`;
+          const message = `✅ Connected - ⏳ ${loading.message}`;
           try {
             checkCurrent();
-            await setDataInAsyncStorage('wsStatusMessage', message);
+            if (server_mode === 'P2P') {
+              // Peer/transfer progress has its own field. The dashboard uses
+              // wsStatusMessage to determine whether signaling is connected.
+              await p2pStatusMessageChanged();
+            } else {
+              await setDataInAsyncStorage('wsStatusMessage', message);
+            }
             checkCurrent();
             return type === 'files'
               ? await encodeFiles(content, NativeBridgeModule, checkCurrent, onSize, true)
@@ -378,13 +382,15 @@ module.exports = async (inputData = null) => {
           } finally {
             if (attachmentLoading === loading) attachmentLoading = null;
             if (generation === clipboardJobs.generation && run.isCurrent() && !transportStopped) {
-              // Preserve connection errors or newer status updates made during the read.
-              const flags = JSON.parse(NativeBridgeModule.getFlagsSync(['wsStatusMessage']));
-              if (flags.wsStatusMessage === message) {
-                await setDataInAsyncStorage('wsStatusMessage', server_mode === 'P2P'
-                  ? await getP2PStatusMessage() : '✅ Connected');
+              if (server_mode === 'P2P') {
+                await p2pStatusMessageChanged();
+              } else {
+                // Preserve connection errors or newer updates made during the read.
+                const flags = JSON.parse(NativeBridgeModule.getFlagsSync(['wsStatusMessage']));
+                if (flags.wsStatusMessage === message) {
+                  await setDataInAsyncStorage('wsStatusMessage', '✅ Connected');
+                }
               }
-              if (server_mode === 'P2P') await p2pStatusMessageChanged();
             }
           }
         };
