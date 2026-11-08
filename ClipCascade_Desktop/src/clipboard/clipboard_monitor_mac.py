@@ -13,25 +13,23 @@ from PyObjCTools import AppHelper
 from utils.main_thread import on_main_thread
 
 _session = None
-_block_image_once = False
+_image_write_change_count = None
 _pb_writer = None
+_MAX_EMPTY_READS = 10
 
 
 @on_main_thread
 def write_to_pasteboard(data, pb_type):
-    global _pb_writer
+    global _pb_writer, _image_write_change_count
     try:
         if _pb_writer is None:
             _pb_writer = pasteboard.Pasteboard()
         _pb_writer.set_contents(data, pb_type)
+        if pb_type in (pasteboard.PNG, pasteboard.TIFF):
+            # Bind echo suppression to our write, never to the next user image.
+            _image_write_change_count = NSPasteboard.generalPasteboard().changeCount()
     except Exception:
         logging.exception("Failed to write to pasteboard")
-
-
-@on_main_thread
-def enable_block_image_once():
-    global _block_image_once
-    _block_image_once = True
 
 
 def _deliver(session):
@@ -49,7 +47,7 @@ def _deliver(session):
 
 
 def _poll(session):
-    global _block_image_once
+    global _image_write_change_count
     if _session is not session or session['stop'].is_set():
         return
     try:
@@ -62,6 +60,13 @@ def _poll(session):
         change_count = session['board'].changeCount()
         if change_count == session['change_count']:
             return
+        if _image_write_change_count is not None:
+            own_image = change_count == _image_write_change_count
+            _image_write_change_count = None
+            if own_image:
+                session['change_count'] = change_count
+                logging.info("macOS clipboard: suppressed received-image write (change %s)", change_count)
+                return
 
         # Use one change counter for the entire clipboard. Per-format diff
         # cursors can get out of step when the clipboard changes during a read,
@@ -79,11 +84,20 @@ def _poll(session):
         # Discard a mixed snapshot and retry the latest version next poll.
         if session['board'].changeCount() != change_count:
             return
+        if event is None:
+            # Browsers can announce a change before their image data is ready.
+            # Retry the same version, but bound retries for unsupported content.
+            attempts = session.get('empty_reads', 0) + 1 if session.get('empty_change') == change_count else 1
+            session['empty_change'], session['empty_reads'] = change_count, attempts
+            if attempts < _MAX_EMPTY_READS:
+                if attempts == 1:
+                    logging.info("macOS clipboard: no readable supported data yet; retrying change %s", change_count)
+                return
+            logging.info("macOS clipboard: no readable supported data after %s polls (change %s)", attempts, change_count)
         session['change_count'] = change_count
-        if event and event[0] == 'image' and _block_image_once:
-            _block_image_once = False
-            return
         if event:
+            if event[0] == 'image':
+                logging.info("macOS clipboard: queued image (%s bytes, change %s)", len(event[1]), change_count)
             # Only the latest clipboard matters if conversion falls behind.
             try:
                 session['queue'].get_nowait()
@@ -117,7 +131,7 @@ def on_update(callback, enable_image_monitoring=False, enable_file_monitoring=Fa
 
 @on_main_thread
 def stop():
-    global _session, _block_image_once, _pb_writer
+    global _session, _image_write_change_count, _pb_writer
     if _session is not None:
         _session['stop'].set()
         # Release native references on the main thread too; never join a worker
@@ -125,7 +139,7 @@ def stop():
         _session['reader'] = None
         _session['board'] = None
         _session = None
-    _block_image_once = False
+    _image_write_change_count = None
     _pb_writer = None
 
 

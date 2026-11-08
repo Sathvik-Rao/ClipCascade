@@ -1,6 +1,7 @@
 """Flow control for the legacy P2P wire format."""
 import asyncio
 import json
+import logging
 import time
 
 
@@ -76,8 +77,10 @@ async def send_shared_fragments(fragments, recipients, metadata, payload_type,
             raise
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as error:
             # A closed/stalled peer must not stop the other recipients.
+            logging.warning("P2P %s %s: peer %s send failed at fragment %s/%s: %s",
+                            payload_type, metadata.get("id"), peer, positions[peer], total, error)
             return False
         finally:
             positions[peer] = total

@@ -905,6 +905,9 @@ class P2PManager(ReconnectMixin, WSInterface):
 
         transfer_id = str(uuid.uuid4())
         try:
+            if payload_type == "image":
+                logging.info("P2P image %s: send requested (%s bytes, encryption=%s)",
+                             transfer_id, content_size_bytes, bool(self.config.data["cipher_enabled"]))
             check_current()
             if not valid_size(content_size_bytes):
                 content_size_bytes = await asyncio.to_thread(content_size, payload, payload_type)
@@ -916,6 +919,7 @@ class P2PManager(ReconnectMixin, WSInterface):
             payload_hash = await asyncio.to_thread(self.clipboard_manager.hash_clipboard, payload, payload_type)
             check_current()
             if payload_hash == self.clipboard_manager.previous_clipboard_hash:
+                logging.info("P2P %s %s: skipped duplicate clipboard content", payload_type, transfer_id)
                 return
             self.reset_receiving_fragments()
 
@@ -994,11 +998,14 @@ class P2PManager(ReconnectMixin, WSInterface):
 
             completed = sum(await asyncio.gather(*(send_group(*group) for group in prepared_groups)))
             if not completed:
+                logging.warning("P2P %s %s: no peer completed sending", payload_type, transfer_id)
                 return
             check_current()
             self.clipboard_manager.previous_clipboard_hash = payload_hash
+            if payload_type == "image":
+                logging.info("P2P image %s: sent to %s peer(s)", transfer_id, completed)
         except TransferSuperseded:
-            pass
+            logging.info("P2P %s %s: transfer canceled by newer clipboard content or connection state", payload_type, transfer_id)
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
         finally:

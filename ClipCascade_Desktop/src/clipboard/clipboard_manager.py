@@ -337,7 +337,6 @@ class ClipboardManager:
                         payload.convert("RGB").save(output, format="TIFF")
                         tiff_data = output.getvalue()
 
-                    clipboard_monitor.enable_block_image_once()  # Block image copy to prevent deadlock
                     clipboard_monitor.write_to_pasteboard(tiff_data, pasteboard.TIFF)
                 elif PLATFORM.startswith(LINUX):
                     # Save the image to a binary buffer in PNG format
