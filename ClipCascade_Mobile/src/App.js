@@ -73,57 +73,74 @@ const isCancel = error =>
   isErrorWithCode(error) && error.code === errorCodes.OPERATION_CANCELED;
 
 /*
- * These files are part of the ClipCascade project.
+ * ClipCascade files to copy into a React Native 0.80.2 project named ClipCascade.
+ * Paths are relative to ClipCascade_Mobile/src; copy folder entries recursively.
+ * Keep the generated project boilerplate and local debug signing setup.
+ * Merge the listed build configuration with your local signing configuration.
+ * Apply the non-secret settings from android/gradle.properties.ci to the new
+ * project's gradle.properties, including newArchEnabled=false and hermesEnabled=true.
+ * Install package.json dependencies after copying. Private signing files are excluded.
  *
- * (file) android\app\src\main\java\com\clipcascade\AsyncStorageBridge.kt
- * (file) android\app\src\main\java\com\clipcascade\BootReceiver.kt
- * (file) android\app\src\main\java\com\clipcascade\ClipboardContent.kt
- * (file) android\app\src\main\java\com\clipcascade\ClipboardFloatingActivity.kt
- * (file) android\app\src\main\java\com\clipcascade\ClipboardListenerModule.kt
- * (file) android\app\src\main\java\com\clipcascade\ClipboardListenerPackage.kt
- * (file) android\app\src\main\java\com\clipcascade\ClipboardObservations.kt
- * (file) android\app\src\main\java\com\clipcascade\HeadlessTaskService.kt
- * (file) android\app\src\main\java\com\clipcascade\MainActivity.kt
- * (file) android\app\src\main\java\com\clipcascade\MainApplication.kt
- * (file) android\app\src\main\java\com\clipcascade\NativeBridgeModule.kt
- * (file) android\app\src\main\java\com\clipcascade\NativeBridgePackage.kt
- * (file) android\app\src\main\java\com\clipcascade\NativeStompSocket.kt
- * (file) android\app\src\main\java\com\clipcascade\PermissionGrantService.kt
- * (file) android\app\src\main\java\com\clipcascade\ShizukuPermissionsModule.kt
- * (file) android\app\src\main\aidl\com\clipcascade\IPermissionGrantService.aidl
- * (file) android\app\src\main\java\com\clipcascade\PendingShares.kt
- * (file) android\app\src\main\java\com\clipcascade\ProtectedStorage.kt
- * (file) android\app\src\main\java\com\clipcascade\ScheduleService.kt
- * (file) android\app\src\main\java\com\clipcascade\ServiceRunRegistry.kt
- * (file) android/app/src/main/java/com/clipcascade/ServerTls.kt
- * (file) android/app/src/main/java/com/clipcascade/ServerTlsModule.kt
- * (file) android\app\src\main\AndroidManifest.xml
- * (folder) android\app\src\main\res\
- * (file) android\app\build.gradle
- * (file) android\app\my-upload-key.keystore
- * (file) android\gradle.properties
+ * Shared JavaScript app code
+ * (file) App.js
+ * (file) AppVersion.js
  * (file) AsyncStorageManagement.js
- * (file) HeadlessTask.js
- * (file) index.js
- * (file) StartForegroundService.js
- * (file) LoginSession.js
- * (file) ServerDiscovery.js
- * (file) ServiceLifecycle.js
- * (file) ServiceStatus.js
- * (file) StompShutdown.js
- * (file) StompSocket.js
- * (file) BinaryProtocol.js - CCB1 binary clipboard encoding for P2P and P2S.
- * (file) RelayRecipients.js - Cached P2S recipient capabilities from server updates.
- * (file) WebSocketStatus.js
+ * (file) BinaryProtocol.js
+ * (file) ClipboardLimit.js
+ * (file) ClipboardPreparation.js
  * (file) DevicePreferences.js
  * (file) DownloadDirectory.js
  * (file) DownloadNotifications.js
- * (file) ClipboardLimit.js
- * (file) ClipboardPreparation.js
  * (file) FileTransfer.js
+ * (file) HeadlessTask.js
+ * (file) LoginSession.js
+ * (file) RelayRecipients.js
+ * (file) ServerDiscovery.js
+ * (file) ServiceLifecycle.js
+ * (file) ServiceStatus.js
+ * (file) StartForegroundService.js
+ * (file) StompShutdown.js
+ * (file) StompSocket.js
  * (file) TransferLimits.js
- * (file) AppVersion.js
  * (file) UpdateChecker.js
+ * (file) WebSocketStatus.js
+ * (file) index.js
+ *
+ * Android native code
+ * (file) android/app/src/main/aidl/com/clipcascade/IPermissionGrantService.aidl
+ * (file) android/app/src/main/java/com/clipcascade/AsyncStorageBridge.kt
+ * (file) android/app/src/main/java/com/clipcascade/BootReceiver.kt
+ * (file) android/app/src/main/java/com/clipcascade/ClipboardContent.kt
+ * (file) android/app/src/main/java/com/clipcascade/ClipboardFloatingActivity.kt
+ * (file) android/app/src/main/java/com/clipcascade/ClipboardListenerModule.kt
+ * (file) android/app/src/main/java/com/clipcascade/ClipboardListenerPackage.kt
+ * (file) android/app/src/main/java/com/clipcascade/ClipboardObservations.kt
+ * (file) android/app/src/main/java/com/clipcascade/HeadlessTaskService.kt
+ * (file) android/app/src/main/java/com/clipcascade/MainActivity.kt
+ * (file) android/app/src/main/java/com/clipcascade/MainApplication.kt
+ * (file) android/app/src/main/java/com/clipcascade/NativeBridgeModule.kt
+ * (file) android/app/src/main/java/com/clipcascade/NativeBridgePackage.kt
+ * (file) android/app/src/main/java/com/clipcascade/NativeStompSocket.kt
+ * (file) android/app/src/main/java/com/clipcascade/PendingShares.kt
+ * (file) android/app/src/main/java/com/clipcascade/PermissionGrantService.kt
+ * (file) android/app/src/main/java/com/clipcascade/ProtectedStorage.kt
+ * (file) android/app/src/main/java/com/clipcascade/ScheduleService.kt
+ * (file) android/app/src/main/java/com/clipcascade/ServerTls.kt
+ * (file) android/app/src/main/java/com/clipcascade/ServerTlsModule.kt
+ * (file) android/app/src/main/java/com/clipcascade/ServiceRunRegistry.kt
+ * (file) android/app/src/main/java/com/clipcascade/ShizukuPermissionsModule.kt
+ *
+ * App identity and dependencies
+ * (file) package.json
+ * (file) app.json
+ *
+ * Android resources and build configuration
+ * (file) android/app/src/main/AndroidManifest.xml
+ * (folder) android/app/src/main/res/
+ * (file) android/app/build.gradle
+ * (file) android/build.gradle
+ * (file) android/gradle.properties.ci
+ *
  */
 
 // Main App
