@@ -752,7 +752,11 @@ async function sendTextToServerStomp(textVal) {
 
 async function displayBinaryMessage(message) {
   let payload;
-  if (message.encrypted) {
+  if (message.metadata?.isFragmented === true) {
+    // Log each wire fragment immediately; monitoring does not reassemble transfers.
+    payload = JSON.stringify({format: 'ccb1', encrypted: message.encrypted,
+      encoding: 'base64', data: ClipCascadeBinary.toBase64(message.payload)});
+  } else if (message.encrypted) {
     const raw = message.payload;
     const n = raw[0];
     if (!Number.isInteger(n) || n < 8 || n > 32 || raw.length < 1 + n + 16) throw new Error('Invalid encrypted binary payload');
@@ -762,28 +766,6 @@ async function displayBinaryMessage(message) {
       ciphertext: ClipCascadeBinary.toBase64(raw.subarray(1 + n + 16))});
   } else payload = await ClipCascadeBinary.decodeContent(message.payload, message.type);
   displayIncomingMessage({payload, type: message.type, metadata: message.metadata});
-}
-
-function receiveBinaryFragment(channel, message) {
-  const meta = message.metadata;
-  if (!meta || !Number.isSafeInteger(meta.totalFragments) || !Number.isSafeInteger(meta.index)
-      || meta.totalFragments < 1 || meta.totalFragments > 65536 || meta.index < 0 || meta.index >= meta.totalFragments
-      || !Number.isSafeInteger(meta.contentSizeBytes) || meta.contentSizeBytes < 0) throw new Error('Invalid binary fragment');
-  let entry = channel._ccTransfer;
-  if (meta.index === 0) entry = channel._ccTransfer = {id: meta.id, type: message.type,
-    encrypted: message.encrypted, total: meta.totalFragments, size: meta.contentSizeBytes,
-    fragments: [], bytes: 0, last: Date.now()};
-  if (!entry || Date.now() - entry.last > 60000 || entry.id !== meta.id) return;
-  if (entry.type !== message.type || entry.encrypted !== message.encrypted || entry.total !== meta.totalFragments
-      || entry.size !== meta.contentSizeBytes || entry.fragments.length !== meta.index) throw new Error('Inconsistent binary fragments');
-  entry.fragments.push(message.payload);
-  entry.bytes += message.payload.length;
-  entry.last = Date.now();
-  if (entry.bytes > entry.size + 65536 + 64) throw new Error('Binary transfer exceeds declared size');
-  if (meta.index === meta.totalFragments - 1) {
-    channel._ccTransfer = null;
-    return displayBinaryMessage({...message, payload: ClipCascadeBinary.concat(entry.fragments)});
-  }
 }
 
 /* -----------------------------------------
@@ -1037,7 +1019,6 @@ function setupDataChannel(peerId, channel) {
     if (heartbeatIntervalId === null) {
       heartbeatIntervalId = setInterval(() => {
         for (const currentChannel of Object.values(dataChannels)) {
-          if (currentChannel._ccTransfer && Date.now() - currentChannel._ccTransfer.last > 60000) currentChannel._ccTransfer = null;
           if (currentChannel.readyState !== "open") continue;
           try {
             currentChannel.send(P2P_MONITOR_CAPABILITIES);
@@ -1052,7 +1033,6 @@ function setupDataChannel(peerId, channel) {
   channel.onclose = () => {
     if (dataChannels[peerId] !== channel) return;
     peerReceiveLimits.delete(peerId);
-    channel._ccTransfer = null;
     console.log("Data channel closed with peer:", peerId);
     recoverPeerTransport(peerId, peerConnections[peerId]);
   };
@@ -1061,13 +1041,12 @@ function setupDataChannel(peerId, channel) {
     let msgObj;
     try {
       if (typeof event.data !== 'string') {
-        Promise.resolve(receiveBinaryFragment(channel, ClipCascadeBinary.decodeFrame(event.data)))
-          .catch(error => { channel._ccTransfer = null; console.warn('Invalid binary clipboard', error); });
+        displayBinaryMessage(ClipCascadeBinary.decodeFrame(event.data))
+          .catch(error => console.warn('Invalid binary clipboard', error));
         return;
       }
       msgObj = JSON.parse(event.data);
     } catch (e) {
-      channel._ccTransfer = null;
       console.warn("Received invalid data from peer:", e);
       return;
     }
