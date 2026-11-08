@@ -5,7 +5,6 @@ import re
 from core.config import Config
 from cli.info import CustomDialog
 from core.constants import *
-from utils.secret_storage import STORAGE_HELP
 
 
 class LoginForm:
@@ -137,7 +136,6 @@ class LoginForm:
         )
         self._save_preference("save_password")
 
-        print(STORAGE_HELP)
         use_keyring = LoginForm.str_to_bool(
             input(
                 f"Use OS credential storage [{LoginForm.bool_to_str(self.config.data['use_keyring'])}]: "

@@ -6,7 +6,7 @@ import time
 
 SERVICE = "ClipCascade"
 
-# Shared by the GUI hover help and Linux CLI advanced settings.
+# Help for the GUI credential storage tooltip.
 STORAGE_HELP = (
     "Off (default): saved login credentials are stored in the local DATA file, "
     "without OS credential-store protection.\n\n"

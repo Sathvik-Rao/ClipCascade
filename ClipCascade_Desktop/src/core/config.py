@@ -92,9 +92,11 @@ class Config:
         """Persist only device preferences, preserving the last saved login settings."""
         if not updates.keys() <= self.DEVICE_PREFERENCE_FIELDS:
             raise ValueError("Only device preferences can be saved independently")
-        if updates.keys() == {"use_keyring"}:
-            # Save only the next-login choice, even if the current keyring
-            # cannot be read. Keep its reference or DATA credentials intact.
+        if updates.keys() == {"use_keyring"} or self._credentials_unavailable:
+            # Preferences can still be saved while recovering a failed login.
+            # Read the persisted document, not the incomplete saved snapshot or
+            # a pending manual login. Keep its credential reference and login
+            # fields intact, without accessing the unavailable credential store.
             try:
                 if os.path.isfile(self.file_name):
                     with open(self.file_name, "r") as source:
@@ -110,10 +112,8 @@ class Config:
                 self.data.update(updates)
                 return True
             except Exception as error:
-                logging.error("Could not save credential storage preference (%s)", type(error).__name__)
+                logging.error("Could not save device preferences (%s)", type(error).__name__)
                 return False
-        if self._credentials_unavailable:
-            return False
         saved = self._saved_data.copy()
         saved.update(updates)
         if not saved["save_password"]:
