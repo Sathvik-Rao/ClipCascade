@@ -67,6 +67,11 @@ class NativeBridgeModule(reactContext: ReactApplicationContext) : ReactContextBa
     }
 
     @ReactMethod
+    fun sendStompBinaryFrame(id: Double, frame: String, promise: Promise) {
+        stompSockets.send(id.toInt(), frame, false, promise, true)
+    }
+
+    @ReactMethod
     fun closeStompSocket(id: Double, code: Double, reason: String, force: Boolean) {
         stompSockets.close(id.toInt(), code.toInt(), reason, force)
     }

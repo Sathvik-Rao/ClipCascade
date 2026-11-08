@@ -1,6 +1,7 @@
 package com.clipcascade
 
 import android.os.SystemClock
+import android.util.Base64
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -47,7 +48,7 @@ internal class NativeStompSocket(private val context: ReactApplicationContext) {
         }
     }
 
-    fun send(id: Int, frame: String, terminated: Boolean, promise: Promise) {
+    fun send(id: Int, frame: String, terminated: Boolean, promise: Promise, binary: Boolean = false) {
         val connection = sockets[id]
         if (connection == null) {
             promise.reject("STOMP_CLOSED", "STOMP connection is closed")
@@ -56,7 +57,7 @@ internal class NativeStompSocket(private val context: ReactApplicationContext) {
         try {
             connection.writer.execute {
                 try {
-                    connection.write(frame, terminated)
+                    connection.write(frame, terminated, binary)
                     promise.resolve(null)
                 } catch (error: Exception) {
                     promise.reject("STOMP_SEND_FAILED", error.message, error)
@@ -104,7 +105,7 @@ internal class NativeStompSocket(private val context: ReactApplicationContext) {
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) { event("message", text) }
-        override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) { event("message", bytes.utf8()) }
+        override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) { event("binary", Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP)) }
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { finished(code, reason) }
         override fun onFailure(webSocket: WebSocket, error: Throwable, response: Response?) { failed(error) }
@@ -129,9 +130,9 @@ internal class NativeStompSocket(private val context: ReactApplicationContext) {
             if (socket == null) finished(code, reason)
         }
 
-        fun write(frame: String, terminated: Boolean) {
+        fun write(frame: String, terminated: Boolean, binary: Boolean) {
             val target = socket ?: throw IOException("STOMP connection is closed")
-            val bytes = frame.toByteArray(Charsets.UTF_8)
+            val bytes = if (binary) Base64.decode(frame, Base64.NO_WRAP) else frame.toByteArray(Charsets.UTF_8)
             var previous = target.queueSize()
             var lastProgress = SystemClock.elapsedRealtime()
             fun awaitCapacity(required: Long) {

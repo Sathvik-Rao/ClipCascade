@@ -10,6 +10,7 @@ from threading import Lock, Thread
 from typing import Dict, List, Optional
 from core.config import Config
 from interfaces.ws_interface import WSInterface
+from utils import binary_protocol as binary
 from utils.reconnect import ReconnectMixin
 from utils.transfer_flow import send_shared_fragments, TransferSuperseded
 from utils.transfer_limits import (SIZE_FIELD, valid_size, receive_limit, capability_message,
@@ -918,45 +919,66 @@ class P2PManager(ReconnectMixin, WSInterface):
                 return
             self.reset_receiving_fragments()
 
-            def prepare():
-                check_current()
-                raw_size = len(payload.encode("utf-8"))
-                prepared = payload
-                if self.config.data["cipher_enabled"]:
-                    prepared = CipherManager.encode_to_json_string(
-                        **self.cipher_manager.encrypt(prepared)
-                    )
-                check_current()
-                fragments = self.fragment_string(prepared, check_current=check_current)
-                return raw_size, fragments
-
-            if payload_type == "text" and len(payload) <= 65536:
-                # Small text must not wait for an obsolete large encryption
-                # call, which cannot be interrupted inside the crypto library.
-                raw_size, fragments = await asyncio.to_thread(prepare)
-            else:
-                async with self._preparation_lock:
-                    check_current()
-                    raw_size, fragments = await asyncio.to_thread(prepare)
-            check_current()
-            payload = None
             recipients = [ch for peer, ch in self.data_channels.items()
                           if ch.readyState == "open" and allows_content(self._peer_receive_limits.get(peer), content_size_bytes)]
             recipient_ids = {id(ch): peer for peer, ch in self.data_channels.items()}
+            encrypted = bool(self.config.data["cipher_enabled"])
+            groups = [(flag, [ch for ch in recipients if bool(getattr(ch, "_cc_binary", False)) == flag])
+                      for flag in (False, True)]
+
+            def prepare():
+                prepared_groups = []
+                for use_binary, channels in groups:
+                    if not channels:
+                        continue
+                    check_current()
+                    if use_binary:
+                        try:
+                            prepared = binary.encode_content(payload, payload_type, self.cipher_manager if encrypted else None)
+                            fragments = [prepared[i:i + FRAGMENT_SIZE] for i in range(0, len(prepared), FRAGMENT_SIZE)]
+                        except ValueError as error:
+                            if str(error) != "Binary header too large":
+                                raise
+                            fragments = []
+                        if not fragments or len(fragments) > 65536:
+                            use_binary = False
+                            prepared = (CipherManager.encode_to_json_string(**self.cipher_manager.encrypt(payload))
+                                        if encrypted else payload)
+                            fragments = self.fragment_string(prepared, check_current=check_current)
+                    else:
+                        prepared = (CipherManager.encode_to_json_string(**self.cipher_manager.encrypt(payload))
+                                    if encrypted else payload)
+                        fragments = self.fragment_string(prepared, check_current=check_current)
+                    check_current()
+                    prepared_groups.append((use_binary, channels, fragments))
+                return prepared_groups
+
+            if payload_type == "text" and len(payload) <= 65536:
+                prepared_groups = await asyncio.to_thread(prepare)
+            else:
+                async with self._preparation_lock:
+                    check_current()
+                    prepared_groups = await asyncio.to_thread(prepare)
+            check_current()
+            raw_size = len(payload.encode("utf-8"))
+            payload = None
             self.sending_fragment_id = transfer_id
-            metadata = dict(id=transfer_id, isFragmented=len(fragments) > 1,
-                            index=0, totalFragments=len(fragments),
-                            combinedRawPayloadSizeInBytes=raw_size)
-            if valid_size(content_size_bytes):
-                metadata[SIZE_FIELD] = content_size_bytes
+
             def progress(index, total):
                 if self.sending_fragment_id == transfer_id and generation == self._send_generation:
                     self.sending_fragment_stats = f"{index}/{total}"
 
-            completed = await send_shared_fragments(
-                fragments, recipients, metadata, payload_type, check_current, progress,
-                lambda ch: allows_content(self._peer_receive_limits.get(recipient_ids[id(ch)]), content_size_bytes),
-            )
+            async def send_group(use_binary, channels, fragments):
+                metadata = dict(id=transfer_id, isFragmented=len(fragments) > 1,
+                                index=0, totalFragments=len(fragments),
+                                combinedRawPayloadSizeInBytes=raw_size, contentSizeBytes=content_size_bytes)
+                return await send_shared_fragments(
+                    fragments, channels, metadata, payload_type, check_current, progress,
+                    lambda ch: allows_content(self._peer_receive_limits.get(recipient_ids[id(ch)]), content_size_bytes),
+                    (lambda part, meta: binary.encode_frame(part, payload_type, meta, encrypted)) if use_binary else None,
+                )
+
+            completed = sum(await asyncio.gather(*(send_group(*group) for group in prepared_groups)))
             if not completed:
                 return
             check_current()
@@ -1015,8 +1037,15 @@ class P2PManager(ReconnectMixin, WSInterface):
     def _receive(self, frame: any, peer_id=None) -> str:
         generation = self._send_generation
         try:
-            body = json.loads(frame)
+            body = binary.decode_frame(frame) if isinstance(frame, bytes) else json.loads(frame)
+            is_binary = body.get("_cc_binary") is True
             if isinstance(body, dict) and body.get("_cc_keepalive") is True:
+                channel = self.data_channels.get(peer_id)
+                if channel is not None:
+                    caps = body.get("capabilities")
+                    channel._cc_binary = (isinstance(caps, dict) and caps.get("version") == 1
+                                          and isinstance(caps.get("transferFormats"), list)
+                                          and "ccb1" in caps["transferFormats"])
                 read_capability(body, self._peer_receive_limits, peer_id)
                 return
             if not self.config.data.get("receive_clipboard", True):
@@ -1060,18 +1089,25 @@ class P2PManager(ReconnectMixin, WSInterface):
                 if metadata["id"] in self.receiving_fragments:
                     entry = self.receiving_fragments[metadata["id"]]
                     if (entry["peer"] != peer_id or len(entry["fragments"]) != metadata["totalFragments"]
-                            or entry["type"] != payload_type):
+                            or entry["type"] != payload_type or entry.get("binary", False) != is_binary
+                            or entry.get("encrypted") != body.get("encrypted")):
                         self.reset_receiving_fragments()
                         return
                     if entry["generation"] != self._send_generation:
                         self.reset_receiving_fragments()
                         return
                     generation = entry["generation"]
+                    if is_binary:
+                        if (metadata["index"] != entry["next_index"] or metadata_size(metadata) != entry["size"]
+                                or entry["bytes"] + len(payload) > entry["size"] + binary.MAX_HEADER + 64):
+                            raise ValueError("Invalid binary fragment sequence or size")
+                        entry["next_index"] += 1
+                        entry["bytes"] += len(payload)
                     entry["fragments"][metadata["index"]] = payload
                     entry["last_received_at"] = time.monotonic()
                     if metadata["index"] == metadata["totalFragments"] - 1:
                         if all(s != "" for s in entry["fragments"]):
-                            payload = "".join(entry["fragments"])
+                            payload = (b"" if is_binary else "").join(entry["fragments"])
                             self.receiving_fragments.pop(metadata["id"], None)
                             self._discard_fragment_id(metadata["id"])
                         else:
@@ -1087,6 +1123,8 @@ class P2PManager(ReconnectMixin, WSInterface):
                     self.receiving_fragments[metadata["id"]] = {
                         "last_received_at": time.monotonic(),
                         "peer": peer_id, "type": payload_type, "generation": generation,
+                        "binary": is_binary, "encrypted": body.get("encrypted"),
+                        "next_index": 1, "bytes": len(payload), "size": metadata_size(metadata),
                         "fragments": [""] * metadata["totalFragments"],
                     }
                     self.receiving_fragments[metadata["id"]]["fragments"][
@@ -1097,7 +1135,12 @@ class P2PManager(ReconnectMixin, WSInterface):
             if generation != self._send_generation:
                 return
             self.reset_receiving_fragments()
-            if self.config.data["cipher_enabled"]:
+            if is_binary:
+                if body["encrypted"] != bool(self.config.data["cipher_enabled"]):
+                    raise ValueError("Encryption settings differ between devices")
+                payload = binary.decode_content(payload, payload_type,
+                    self.cipher_manager if body["encrypted"] else None, receive_limit(self.config))
+            elif self.config.data["cipher_enabled"]:
                 payload = self.cipher_manager.decrypt(
                     **CipherManager.decode_from_json_string(payload)
                 )

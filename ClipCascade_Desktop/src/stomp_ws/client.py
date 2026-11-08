@@ -72,13 +72,13 @@ class Client:
         logging.debug(error)
 
     def _on_message(self, ws_app, message, *args):
-        if message == "\n":  # If message is a newline, it's a heartbeat frame
+        if message in ("\n", b"\n"):  # If message is a newline, it's a heartbeat frame
             logging.debug("Received heartbeat frame")
             self.ws.send("\n")  # Send a heartbeat back to the server
             logging.debug("Sent heartbeat frame")
             return
 
-        logging.debug("\n<<< " + str(message))
+        logging.debug("STOMP receive (%d bytes)", len(message))
         frame = Frame.unmarshall_single(message)
         if frame is None:
             # Malformed frame — log and continue rather than killing the receive loop.
@@ -137,8 +137,11 @@ class Client:
 
     def _transmit(self, command, headers, body=None):
         out = Frame.marshall(command, headers, body)
-        logging.debug("\n>>> " + out)
-        self.ws.send(out)
+        logging.debug("STOMP send %s (%d bytes)", command, len(out))
+        if isinstance(out, bytes):
+            self.ws.send(out, opcode=websocket.ABNF.OPCODE_BINARY)
+        else:
+            self.ws.send(out)
 
     def connect(
         self,

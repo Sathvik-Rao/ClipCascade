@@ -13,7 +13,7 @@ export const allowsContentSize = (limit, size) => !validContentSize(limit) || !v
 export const metadataContentSize = metadata => validContentSize(metadata?.contentSizeBytes) ? metadata.contentSizeBytes : null;
 
 export function receiveCapabilityMessage(limit) {
-  return JSON.stringify({_cc_keepalive: true, capabilities: {version: 1, receiveLimitBytes: limit}});
+  return JSON.stringify({_cc_keepalive: true, capabilities: {version: 1, transferFormats: ['ccb1'], receiveLimitBytes: limit}});
 }
 
 export function readReceiveCapability(message, limits, peer) {

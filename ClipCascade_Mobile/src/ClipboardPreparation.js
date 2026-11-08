@@ -108,7 +108,7 @@ export async function waitForClipboardCapacity(channel, size, checkCurrent,
 }
 
 export async function sendSharedClipboardFragments(fragments, recipients, metadata, payloadType,
-  encoder, checkCurrent, beforeFragment = async () => {}, onProgress = () => {}, allowPeer = () => true) {
+  encoder, checkCurrent, beforeFragment = async () => {}, onProgress = () => {}, allowPeer = () => true, encode = null) {
   const total = fragments.length;
   const positions = recipients.map(() => 0);
   let released = 0;
@@ -129,9 +129,9 @@ export async function sendSharedClipboardFragments(fragments, recipients, metada
         await beforeFragment();
         check();
         if (!allowPeer(channel)) return false;
-        const message = JSON.stringify({payload: fragments[index], type: payloadType,
-          metadata: {...metadata, index}});
-        await waitForClipboardCapacity(channel, encoder.encode(message).length, () => {
+        const message = encode ? encode(fragments[index], {...metadata, index}) :
+          JSON.stringify({payload: fragments[index], type: payloadType, metadata: {...metadata, index}});
+        await waitForClipboardCapacity(channel, typeof message === 'string' ? encoder.encode(message).length : message.byteLength, () => {
           check();
           if (!allowPeer(channel)) throw new Error('Peer receive limit changed');
         });

@@ -23,7 +23,7 @@ def receive_limit_header(config):
 
 def capability_message(config):
     return json.dumps({"_cc_keepalive": True,
-                       "capabilities": {"version": 1, "receiveLimitBytes": receive_limit(config)}})
+                       "capabilities": {"version": 1, "transferFormats": ["ccb1"], "receiveLimitBytes": receive_limit(config)}})
 
 
 def read_capability(message, limits, peer):

@@ -1,3 +1,4 @@
+import {fromBase64, toBase64, bytes} from './BinaryProtocol';
 let nextSocketId = 0;
 
 // STOMP still sees one continuous byte stream. Native code splits its frames
@@ -16,6 +17,8 @@ export class StompSocket {
       if (event.type === 'open') {
         this.readyState = 1;
         this.onopen?.({type: 'open', target: this});
+      } else if (event.type === 'binary') {
+        this.onmessage?.({data: fromBase64(event.data).buffer, target: this});
       } else if (event.type === 'message') {
         this.onmessage?.({data: JSON.parse(event.data), target: this});
       } else if (event.type === 'error') {
@@ -31,11 +34,13 @@ export class StompSocket {
 
   send(frame) {
     if (this.readyState !== 1) throw new Error('STOMP connection is not open');
-    if (typeof frame !== 'string') throw new Error('Expected a serialized STOMP text frame');
+    const binary = typeof frame !== 'string';
     // A literal NUL can be truncated by the React Native string bridge.
     // Send the STOMP terminator separately and restore it natively.
-    const terminated = frame.endsWith('\0');
-    const pending = this._bridge.sendStompFrame(this._id, terminated ? frame.slice(0, -1) : frame, terminated);
+    const terminated = !binary && frame.endsWith('\0');
+    const pending = binary
+      ? this._bridge.sendStompBinaryFrame(this._id, toBase64(bytes(frame)))
+      : this._bridge.sendStompFrame(this._id, terminated ? frame.slice(0, -1) : frame, terminated);
     this._pending.add(pending);
     pending.then(() => this._pending.delete(pending), error => {
       this._failure = error;

@@ -6,10 +6,12 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.MessageHandler;
+import org.springframework.messaging.support.ExecutorChannelInterceptor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
-import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
@@ -41,15 +43,17 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final ClipCascadeProperties clipCascadeProperties;
 
     private final LiveWebSocketService liveWebSockets;
+    private final ObjectProvider<P2SDeliveryService> delivery;
 
-    public StompWebSocketConfig(ClipCascadeProperties clipCascadeProperties, LiveWebSocketService liveWebSockets) {
+    public StompWebSocketConfig(ClipCascadeProperties clipCascadeProperties, LiveWebSocketService liveWebSockets, ObjectProvider<P2SDeliveryService> delivery) {
         this.clipCascadeProperties = clipCascadeProperties;
         this.liveWebSockets = liveWebSockets;
+        this.delivery = delivery;
     }
 
     @Override
     public void configureClientInboundChannel(@NonNull ChannelRegistration registration) {
-        registration.interceptors(new ChannelInterceptor() {
+        registration.interceptors(new ExecutorChannelInterceptor() {
             @Override
             public Message<?> preSend(@NonNull Message<?> message, @NonNull MessageChannel channel) {
                 StompHeaderAccessor headers = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
@@ -63,7 +67,8 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 // Authorize the original client destination before Spring resolves user queues.
                 var command = headers.getCommand();
                 boolean allowed = command != null && switch (command) {
-                    case SEND -> headers.getUser() != null && "/app/cliptext".equals(headers.getDestination());
+                    case SEND -> headers.getUser() != null && ("/app/cliptext".equals(headers.getDestination())
+                            || "/app/clipbinary".equals(headers.getDestination()));
                     case SUBSCRIBE -> headers.getUser() != null
                             && "/user/queue/cliptext".equals(headers.getDestination());
                     case CONNECT, STOMP, DISCONNECT, UNSUBSCRIBE, ACK, NACK -> headers.getDestination() == null;
@@ -75,6 +80,21 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 P2SDeliveryService.recordCapabilities(headers);
                 return message;
             }
+
+            @Override
+            public void afterMessageHandled(Message<?> message, MessageChannel channel,
+                    MessageHandler handler, Exception failure) {
+                if (failure != null) return;
+                var headers = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
+                if (headers == null) return;
+                if (headers.getCommand() == org.springframework.messaging.simp.stomp.StompCommand.SUBSCRIBE
+                        && handler instanceof org.springframework.messaging.simp.user.UserDestinationMessageHandler) {
+                    delivery.getObject().subscriptionReady(headers);
+                } else if (headers.getCommand() == org.springframework.messaging.simp.stomp.StompCommand.UNSUBSCRIBE
+                        && handler instanceof org.springframework.messaging.simp.broker.AbstractBrokerMessageHandler) {
+                    delivery.getObject().subscriptionRemoved(headers);
+                }
+            }
         });
     }
 
@@ -83,6 +103,8 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // Prefix for client-to-server communication (application-level messages).
         // Clients send messages to server endpoints starting with "/app".
         config.setApplicationDestinationPrefixes("/app");
+        // Clipboard revisions must reach each recipient in the order published.
+        config.setPreservePublishOrder(true);
 
         // Prefix for user-specific destinations.
         // Used when sending messages to specific users via "/user/{sessionId}/...".
@@ -122,6 +144,7 @@ public class StompWebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void registerStompEndpoints(@NonNull StompEndpointRegistry registry) {
         // Clients will connect to this endpoint for WebSocket communication.
+        registry.setPreserveReceiveOrder(true);
         registry.addEndpoint("/clipsocket")
                 .addInterceptors(liveWebSockets.sessionHandshakeInterceptor())
                 .setAllowedOrigins(clipCascadeProperties.getAllowedOrigins());

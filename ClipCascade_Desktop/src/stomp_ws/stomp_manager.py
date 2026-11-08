@@ -3,6 +3,8 @@ import logging
 
 
 from interfaces.ws_interface import WSInterface
+from utils import binary_protocol as binary
+from utils.relay_recipients import RelayRecipients
 from utils.reconnect import ReconnectMixin
 from stomp_ws.client import Client
 from core.config import Config
@@ -25,6 +27,7 @@ else:
 class STOMPManager(ReconnectMixin, WSInterface):
     def __init__(self, config: Config, is_login_phase=True):
         self.config = config
+        self._relay_recipients = RelayRecipients()
         self._transfer_generation = 0
         self._sent_echoes = ClipboardEchoes()
         self.clipboard_manager = ClipboardManager(self.config)
@@ -65,6 +68,7 @@ class STOMPManager(ReconnectMixin, WSInterface):
                 return True, ""
             if self.client is not None:
                 self.client.disconnect()
+            cache = self._relay_recipients = RelayRecipients()
             client = Client(
                 self.config.data["websocket_url"],
                 headers={
@@ -77,11 +81,11 @@ class STOMPManager(ReconnectMixin, WSInterface):
             )
             self.client = client
             client.connect(
-                headers={"x-clipcascade-no-self-echo": "true", LIMIT_HEADER: receive_limit_header(self.config)},
+                headers={"x-clipcascade-recipient-updates": "1", "x-clipcascade-binary": "ccb1", "x-clipcascade-no-self-echo": "true", LIMIT_HEADER: receive_limit_header(self.config)},
                 timeout=WEBSOCKET_TIMEOUT,
                 connectCallback=lambda _: client.subscribe(  # receive event
                     destination=SUBSCRIPTION_DESTINATION,
-                    callback=self._receive,
+                    callback=lambda frame: self._receive(frame, cache) if self.client is client and not self.disconnected else None,
                 ),
             )
             if self.disconnected:
@@ -118,6 +122,8 @@ class STOMPManager(ReconnectMixin, WSInterface):
     def _on_close(self, client=None):
         if client is not None and client is not self.client:
             return
+        self._relay_recipients.reset()
+        self._transfer_generation += 1
         self.is_connected = False
         # Auto Reconnect
         if not self.is_login_phase and not self.disconnected:
@@ -135,6 +141,7 @@ class STOMPManager(ReconnectMixin, WSInterface):
 
     def send(self, payload: str, payload_type: str = "text", is_current=lambda: True, content_size_bytes=None):
         generation = self._transfer_generation
+        client = self.client
         if not is_current() or not self.config.data.get("send_clipboard", True):
             return
         try:
@@ -143,47 +150,80 @@ class STOMPManager(ReconnectMixin, WSInterface):
                 if payload_hash != self.clipboard_manager.previous_clipboard_hash:
                     if not valid_size(content_size_bytes):
                         content_size_bytes = content_size(payload, payload_type)
-                    # Older servers ignore our CONNECT opt-in. Only encrypted
-                    # echoes have an unambiguous identity on that legacy path.
-                    echo_key = None
-                    if self.config.data["cipher_enabled"]:
-                        envelope = self.cipher_manager.encrypt(payload)
-                        echo_key = (payload_type, "encrypted", envelope["nonce"], envelope["tag"])
-                        payload = CipherManager.encode_to_json_string(**envelope)
-                        del envelope
-                    message = {"payload": payload, "type": payload_type}
-                    if valid_size(content_size_bytes):
-                        message["metadata"] = {SIZE_FIELD: content_size_bytes}
-                    body = json.dumps(message)
-                    if (not is_current() or generation != self._transfer_generation or not self.is_connected
-                            or not self.config.data.get("send_clipboard", True)):
-                        return
-                    if echo_key is not None:
-                        self._sent_echoes.remember(echo_key)
-                    try:
-                        self.client.send(destination=SEND_DESTINATION, body=body)
-                    except Exception:
+                    plan = self._relay_recipients.get()
+                    if plan is None:
+                        plan = RequestManager(self.config).binary_recipients()
+                    encrypted = bool(self.config.data["cipher_enabled"])
+                    # Construct only the representations required by this snapshot.
+                    messages = []
+                    if plan is not None and plan[True]:
+                        try:
+                            raw = binary.encode_content(payload, payload_type, self.cipher_manager if encrypted else None)
+                        except ValueError as error:
+                            if str(error) != "Binary header too large":
+                                raise
+                            plan[False].extend(plan[True])
+                            plan[True] = []
+                        else:
+                            body = binary.encode_frame(raw, payload_type, {SIZE_FIELD: content_size_bytes}, encrypted)
+                            messages.append(("/app/clipbinary", body, {"content-type": binary.CONTENT_TYPE,
+                                "x-clipcascade-recipients": ",".join(plan[True])}, None))
+                    if plan is None or plan[False]:
+                        echo_key = None
+                        prepared = payload
+                        if encrypted:
+                            envelope = self.cipher_manager.encrypt(prepared)
+                            echo_key = (payload_type, "encrypted", envelope["nonce"], envelope["tag"])
+                            prepared = CipherManager.encode_to_json_string(**envelope)
+                        body = json.dumps({"payload": prepared, "type": payload_type,
+                                           "metadata": {SIZE_FIELD: content_size_bytes}})
+                        headers = {} if plan is None else {"x-clipcascade-recipients": ",".join(plan[False])}
+                        messages.append((SEND_DESTINATION, body, headers, echo_key))
+                    for destination, body, headers, echo_key in messages:
+                        if (not is_current() or generation != self._transfer_generation or not self.is_connected
+                                or client is not self.client or not self.config.data.get("send_clipboard", True)):
+                            return
                         if echo_key is not None:
-                            self._sent_echoes.consume(echo_key)
-                        raise
-                    if generation == self._transfer_generation:
+                            self._sent_echoes.remember(echo_key)
+                        try:
+                            client.send(destination=destination, body=body, headers=headers)
+                        except Exception:
+                            if echo_key is not None:
+                                self._sent_echoes.consume(echo_key)
+                            raise
+                    if generation == self._transfer_generation and client is self.client:
                         self.clipboard_manager.previous_clipboard_hash = payload_hash
         except Exception as e:
             logging.error(f"Failed to send data: {e}")
 
-    def _receive(self, frame: any) -> str:
+    def _receive(self, frame: any, recipient_cache=None) -> str:
+        # Controls must be accepted before clipboard permissions or connection-ready checks.
+        parsed_body = None
+        if not isinstance(frame.body, bytes):
+            try:
+                parsed_body = json.loads(frame.body)
+                if (recipient_cache or self._relay_recipients).accept(parsed_body):
+                    return
+            except (ValueError, TypeError):
+                pass
         generation = self._transfer_generation
         if not self.config.data.get("receive_clipboard", True):
             return
         try:
             if self.is_connected:
-                body = json.loads(frame.body)
+                is_binary = isinstance(frame.body, bytes)
+                body = binary.decode_frame(frame.body) if is_binary else parsed_body
                 if not allows_content(receive_limit(self.config), metadata_size(body.get("metadata"))):
                     logging.info("Incoming clipboard content exceeds the local size limit")
                     return
                 payload = body["payload"]
                 payload_type = body.get("type", "text")
-                if self.config.data["cipher_enabled"]:
+                if is_binary:
+                    if body["encrypted"] != bool(self.config.data["cipher_enabled"]):
+                        raise ValueError("Encryption settings differ between devices")
+                    payload = binary.decode_content(payload, payload_type,
+                        self.cipher_manager if body["encrypted"] else None, receive_limit(self.config))
+                elif self.config.data["cipher_enabled"]:
                     envelope = CipherManager.decode_from_json_string(payload)
                     if self._sent_echoes.consume((payload_type, "encrypted", envelope["nonce"], envelope["tag"])):
                         return
@@ -208,6 +248,7 @@ class STOMPManager(ReconnectMixin, WSInterface):
             logging.error(f"Failed to receive data: {e}")
 
     def disconnect(self):
+        self._relay_recipients.reset()
         self._on_local_change()
         self._stop_reconnect()
         self.is_connected = False

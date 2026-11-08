@@ -13,10 +13,10 @@ class Frame:
     def __str__(self):
         # STOMP content-length counts UTF-8 bytes, not Python characters.
         headers = dict(self.headers)
-        headers["content-length"] = str(len(self.body.encode("utf-8")))
+        headers["content-length"] = str(len(self.body) if isinstance(self.body, bytes) else len(self.body.encode("utf-8")))
         lines = [self.command]
         lines.extend(f"{name}:{value}" for name, value in headers.items())
-        return Byte["LF"].join(lines) + "\n\n" + self.body
+        return Byte["LF"].join(lines) + "\n\n" + (f"<{len(self.body)} binary bytes>" if isinstance(self.body, bytes) else self.body)
 
     @staticmethod
     def unmarshall_single(data):
@@ -49,10 +49,14 @@ class Frame:
                 if end < 0:
                     return None
                 body = body[:end]
-            return Frame(command, headers, body.decode("utf-8"))
+            return Frame(command, headers, body if headers.get("content-type", "").split(";")[0] == "application/octet-stream" else body.decode("utf-8"))
         except (ValueError, TypeError, UnicodeError):
             return None
 
     @staticmethod
     def marshall(command, headers, body):
+        if isinstance(body, bytes):
+            headers = {**headers, "content-length": str(len(body))}
+            prefix = "\n".join([command] + [f"{key}:{value}" for key, value in headers.items()])
+            return prefix.encode("utf-8") + b"\n\n" + body + b"\0"
         return str(Frame(command, headers, body)) + Byte["NULL"]

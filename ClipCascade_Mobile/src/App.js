@@ -112,6 +112,8 @@ const isCancel = error =>
  * (file) ServiceStatus.js
  * (file) StompShutdown.js
  * (file) StompSocket.js
+ * (file) BinaryProtocol.js - CCB1 binary clipboard encoding for P2P and P2S.
+ * (file) RelayRecipients.js - Cached P2S recipient capabilities from server updates.
  * (file) WebSocketStatus.js
  * (file) DevicePreferences.js
  * (file) DownloadDirectory.js

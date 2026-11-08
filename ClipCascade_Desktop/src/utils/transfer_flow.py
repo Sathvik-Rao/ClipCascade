@@ -28,7 +28,7 @@ async def wait_for_capacity(channel, size, check_current, limit=1024 * 1024, tim
 
 
 async def send_shared_fragments(fragments, recipients, metadata, payload_type,
-                                check_current, on_progress=lambda *_: None, allow_peer=lambda _: True):
+                                check_current, on_progress=lambda *_: None, allow_peer=lambda _: True, encode=None):
     """Run one sender per peer; retain only fragments still needed by a peer."""
     total = len(fragments)
     positions = [0] * len(recipients)
@@ -59,9 +59,10 @@ async def send_shared_fragments(fragments, recipients, metadata, payload_type,
                 check()
                 if not allow_peer(channel):
                     return False
-                body = json.dumps({"payload": fragments[index], "type": payload_type,
-                                   "metadata": {**metadata, "index": index}})
-                await wait_for_capacity(channel, len(body.encode("utf-8")), check_peer)
+                body = (encode(fragments[index], {**metadata, "index": index}) if encode else
+                        json.dumps({"payload": fragments[index], "type": payload_type,
+                                    "metadata": {**metadata, "index": index}}))
+                await wait_for_capacity(channel, len(body) if isinstance(body, bytes) else len(body.encode("utf-8")), check_peer)
                 check()
                 if not allow_peer(channel):
                     return False
