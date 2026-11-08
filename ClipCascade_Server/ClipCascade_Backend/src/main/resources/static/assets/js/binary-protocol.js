@@ -9,7 +9,7 @@
   const bytes = value => value instanceof Uint8Array ? value :
     ArrayBuffer.isView(value) ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength) : new Uint8Array(value);
   const utf8 = value => new TextEncoder().encode(value);
-  const text = value => new TextDecoder('utf-8', {fatal: true}).decode(value);
+  const text = value => new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(value);
   function concat(parts) {
     const result = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
     let offset = 0;
