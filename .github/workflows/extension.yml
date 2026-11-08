@@ -1,0 +1,178 @@
+name: Chrome extension
+
+# Builds, tests and packages ClipCascade_Extension on every change to it.
+# Publishes the packaged extension as a GitHub release when either
+# - a tag named extension-v<version> (matching package.json) is pushed, or
+# - the workflow is run by hand with "release" ticked; it then creates the
+#   extension-v<version> tag on the commit it built.
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["extension-v*"]
+    paths:
+      - "ClipCascade_Extension/**"
+      - ".github/workflows/extension.yml"
+  pull_request:
+    paths:
+      - "ClipCascade_Extension/**"
+      - ".github/workflows/extension.yml"
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Publish a release (tags the commit extension-v<package.json version>)
+        type: boolean
+        default: false
+
+concurrency:
+  group: extension-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: ClipCascade_Extension
+
+jobs:
+  test:
+    name: Typecheck, unit tests, package
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ClipCascade_Extension/package-lock.json
+
+      # Lets the crypto tests run the desktop client's own CipherManager.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install pycryptodome
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Read version
+        id: version
+        run: echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Package
+        run: |
+          mkdir -p ../out
+          (cd dist && zip -qr "../../out/ClipCascade-Extension-${{ steps.version.outputs.version }}.zip" .)
+          (cd ../out && sha256sum *.zip > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: clipcascade-extension
+          path: out/
+          if-no-files-found: error
+
+  e2e:
+    name: End-to-end against a real server
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          cache-dependency-path: ClipCascade_Server/ClipCascade_Backend/pom.xml
+
+      - name: Build and start the server (server mode, default admin account)
+        working-directory: ClipCascade_Server/ClipCascade_Backend
+        run: |
+          sh ./mvnw -B -q -DskipTests package
+          mkdir -p "$RUNNER_TEMP/server"
+          cd "$RUNNER_TEMP/server"
+          nohup java -jar "$GITHUB_WORKSPACE/ClipCascade_Server/ClipCascade_Backend/target/ClipCascade-Server-JRE_21.jar" > server.log 2>&1 &
+          for i in $(seq 90); do curl -sf http://127.0.0.1:8080/ping && exit 0; sleep 2; done
+          cat server.log
+          exit 1
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ClipCascade_Extension/package-lock.json
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+
+      - name: Run end-to-end tests
+        env:
+          SERVER: http://127.0.0.1:8080
+          CC_USER: admin
+          CC_PASS: admin123
+        run: xvfb-run -a npm run test:e2e
+
+      - name: Server log
+        if: failure()
+        run: tail -n 200 "$RUNNER_TEMP/server/server.log"
+
+  release:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/extension-v') || (github.event_name == 'workflow_dispatch' && inputs.release)
+    needs: [test, e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Resolve the release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.test.outputs.version }}
+        run: |
+          TAG="extension-v$VERSION"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            if [ "$GITHUB_REF_NAME" != "$TAG" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION (expected $TAG)"
+              exit 1
+            fi
+          elif gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            echo "::error::$TAG already exists. Bump the version in package.json first."
+            exit 1
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: clipcascade-extension
+          path: out
+
+      # --latest=false keeps the desktop/server release as the repository's "Latest".
+      # --target creates the tag on the built commit when it doesn't exist yet.
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.test.outputs.version }}
+        run: |
+          cat > notes.md <<EOF
+          ClipCascade for Chrome and other Chromium browsers (version 116 or later), server mode.
+
+          **Install:** unzip \`ClipCascade-Extension-$VERSION.zip\`, open \`chrome://extensions\`, turn on **Developer mode**, click **Load unpacked** and select the unzipped folder.
+
+          See [ClipCascade_Extension/README.md](https://github.com/$GITHUB_REPOSITORY/blob/$TAG/ClipCascade_Extension/README.md) for details.
+          EOF
+          gh release create "$TAG" out/*.zip out/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "ClipCascade Extension $VERSION" \
+            --notes-file notes.md \
+            --generate-notes \
+            --latest=false \
+            --target "$GITHUB_SHA"

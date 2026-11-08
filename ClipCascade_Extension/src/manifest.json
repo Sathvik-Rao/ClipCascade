@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "ClipCascade",
+  "description": "Sync your clipboard across devices with end-to-end encryption, through your ClipCascade server.",
+  "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "ClipCascade",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "permissions": [
+    "alarms",
+    "clipboardRead",
+    "clipboardWrite",
+    "contextMenus",
+    "cookies",
+    "declarativeNetRequestWithHostAccess",
+    "downloads",
+    "notifications",
+    "offscreen",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "commands": {
+    "send-clipboard": {
+      "suggested_key": {
+        "default": "Alt+Shift+C"
+      },
+      "description": "Send the clipboard to your other devices"
+    }
+  }
+}
