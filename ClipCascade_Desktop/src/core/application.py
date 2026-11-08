@@ -330,15 +330,41 @@ class Application:
                 self._cleanup_lock_file()
                 self._macos_shutdown_complete = True
 
+    def load_saved_config(self):
+        while not self.config.load():
+            if self.config.credential_load_error is None:
+                return  # First run: there is no saved login to recover.
+            dialog = CustomDialog(
+                "ClipCascade is not connected because saved login data could not be accessed.\n\n"
+                + self.config.credential_load_error
+                + "\n\nRetry may show an OS unlock or permission prompt. "
+                  "You can also sign in manually or exit.",
+                msg_type="warning",
+                actions=[("Retry", "retry"), ("Sign in", "sign_in"), ("Exit", "exit")],
+            )
+            dialog.mainloop()
+            if dialog.result == "sign_in":
+                return
+            if dialog.result != "retry":
+                sys.exit(0)
+
     def run(self):
         try:
             self.banner()
             self.setup_logging()
             self.ensure_single_instance()
-            self.config.load()
+            self.load_saved_config()
             self.update_checker.start()
             self.authenticate_and_connect()
-            self.config.save()
+            if not self.config.save():
+                CustomDialog(
+                    "ClipCascade is connected, but the login could not be saved securely. "
+                    "Automatic login may not work next time. Existing saved data has been preserved.\n\n"
+                    "Check that the OS credential store is available, unlocked, and allows ClipCascade access. "
+                    "If running from source, also check that the Python 'keyring' package is installed "
+                    "in the same environment used to run ClipCascade.",
+                    msg_type="warning",
+                ).mainloop()
             donation_url = self.get_donation_url()
 
             sys_tray = TaskbarPanel(

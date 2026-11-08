@@ -52,10 +52,11 @@ class Config:
         self._saved_data = self.data.copy()
         self._secret_ref = None
         self._credentials_unavailable = False
+        self.credential_load_error = None
 
     def save(self):
         """
-        Save data to file
+        Save preferences and credentials; return False if either cannot be saved.
         """
         saved = self.data.copy()
         if not saved["cipher_enabled"]:
@@ -70,7 +71,9 @@ class Config:
             # A desktop without an available keyring can still keep preferences.
             # Never use this fallback to overwrite credentials from an older install.
             saved.update(hashed_password=None, cookie=None, password="", csrf_token="")
-            return self._save_data(saved)
+            self._save_data(saved)
+            # Saving preferences alone does not mean the login was saved.
+            return False
         return False
 
     def save_preferences(self, updates):
@@ -91,6 +94,10 @@ class Config:
         return False
 
     def _save_data(self, data):
+        # A failed read must not turn an empty in-memory login into deletion of
+        # the existing entry. A successful manual login can save new secrets.
+        if self._credentials_unavailable and not any(data[key] for key in self.SECRET_FIELDS):
+            return False
         temporary_path = None
         old_ref = self._secret_ref
         new_ref = old_ref
@@ -153,6 +160,7 @@ class Config:
         """
         Load data from file
         """
+        self.credential_load_error = None
         if os.path.isfile(self.file_name):
             try:
                 with open(self.file_name, "r") as f:
@@ -162,8 +170,9 @@ class Config:
                 self.data.update(file_data)
                 loaded = self.data.copy()
                 if self._secret_ref:
-                    value = secret_storage.backend().get_password(secret_storage.SERVICE, self._secret_ref)
+                    value = secret_storage.get_password(self._secret_ref)
                     if value is None:
+                        self.credential_load_error = "The saved credential entry could not be found."
                         raise RuntimeError("Saved credentials are unavailable")
                     entry = json.loads(value)
                     if entry["server_url"] != loaded["server_url"] or entry["username"] != loaded["username"]:
@@ -182,13 +191,23 @@ class Config:
                         loaded["password"] = ""
                     if not self._save_data(loaded):
                         self._credentials_unavailable = True
+                        self.credential_load_error = "Existing credentials could not be moved to secure storage."
                         self._saved_data = self.data.copy()
                         return False
                 self.data = loaded
                 self._saved_data = loaded.copy()
+                self._credentials_unavailable = False
                 return True
             except Exception as e:
                 self._credentials_unavailable = True
+                self.data.update(hashed_password=None, cookie=None, password="", csrf_token="")
+                if self.credential_load_error is None:
+                    self.credential_load_error = (
+                        "The credential service is unavailable."
+                        if secret_storage.is_service_unavailable(e)
+                        else "Saved login data could not be read. The credential store may be locked, "
+                             "access may have been denied or cancelled, or the saved data may be invalid."
+                    )
                 self._saved_data = self.data.copy()
                 logging.warning("Could not load saved ClipCascade credentials (%s)", type(e).__name__)
         return False
