@@ -28,7 +28,7 @@ def unpack(data):
     return header, data[8 + size:]
 
 
-def encode_content(payload, kind, cipher=None):
+def encode_content(payload, kind, cipher=None, on_raw_size=lambda size: None):
     if kind == "text":
         raw, files = payload.encode("utf-8"), None
     elif kind == "image":
@@ -44,6 +44,7 @@ def encode_content(payload, kind, cipher=None):
         raise ValueError("Unsupported content type")
     # Kind and file boundaries are inside the authenticated plaintext.
     raw = pack({"type": kind, "files": files}, raw)
+    on_raw_size(len(raw))
     if cipher is not None:
         envelope = cipher.encrypt_bytes(raw)
         raw = bytes([len(envelope["nonce"])]) + envelope["nonce"] + envelope["tag"] + envelope["ciphertext"]

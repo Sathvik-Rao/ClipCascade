@@ -928,13 +928,19 @@ class P2PManager(ReconnectMixin, WSInterface):
 
             def prepare():
                 prepared_groups = []
+                legacy_raw_size = len(payload.encode("utf-8"))
                 for use_binary, channels in groups:
                     if not channels:
                         continue
                     check_current()
+                    raw_size = legacy_raw_size
                     if use_binary:
+                        def measure_raw_size(size):
+                            nonlocal raw_size
+                            raw_size = size
                         try:
-                            prepared = binary.encode_content(payload, payload_type, self.cipher_manager if encrypted else None)
+                            prepared = binary.encode_content(payload, payload_type,
+                                self.cipher_manager if encrypted else None, on_raw_size=measure_raw_size)
                             fragments = [prepared[i:i + FRAGMENT_SIZE] for i in range(0, len(prepared), FRAGMENT_SIZE)]
                         except ValueError as error:
                             if str(error) != "Binary header too large":
@@ -942,6 +948,7 @@ class P2PManager(ReconnectMixin, WSInterface):
                             fragments = []
                         if not fragments or len(fragments) > 65536:
                             use_binary = False
+                            raw_size = legacy_raw_size
                             prepared = (CipherManager.encode_to_json_string(**self.cipher_manager.encrypt(payload))
                                         if encrypted else payload)
                             fragments = self.fragment_string(prepared, check_current=check_current)
@@ -950,7 +957,7 @@ class P2PManager(ReconnectMixin, WSInterface):
                                     if encrypted else payload)
                         fragments = self.fragment_string(prepared, check_current=check_current)
                     check_current()
-                    prepared_groups.append((use_binary, channels, fragments))
+                    prepared_groups.append((use_binary, channels, fragments, raw_size))
                 return prepared_groups
 
             if payload_type == "text" and len(payload) <= 65536:
@@ -960,7 +967,6 @@ class P2PManager(ReconnectMixin, WSInterface):
                     check_current()
                     prepared_groups = await asyncio.to_thread(prepare)
             check_current()
-            raw_size = len(payload.encode("utf-8"))
             payload = None
             self.sending_fragment_id = transfer_id
 
@@ -968,7 +974,7 @@ class P2PManager(ReconnectMixin, WSInterface):
                 if self.sending_fragment_id == transfer_id and generation == self._send_generation:
                     self.sending_fragment_stats = f"{index}/{total}"
 
-            async def send_group(use_binary, channels, fragments):
+            async def send_group(use_binary, channels, fragments, raw_size):
                 metadata = dict(id=transfer_id, isFragmented=len(fragments) > 1,
                                 index=0, totalFragments=len(fragments),
                                 combinedRawPayloadSizeInBytes=raw_size, contentSizeBytes=content_size_bytes)

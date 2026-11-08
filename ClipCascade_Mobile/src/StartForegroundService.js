@@ -1252,9 +1252,11 @@ module.exports = async (inputData = null) => {
                       if (!channels.length) continue;
                       checkCurrent();
                       let parts;
+                      let combinedRawPayloadSizeInBytes = rawPayloadSizeInBytes;
                       if (useBinary) {
                         try {
-                          const raw = await binary.encodeContent(clipContent, type_, encrypted ? encryptBinary : null);
+                          const raw = await binary.encodeContent(clipContent, type_, encrypted ? encryptBinary : null,
+                            size => { combinedRawPayloadSizeInBytes = size; });
                           parts = binary.fragments(raw, FRAGMENT_SIZE);
                         } catch (error) {
                           if (error.message !== 'Binary header too large') throw error;
@@ -1262,25 +1264,27 @@ module.exports = async (inputData = null) => {
                         }
                         if (!parts.length || parts.length > 65536) {
                           useBinary = false;
+                          combinedRawPayloadSizeInBytes = rawPayloadSizeInBytes;
                           parts = await fragmentString(encrypted ? await encrypt(clipContent) : clipContent, FRAGMENT_SIZE, checkCurrent);
                         }
                       } else {
                         const prepared = encrypted ? await encrypt(clipContent) : clipContent;
                         parts = await fragmentString(prepared, FRAGMENT_SIZE, checkCurrent);
                       }
-                      groups.push({useBinary, channels, fragments: parts});
+                      groups.push({useBinary, channels, fragments: parts, combinedRawPayloadSizeInBytes});
                     }
                     checkCurrent();
                     clipContent = null;
                     const metadata = {
-                      id: await generateUuid(), combinedRawPayloadSizeInBytes: rawPayloadSizeInBytes, contentSizeBytes,
+                      id: await generateUuid(), contentSizeBytes,
                     };
                     checkCurrent();
                     sendingFragmentId = metadata.id;
                     try {
                       const results = await Promise.all(groups.map(group => sendSharedClipboardFragments(
                         group.fragments, group.channels,
-                        {...metadata, isFragmented: group.fragments.length > 1, index: 0, totalFragments: group.fragments.length},
+                        {...metadata, combinedRawPayloadSizeInBytes: group.combinedRawPayloadSizeInBytes,
+                          isFragmented: group.fragments.length > 1, index: 0, totalFragments: group.fragments.length},
                         type_, textEncoder,
                         () => {
                           checkCurrent();

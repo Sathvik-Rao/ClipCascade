@@ -48,7 +48,7 @@
     if (!header || typeof header !== 'object' || Array.isArray(header)) throw new Error('Invalid binary header');
     return [header, data.subarray(8 + length)];
   }
-  async function encodeContent(payload, kind, encrypt = null) {
+  async function encodeContent(payload, kind, encrypt = null, onRawSize = () => {}) {
     let raw, files = null;
     if (kind === 'text') raw = utf8(payload);
     else if (kind === 'image') raw = fromBase64(payload);
@@ -61,6 +61,7 @@
       }));
     } else throw new Error('Unsupported content type');
     raw = pack({type: kind, files}, raw);
+    onRawSize(raw.length);
     return encrypt ? bytes(await encrypt(raw)) : raw;
   }
   async function decodeContent(raw, kind, decrypt = null, limit = null) {

@@ -1185,7 +1185,7 @@ async function sendTextToPeers(textVal) {
           const parts = ClipCascadeBinary.fragments(binaryRaw);
           for (let index = 0; index < parts.length; index++) {
             const frame = ClipCascadeBinary.encodeFrame(parts[index], 'text', {...msg.metadata,
-              index, totalFragments: parts.length, isFragmented: parts.length > 1});
+              combinedRawPayloadSizeInBytes: binaryRaw.length, index, totalFragments: parts.length, isFragmented: parts.length > 1});
             const deadline = Date.now() + 30000;
             while (ch.bufferedAmount + frame.length > 1024 * 1024) {
               if (generation !== clipboardSendGeneration) return;
