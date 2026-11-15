@@ -65,6 +65,16 @@ class GuiWindow(tk.Toplevel):
         for callback_id in tuple(self._pending_after_ids):
             self.after_cancel(callback_id)
         super().destroy()
+        # X11 requests are buffered and Tk flushes them only when its event loop
+        # runs again. The main thread may hand itself to the tray's own loop
+        # right after this call (Linux/GNOME) and never return to Tk, which
+        # leaves the destroyed window on screen - frozen - until the process
+        # exits. That is what a successful login used to look like. Idle tasks
+        # are enough to flush, and they cannot dispatch new user input.
+        try:
+            self.tk.call("update", "idletasks")
+        except tk.TclError:
+            pass  # Interpreter already torn down (application shutdown).
 
     def mainloop(self, n=0):
         # The hidden owner remains alive when this window is destroyed.
