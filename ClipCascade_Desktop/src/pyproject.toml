@@ -59,6 +59,16 @@ dependencies = [
     "pasteboard==0.4.0; sys_platform == 'darwin'",
 ]
 
+# Optional, Linux only: pystray needs PyGObject ("gi") for its AppIndicator
+# backend, and the Wayland clipboard monitor uses it as well. Without it
+# pystray silently falls back to its legacy X11 backend, whose icon is a raw
+# X11 window with no menu, so clicking the tray icon does nothing. Building
+# PyGObject needs its own system dependencies (on Fedora:
+# gobject-introspection-devel cairo-gobject-devel), which is why this is an
+# extra rather than a hard requirement. Install with: uv sync --extra tray
+[project.optional-dependencies]
+tray = ["pygobject>=3.42; sys_platform == 'linux'"]
+
 [project.scripts]
 clipcascade = "main:main"
 

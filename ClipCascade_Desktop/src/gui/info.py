@@ -4,6 +4,7 @@ from tkinter import scrolledtext, messagebox
 import gc
 import time
 
+from utils.fonts import ui_font
 from utils.window_manager import center_window
 from gui.tk_owner import GuiWindow
 from core.constants import *
@@ -26,12 +27,12 @@ class CustomDialog(GuiWindow):
         # global. Scope dialog fonts and inherit native light/dark theme colors.
         self.style.configure("Dialog.TFrame")
         self.style.configure(
-            "Dialog.TLabel", font=("Arial", 11)
+            "Dialog.TLabel", font=ui_font(11, master=self)
         )
-        self.style.configure("Header.Dialog.TLabel", font=("Arial", 14, "bold"))
-        self.style.configure("Dialog.TButton", font=("Arial", 11))
+        self.style.configure("Header.Dialog.TLabel", font=ui_font(14, weight="bold", master=self))
+        self.style.configure("Dialog.TButton", font=ui_font(11, master=self))
         self.style.configure(
-            "Dialog.TCheckbutton", font=("Arial", 11),
+            "Dialog.TCheckbutton", font=ui_font(11, master=self),
         )
 
         self._show_dialog()
@@ -89,7 +90,7 @@ class CustomDialog(GuiWindow):
         title_frame.grid(row=0, column=0, pady=(0, 10), sticky="ew")
 
         symbol_label = ttk.Label(
-            title_frame, text=symbol, font=("Arial", 18, "bold"), foreground=color,
+            title_frame, text=symbol, font=ui_font(18, weight="bold", master=self), foreground=color,
             style="Dialog.TLabel",
         )
         symbol_label.pack(side="left", padx=(0, 10))
@@ -103,7 +104,7 @@ class CustomDialog(GuiWindow):
 
         # ScrolledText widget for the message
         self.text_widget = scrolledtext.ScrolledText(
-            message_frame, wrap="word", font=("Arial", 11), width=70, height=8
+            message_frame, wrap="word", font=ui_font(11, master=self), width=70, height=8
         )
         self.text_widget.pack(fill="both", expand=True)
 

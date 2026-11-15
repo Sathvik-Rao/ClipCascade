@@ -457,6 +457,17 @@ sudo pacman -S --noconfirm python-gobject gtk3
 #### Step 3: Install GNOME tray support extension (if tray icon is unavailable)
 Install the [GNOME tray support extension](https://extensions.gnome.org/extension/615/appindicator-support/).
 
+The tray icon is drawn by `pystray`, which needs PyGObject (`gi`) for its AppIndicator backend; it is part of the packages installed in Step 1 (`python3-gi` / `python3-gobject` / `python-gobject`). When the interpreter that runs ClipCascade cannot import it, `pystray` silently falls back to its legacy X11 backend, whose icon is a plain X11 window with no menu: clicking the icon then does nothing and it may be drawn at the wrong size. The client logs an error naming the fallback backend in that case. PyGObject is also what the Wayland clipboard monitor uses, so without it the client additionally logs `Failed to start clipboard monitor` and falls back to polling the XWayland server.
+
+To check the interpreter that runs the client, this should print the AppIndicator class rather than `_xorg`:
+
+```
+python3 -c "import pystray; print(pystray.Icon)"
+# <class 'pystray._appindicator.Icon'>
+```
+
+If you run ClipCascade from a virtual environment, `uv sync --extra tray` installs PyGObject there. It has no wheel, so its build dependencies are needed first (Fedora: `sudo dnf install gobject-introspection-devel cairo-gobject-devel`).
+
 
 #### Step 4: Install Python Dependencies
 

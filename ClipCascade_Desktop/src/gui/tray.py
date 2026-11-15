@@ -98,6 +98,7 @@ class TaskbarPanel:
         )
 
         self.icon.title = "ClipCascade"
+        self.warn_if_tray_menu_is_unavailable()
 
         self.update_stats()  # Start the stats update thread
 
@@ -175,6 +176,33 @@ class TaskbarPanel:
             self.icon.stop()
         else:
             AppHelper.callLater(0.05, self._poll_macos_shutdown)
+
+    def warn_if_tray_menu_is_unavailable(self):
+        """Logs an error when pystray picked a backend that cannot show a menu.
+
+        pystray tries the AppIndicator backend first, then GTK and finally its
+        legacy X11 backend. The first two need PyGObject (``gi``); when it is
+        missing from the interpreter running the client, pystray silently
+        falls back to the X11 backend, which has no menu support at all. The
+        icon then shows up as a raw X11 window that ignores the menu (and any
+        click that would open it), which is easy to mistake for a broken tray.
+        """
+        if PLATFORM == WINDOWS or PLATFORM == MACOS:
+            return
+        if getattr(self.icon, "HAS_MENU", True):
+            return
+
+        backend = type(self.icon).__module__.rsplit(".", 1)[-1]
+        logging.error(
+            f"ClipCascade is using pystray's legacy '{backend}' backend, which "
+            "cannot display a menu: the tray icon will not respond to clicks "
+            "and may be drawn incorrectly. pystray falls back to this backend "
+            "when PyGObject (the 'gi' module) is missing from the Python "
+            "environment running the client, so it cannot use AppIndicator. "
+            "Install PyGObject into that environment to fix the tray icon; see "
+            "'Step 3' of the Linux install section in the README for a check "
+            "and the build dependencies."
+        )
 
     def _create_clipboard_base_image(self):
         """Shared clipboard artwork for normal tray icon and file-download badge variant."""
