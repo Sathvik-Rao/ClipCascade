@@ -48,9 +48,6 @@ class ClipboardManager:
         self._can_send_content = None
         self._attachment_loading = None
 
-        if PLATFORM.startswith(LINUX) and XMODE:
-            self.is_x_clipboard_owner = clipboard_monitor.is_x_clipboard_owner()
-
     def set_tray_ref(self, sys_tray: TaskbarPanel):
         """
         Sets the system tray reference.
@@ -306,7 +303,7 @@ class ClipboardManager:
                 elif PLATFORM == WINDOWS:
                     pyperclip.copy(payload)
                 elif PLATFORM.startswith(LINUX):
-                    if XMODE and self.is_x_clipboard_owner:
+                    if XMODE:
                         ClipboardManager.execute_command(
                             "xclip",
                             "-selection",
@@ -345,7 +342,7 @@ class ClipboardManager:
                         png_data = output.getvalue()
 
                     clipboard_monitor.enable_block_image_once()  # Block image copy to prevent deadlock
-                    if XMODE and self.is_x_clipboard_owner:
+                    if XMODE:
                         ClipboardManager.execute_command(
                             "xclip",
                             "-selection",
